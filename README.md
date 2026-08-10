@@ -1,4 +1,4 @@
-<!-- Banner is added in v0.8.0 together with the brand assets. -->
+<p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/banner.svg" alt="nooma - local search by meaning" width="720"></p>
 
 # nooma
 
