@@ -1,0 +1,44 @@
+[package]
+name = "nooma"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Local semantic search over your files: find a document by what it is about, fully offline"
+license = "MIT"
+repository = "https://github.com/lacodda/nooma"
+homepage = "https://github.com/lacodda/nooma"
+readme = "README.md"
+keywords = ["search", "semantic-search", "embeddings", "offline", "local"]
+categories = ["text-processing", "filesystem"]
+authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
+exclude = [
+    "docs/",
+    ".github/",
+    "cliff.toml",
+    "rustfmt.toml",
+]
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
+
+# UI
+eframe = "0.36"
+egui = "0.36"
+
+# Full-text half of the hybrid index; the vector half (usearch + fastembed)
+# arrives in v0.2.0 once the embedding model is chosen by measurement.
+tantivy = "0.26"
+
+walkdir = "2"
+rayon = "1"
+directories = "6"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
