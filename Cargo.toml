@@ -2,7 +2,7 @@
 name = "nooma"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.95"
 description = "Local semantic search over your files: find a document by what it is about, fully offline"
 license = "MIT"
 repository = "https://github.com/lacodda/nooma"
