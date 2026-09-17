@@ -1,8 +1,11 @@
 <p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/banner.svg" alt="nooma - local search by meaning" width="720"></p>
 
-# nooma
+> Local search that finds a file by what it is about. Nothing leaves your machine.
 
-**Local search that finds a file by what it is about. Nothing leaves your machine.**
+<p align="center">
+  <a href="https://github.com/lacodda/nooma/actions"><img src="https://img.shields.io/github/actions/workflow/status/lacodda/nooma/ci.yml?style=flat-square" alt="CI"></a>
+  <a href="https://github.com/lacodda/nooma/blob/main/LICENSE"><img src="https://img.shields.io/github/license/lacodda/nooma?style=flat-square" alt="License"></a>
+</p>
 
 You remember the meaning, not the words: *"the note about fixing permissions on that ini file"*, *"the PDF with the warranty terms"*. Windows Search wants the exact string — the one thing you have forgotten. `nooma` takes the description.
 
@@ -30,4 +33,4 @@ Scaffold stage: the crate builds and runs, but indexing and search are not writt
 
 ## License
 
-MIT — see [LICENSE](https://github.com/lacodda/nooma/blob/main/LICENSE).
+MIT (c) [Kirill Lakhtachev](https://lacodda.com)
