@@ -26,41 +26,8 @@ Embeddings run locally on the CPU through ONNX Runtime. The model downloads once
 
 ## Status
 
-Early development. The version map to 1.0 is fixed:
-
-| Version | What lands |
-| --- | --- |
-| v0.1.0 | Index and exact search over md/txt via `tantivy` |
-| v0.2.0 | Embeddings (`fastembed`) and vector index (`usearch`) |
-| v0.3.0 | Hybrid ranking — the usable milestone |
-| v0.4.0 | PDF, docx, epub |
-| v0.5.0 | Incremental reindexing on file changes |
-| v0.6.0 | Result preview with highlighting |
-| v0.7.0 | Code indexing via `tree-sitter` |
-| v0.8.0 | Global hotkey, tray, installer, auto-update |
-| v1.0.0 | Public release |
-
-Image search via CLIP embeddings is planned after 1.0.
-
-## Building
-
-```
-cargo run --release
-cargo fmt --check && cargo clippy -- -D warnings && cargo test
-```
-
-Requires Rust 1.85 or newer.
-
-## Principles
-
-**Nothing goes out.** Downloading the model is the only network call, and it is explicit and one-time.
-
-**Hybrid from the start.** Exact and semantic search are two halves of one feature, not two milestones.
-
-**Indexing stays out of the way.** Background threads at low priority with a CPU ceiling.
-
-Architecture decisions are recorded in [`docs/adr/`](docs/adr/).
+Scaffold stage: the crate builds and runs, but indexing and search are not written yet — nothing here can be pointed at a folder today. See [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build and the project's principles.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/lacodda/nooma/blob/main/LICENSE).
