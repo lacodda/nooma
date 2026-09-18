@@ -5,11 +5,11 @@
 //! another a question. What `--json` prints is a contract: fields are added,
 //! never renamed or dropped without a format bump.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand};
-use nooma_core::{FileIndex, RepoIndex, Store, Symbol, SymbolKind, index, repo::Repo, symbols};
+use nooma_core::{FileIndex, RepoIndex, Store, Symbol, SymbolKind, Update, incremental, repo::Repo};
 
 /// What is in a repository.
 #[derive(Debug, Args)]
@@ -20,13 +20,13 @@ pub struct RepoArgs {
 
 #[derive(Debug, Subcommand)]
 enum RepoCommand {
-    /// Read the repository at the current commit and store the index
+    /// Read the repository and store the index, reparsing only what changed
     Index(IndexArgs),
-    /// List the symbols the stored index holds
+    /// List the symbols the index holds
     Symbols(SymbolsArgs),
     /// Show which files import which, within this repository
-    Deps(CommonArgs),
-    /// Say whether the stored index is current for the checked-out commit
+    Deps(ReadArgs),
+    /// Say what the stored index describes, without changing it
     Status(CommonArgs),
 }
 
@@ -44,11 +44,26 @@ struct CommonArgs {
     store: Option<PathBuf>,
 }
 
+/// The arguments a command that reads the index takes.
+#[derive(Debug, Args)]
+struct ReadArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    // A reading command brings the index up to date first, because refreshing
+    // costs only the files that changed and answering from a stale index costs
+    // the caller a wrong answer. This flag is for the caller that wants what
+    // is stored, exactly as stored - comparing two revisions, or reading an
+    // index of a tree it cannot touch.
+    /// Answer from the stored index without bringing it up to date
+    #[arg(long)]
+    no_refresh: bool,
+}
+
 #[derive(Debug, Args)]
 struct IndexArgs {
     #[command(flatten)]
     common: CommonArgs,
-    /// Rebuild even if the stored index already describes this commit
+    /// Reparse every file, even ones whose contents have not changed
     #[arg(long)]
     force: bool,
 }
@@ -56,7 +71,7 @@ struct IndexArgs {
 #[derive(Debug, Args)]
 struct SymbolsArgs {
     #[command(flatten)]
-    common: CommonArgs,
+    read: ReadArgs,
     /// Only symbols whose name contains this text, compared without case
     #[arg(long, value_name = "TEXT")]
     name: Option<String>,
@@ -84,39 +99,37 @@ pub fn run(args: RepoArgs) -> Result<()> {
     }
 }
 
-/// Build the index and store it.
+/// Bring the index up to date and store it.
 fn index_command(args: IndexArgs) -> Result<()> {
-    let repo = Repo::discover(&args.common.path).with_context(|| format!("reading {}", args.common.path.display()))?;
+    let repo = open(&args.common)?;
     let store = open_store(&args.common)?;
+    let (index, update) = refresh(&repo, &store, args.force)?;
+    let path = store.path_for(repo.root());
 
-    // Already current: the whole point of storing it. Say so rather than doing
-    // the work again in silence, so a caller scripting this can tell the two
-    // apart.
-    // A stored index that cannot be read is not a failure here: `index` is the
-    // command that fixes that, so it goes on and rebuilds.
-    if !args.force
-        && let Ok(Some(stored)) = store.load(repo.root())
-        && stored.commit == repo.commit()
-    {
-        let path = store.path_for(repo.root());
-        return report_index(&args.common, &stored, false, &path);
+    if args.common.json {
+        print_json(&serde_json::json!({
+            "root": index.root,
+            "commit": index.revision.commit,
+            "dirty": index.revision.dirty,
+            "files": index.files.len(),
+            "symbols": index.symbol_count(),
+            "added": update.added,
+            "changed": update.changed,
+            "unchanged": update.unchanged,
+            "removed": update.removed,
+            "stored_at": path,
+        }))
+    } else {
+        println!("{}: {} files, {} symbols", index.revision.short(), index.files.len(), index.symbol_count());
+        println!("{}", describe(&update));
+        println!("stored at {}", path.display());
+        Ok(())
     }
-
-    let files = repo.source_files().context("walking the work tree")?;
-    let indexed = symbols::index_files(&files);
-    let index = RepoIndex {
-        format_version: index::FORMAT_VERSION,
-        commit: repo.commit().to_string(),
-        root: repo.root().to_path_buf(),
-        files: indexed,
-    };
-    let path = store.save(&index).context("storing the index")?;
-    report_index(&args.common, &index, true, &path)
 }
 
 /// List symbols, filtered.
 fn symbols_command(args: SymbolsArgs) -> Result<()> {
-    let index = load_current(&args.common)?;
+    let index = read_index(&args.read)?;
     let name = args.name.map(|n| n.to_lowercase());
     let matched: Vec<(&FileIndex, &Symbol)> = index
         .files
@@ -127,7 +140,7 @@ fn symbols_command(args: SymbolsArgs) -> Result<()> {
         .filter(|(_, symbol)| name.as_ref().is_none_or(|text| symbol.name.to_lowercase().contains(text)))
         .collect();
 
-    if args.common.json {
+    if args.read.common.json {
         let rows: Vec<_> = matched
             .iter()
             .map(|(file, symbol)| {
@@ -141,7 +154,11 @@ fn symbols_command(args: SymbolsArgs) -> Result<()> {
                 })
             })
             .collect();
-        print_json(&serde_json::json!({ "commit": index.commit, "symbols": rows }))
+        print_json(&serde_json::json!({
+            "commit": index.revision.commit,
+            "dirty": index.revision.dirty,
+            "symbols": rows,
+        }))
     } else {
         for (file, symbol) in &matched {
             let qualified = match &symbol.parent {
@@ -156,11 +173,15 @@ fn symbols_command(args: SymbolsArgs) -> Result<()> {
 }
 
 /// Show the module dependency graph.
-fn deps_command(args: CommonArgs) -> Result<()> {
-    let index = load_current(&args)?;
+fn deps_command(args: ReadArgs) -> Result<()> {
+    let index = read_index(&args)?;
     let graph = index.module_dependencies();
-    if args.json {
-        print_json(&serde_json::json!({ "commit": index.commit, "dependencies": graph }))
+    if args.common.json {
+        print_json(&serde_json::json!({
+            "commit": index.revision.commit,
+            "dirty": index.revision.dirty,
+            "dependencies": graph,
+        }))
     } else {
         for (file, imports) in &graph {
             println!("{file}");
@@ -173,11 +194,13 @@ fn deps_command(args: CommonArgs) -> Result<()> {
     }
 }
 
-/// Say whether the stored index describes the checked-out commit.
+/// Say what the stored index describes, without changing it.
 ///
-/// The question `rigger` asks before deciding whether to trust what it holds.
+/// The one command that never refreshes: it is the question `rigger` asks
+/// before deciding whether to do anything, and a question that changes what it
+/// asks about cannot be asked twice.
 fn status_command(args: CommonArgs) -> Result<()> {
-    let repo = Repo::discover(&args.path).with_context(|| format!("reading {}", args.path.display()))?;
+    let repo = open(&args)?;
     let store = open_store(&args)?;
     let stored = match store.load(repo.root()) {
         Ok(stored) => stored,
@@ -186,7 +209,13 @@ fn status_command(args: CommonArgs) -> Result<()> {
         Err(error) if error.is_stale_index() => None,
         Err(error) => return Err(error.into()),
     };
-    let current = stored.as_ref().is_some_and(|index| index.commit == repo.commit());
+    // Reusable and current are different questions. An index cut up by older
+    // rules describes this commit perfectly well and still has to be rebuilt,
+    // so a caller reading only `current` would skip the rebuild it needs.
+    let reusable = stored.as_ref().is_some_and(RepoIndex::is_reusable);
+    let current = stored
+        .as_ref()
+        .is_some_and(|index| index.is_reusable() && !index.revision.dirty && index.revision.commit == repo.commit());
 
     if args.json {
         print_json(&serde_json::json!({
@@ -194,74 +223,126 @@ fn status_command(args: CommonArgs) -> Result<()> {
             "commit": repo.commit(),
             "indexed": stored.is_some(),
             "current": current,
-            "indexed_commit": stored.as_ref().map(|index| &index.commit),
+            "reusable": reusable,
+            "indexed_commit": stored.as_ref().map(|index| &index.revision.commit),
+            "indexed_dirty": stored.as_ref().map(|index| index.revision.dirty),
             "files": stored.as_ref().map(|index| index.files.len()),
             "symbols": stored.as_ref().map(RepoIndex::symbol_count),
         }))
     } else {
-        match (&stored, current) {
-            (None, _) => println!("not indexed — run `nooma repo index`"),
-            (Some(index), true) => println!(
-                "current at {}: {} files, {} symbols",
-                short(&index.commit),
-                index.files.len(),
-                index.symbol_count()
-            ),
-            (Some(index), false) => println!(
-                "stale: indexed at {}, checked out {} — run `nooma repo index`",
-                short(&index.commit),
-                short(repo.commit())
-            ),
+        match &stored {
+            None => println!("not indexed — run `nooma repo index`"),
+            Some(index) if current => {
+                println!(
+                    "current at {}: {} files, {} symbols",
+                    index.revision.short(),
+                    index.files.len(),
+                    index.symbol_count()
+                );
+            }
+            Some(index) if !index.is_reusable() => {
+                println!("indexed at {}, but by older rules — run `nooma repo index`", index.revision.short());
+            }
+            // A dirty index is honestly not current, but no command makes it
+            // current: the tree has edits, and it will keep having them until
+            // they are committed. Telling the caller to reindex here would
+            // prescribe the command they just ran - the index is as fresh as
+            // an index of a dirty tree can be.
+            Some(index) if index.revision.commit == repo.commit() && index.revision.dirty => {
+                println!(
+                    "indexed at {} with uncommitted edits: {} files, {} symbols",
+                    index.revision.short(),
+                    index.files.len(),
+                    index.symbol_count()
+                );
+            }
+            Some(index) => {
+                println!(
+                    "stale: indexed at {}, checked out {} — run `nooma repo index`",
+                    index.revision.short(),
+                    &repo.commit()[..8]
+                );
+            }
         }
         Ok(())
     }
 }
 
-/// Load the index, insisting it describes the checked-out commit.
-///
-/// Reading a stale index and saying nothing would answer the user's question
-/// with the previous commit's truth, which is the kind of quiet wrongness that
-/// takes an afternoon to notice.
-fn load_current(args: &CommonArgs) -> Result<RepoIndex> {
-    let repo = Repo::discover(&args.path).with_context(|| format!("reading {}", args.path.display()))?;
-    let store = open_store(args)?;
-    match store.load(repo.root()) {
-        Ok(Some(index)) if index.commit == repo.commit() => Ok(index),
-        Ok(Some(index)) => anyhow::bail!(
-            "the stored index is for {}, but {} is checked out — run `nooma repo index`",
-            short(&index.commit),
-            short(repo.commit())
-        ),
-        Ok(None) => {
-            anyhow::bail!("{} is not indexed — run `nooma repo index`", repo.root().display())
-        }
-        Err(error) if error.is_stale_index() => anyhow::bail!("{error} — run `nooma repo index`"),
-        Err(error) => Err(error.into()),
+/// Bring the stored index up to date, reparsing only what changed.
+fn refresh(repo: &Repo, store: &Store, force: bool) -> Result<(RepoIndex, Update)> {
+    // A stored index that cannot be read is not a failure: this is the path
+    // that fixes it, so it starts from nothing and rebuilds.
+    let previous = if force { None } else { store.load(repo.root()).ok().flatten() };
+    let (index, update) = incremental::update(repo, previous.as_ref()).context("indexing the work tree")?;
+    // Writing an identical index would rewrite the same bytes for nothing and
+    // touch the file's timestamp, which is the one thing a person looking at
+    // the store has to go on.
+    //
+    // The whole index is compared, not the file counts: committing changes no
+    // file's bytes and still changes what the index describes, from one commit
+    // with edits to the next one without. Skipping on `update.is_noop()` alone
+    // left the store claiming the old revision, and `status` then reported a
+    // dirty tree that had just been committed.
+    if previous.as_ref() == Some(&index) {
+        return Ok((index, update));
     }
+    store.save(&index).context("storing the index")?;
+    Ok((index, update))
+}
+
+/// The index a reading command should answer from.
+///
+/// Brought up to date first unless the caller asked otherwise: refreshing
+/// costs only the files that changed, and answering from a stale index costs
+/// the caller a wrong answer about their own newest work.
+fn read_index(args: &ReadArgs) -> Result<RepoIndex> {
+    let repo = open(&args.common)?;
+    let store = open_store(&args.common)?;
+
+    if args.no_refresh {
+        return match store.load(repo.root()) {
+            Ok(Some(index)) => Ok(index),
+            Ok(None) => anyhow::bail!("{} is not indexed — run `nooma repo index`", repo.root().display()),
+            Err(error) if error.is_stale_index() => anyhow::bail!("{error} — run `nooma repo index`"),
+            Err(error) => Err(error.into()),
+        };
+    }
+
+    let (index, update) = refresh(&repo, &store, false)?;
+    // On stderr, so that `--json` still redirects to a file that parses, and
+    // so that work done on the caller's behalf is never silent.
+    if !update.is_noop() {
+        eprintln!("{}", describe(&update));
+    }
+    Ok(index)
+}
+
+/// What a pass did, in one line.
+fn describe(update: &Update) -> String {
+    if update.is_noop() {
+        return format!("nothing changed; reused {} files", update.unchanged);
+    }
+    let mut parts = Vec::new();
+    if update.added > 0 {
+        parts.push(format!("{} added", update.added));
+    }
+    if update.changed > 0 {
+        parts.push(format!("{} changed", update.changed));
+    }
+    if update.removed > 0 {
+        parts.push(format!("{} removed", update.removed));
+    }
+    format!("parsed {} files ({}); reused {}", update.parsed(), parts.join(", "), update.unchanged)
+}
+
+fn open(args: &CommonArgs) -> Result<Repo> {
+    Repo::discover(&args.path).with_context(|| format!("reading {}", args.path.display()))
 }
 
 fn open_store(args: &CommonArgs) -> Result<Store> {
     match &args.store {
         Some(dir) => Store::open_at(dir).with_context(|| format!("opening {}", dir.display())),
         None => Store::open().context("opening the index directory"),
-    }
-}
-
-fn report_index(args: &CommonArgs, index: &RepoIndex, rebuilt: bool, path: &Path) -> Result<()> {
-    if args.json {
-        print_json(&serde_json::json!({
-            "root": index.root,
-            "commit": index.commit,
-            "files": index.files.len(),
-            "symbols": index.symbol_count(),
-            "rebuilt": rebuilt,
-            "stored_at": path,
-        }))
-    } else {
-        let what = if rebuilt { "indexed" } else { "already current at" };
-        println!("{what} {}: {} files, {} symbols", short(&index.commit), index.files.len(), index.symbol_count());
-        println!("stored at {}", path.display());
-        Ok(())
     }
 }
 
@@ -273,11 +354,6 @@ fn report_index(args: &CommonArgs, index: &RepoIndex, rebuilt: bool, path: &Path
 fn print_json(value: &serde_json::Value) -> Result<()> {
     println!("{}", serde_json::to_string(value)?);
     Ok(())
-}
-
-/// A commit hash as people quote it.
-fn short(commit: &str) -> &str {
-    &commit[..commit.len().min(8)]
 }
 
 fn parse_kind(text: &str) -> Result<SymbolKind, String> {

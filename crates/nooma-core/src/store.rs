@@ -110,12 +110,11 @@ mod tests {
     use super::*;
 
     fn sample(root: &Path) -> RepoIndex {
-        RepoIndex {
-            format_version: FORMAT_VERSION,
+        let revision = crate::index::Revision {
             commit: "0".repeat(40),
-            root: root.to_path_buf(),
-            files: Vec::new(),
-        }
+            dirty: false,
+        };
+        RepoIndex::empty(root.to_path_buf(), revision)
     }
 
     #[test]

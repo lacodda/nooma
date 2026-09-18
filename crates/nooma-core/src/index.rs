@@ -19,7 +19,58 @@ use crate::lang::Language;
 /// to reindex — it never tries to read it anyway. A silently misread index
 /// looks like "search stopped finding things", which is the worst bug this
 /// product can have.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
+
+/// How this build cuts a file into the units it records.
+///
+/// A symbol here, a text chunk later: either way, changing how a file is
+/// divided changes what every stored entry means, while the file's bytes and
+/// therefore its hash stay exactly the same. Without a number to compare, an
+/// index built by the old rules would be kept and extended by the new ones,
+/// and the result reads as search quietly getting worse - the failure this
+/// product can least afford.
+///
+/// Bumped whenever a query, a symbol kind or the chunking rule changes what a
+/// file yields. A mismatch forces a full reparse; it does not invalidate the
+/// file format, which [`FORMAT_VERSION`] covers.
+pub const CHUNKER_VERSION: u32 = 1;
+
+/// What an index describes: a commit, and whether the tree matched it.
+///
+/// A commit alone cannot say "the tree at this commit plus three unsaved
+/// edits", and an index that answered `current` for that would be telling a
+/// caller its own newest work is already indexed. The pair makes the wrong
+/// answer unrepresentable rather than something a caller has to remember to
+/// check.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Revision {
+    /// The commit that was checked out, as a full hex object id.
+    pub commit: String,
+    /// Whether an indexed file differed from what that commit holds.
+    ///
+    /// Derived from content hashes, not from `git status`: git and the
+    /// filesystem can disagree - a file written after git last looked is
+    /// changed by every measure that matters here and by none that git
+    /// reports yet.
+    pub dirty: bool,
+}
+
+impl Revision {
+    /// Whether this revision can stand in for `other`.
+    ///
+    /// Only a clean tree at the same commit can: a dirty tree is not a state
+    /// that repeats, since the next edit makes a different one bearing the
+    /// same name.
+    pub fn covers(&self, other: &Self) -> bool {
+        self.commit == other.commit && !self.dirty && !other.dirty
+    }
+
+    /// The commit as people quote it, with a marker when the tree had edits.
+    pub fn short(&self) -> String {
+        let commit = &self.commit[..self.commit.len().min(8)];
+        if self.dirty { format!("{commit}+dirty") } else { commit.to_string() }
+    }
+}
 
 /// One symbol declared in a file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,24 +159,46 @@ pub struct FileIndex {
     pub imports: Vec<Import>,
 }
 
-/// The index of one repository at one commit.
+/// The index of one repository at one revision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoIndex {
     /// The on-disk format, checked before anything else is believed.
     pub format_version: u32,
-    /// The commit this index describes, as a full hex object id.
-    pub commit: String,
+    /// The rules the files were cut up by, checked before they are reused.
+    pub chunker_version: u32,
+    /// What this index describes.
+    pub revision: Revision,
     /// The absolute path of the work tree this was built from.
     pub root: PathBuf,
-    /// The indexed files, sorted by path so two runs over one commit produce
+    /// The indexed files, sorted by path so two runs over one revision produce
     /// byte-identical output.
     pub files: Vec<FileIndex>,
 }
 
 impl RepoIndex {
+    /// An empty index for a repository, at the revision given.
+    pub fn empty(root: PathBuf, revision: Revision) -> Self {
+        Self {
+            format_version: FORMAT_VERSION,
+            chunker_version: CHUNKER_VERSION,
+            revision,
+            root,
+            files: Vec::new(),
+        }
+    }
+
     /// How many symbols the whole index holds.
     pub fn symbol_count(&self) -> usize {
         self.files.iter().map(|f| f.symbols.len()).sum()
+    }
+
+    /// Whether this index's entries can be reused by the running build.
+    ///
+    /// False when it was cut up by different rules. The format check lives in
+    /// the store, because a format mismatch means the file cannot be read at
+    /// all; this one means it was read fine and says something else.
+    pub fn is_reusable(&self) -> bool {
+        self.chunker_version == CHUNKER_VERSION
     }
 
     /// Every file, keyed by path.

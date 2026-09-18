@@ -26,6 +26,13 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+/// The one JSON document a `--json` command prints, or a message naming what
+/// it printed instead.
+fn json_of(output: &Output) -> serde_json::Value {
+    let text = stdout(output);
+    serde_json::from_str(text.trim()).unwrap_or_else(|e| panic!("expected one JSON document ({e}); stdout: {text}; stderr: {}", stderr(output)))
+}
+
 fn git(dir: &Path, args: &[&str]) {
     let output = Command::new("git")
         .args(args)
@@ -179,43 +186,153 @@ fn status_reports_what_it_knows() {
     assert_ne!(stale["commit"], stale["indexed_commit"]);
 }
 
-/// Reading a stale index and saying nothing would answer with the previous
-/// commit's truth. It has to be a refusal, and one that says what to do.
+/// A reading command brings the index up to date rather than refusing.
+///
+/// v0.1.0 refused, because a full reparse was the only way to fix a stale
+/// index and doing that behind a `symbols` call would have been a surprise.
+/// Reparsing only what changed is cheap enough that the refusal became the
+/// surprise instead: a caller asking what is in a repository wants the answer,
+/// not an errand.
 #[test]
-fn a_stale_index_is_refused_rather_than_read() {
+fn a_reading_command_brings_the_index_up_to_date() {
     let (repo, store) = fixture();
     let repo_path = repo.path().to_str().unwrap();
     let store_path = store.path().to_str().unwrap();
 
     run(&["repo", "index", "--store", store_path, repo_path]);
-    std::fs::write(repo.path().join("src/extra.rs"), "pub fn added() {}\n").unwrap();
+    std::fs::write(repo.path().join("src/extra.rs"), "pub fn added_later() {}\n").unwrap();
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-m", "more"]);
 
-    let output = run(&["repo", "symbols", "--store", store_path, repo_path]);
-    assert!(!output.status.success(), "a stale index must not answer as if it were current");
-    let complaint = stderr(&output);
-    assert!(complaint.contains("nooma repo index"), "say what to do: {complaint}");
+    let output = run(&["repo", "symbols", "--store", store_path, "--name", "added_later", repo_path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("added_later"), "the new symbol is found: {}", stdout(&output));
+    // The work is reported, not done in silence - and on stderr, so `--json`
+    // still redirects to a file that parses.
+    assert!(stderr(&output).contains("parsed"), "say what was reparsed: {}", stderr(&output));
 }
 
+/// Work done on the caller's behalf can be declined.
 #[test]
-fn indexing_twice_says_it_did_not_have_to() {
+fn no_refresh_answers_from_what_is_stored() {
     let (repo, store) = fixture();
     let repo_path = repo.path().to_str().unwrap();
     let store_path = store.path().to_str().unwrap();
 
-    let first = run(&["repo", "index", "--json", "--store", store_path, repo_path]);
-    let first: serde_json::Value = serde_json::from_str(stdout(&first).trim()).unwrap();
-    assert_eq!(first["rebuilt"], true);
+    run(&["repo", "index", "--store", store_path, repo_path]);
+    std::fs::write(repo.path().join("src/extra.rs"), "pub fn added_later() {}\n").unwrap();
 
-    let second = run(&["repo", "index", "--json", "--store", store_path, repo_path]);
-    let second: serde_json::Value = serde_json::from_str(stdout(&second).trim()).unwrap();
-    assert_eq!(second["rebuilt"], false, "the same commit needs no second parse");
-    assert_eq!(second["symbols"], first["symbols"]);
+    let output = run(&["repo", "symbols", "--no-refresh", "--store", store_path, "--name", "added_later", repo_path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        !stdout(&output).contains("added_later"),
+        "the stored index predates the edit: {}",
+        stdout(&output)
+    );
+}
 
-    let forced = run(&["repo", "index", "--json", "--force", "--store", store_path, repo_path]);
-    let forced: serde_json::Value = serde_json::from_str(stdout(&forced).trim()).unwrap();
-    assert_eq!(forced["rebuilt"], true, "--force means do it anyway");
+#[test]
+fn a_repository_that_was_never_indexed_says_so() {
+    let (repo, store) = fixture();
+    let output = run(&[
+        "repo",
+        "symbols",
+        "--no-refresh",
+        "--store",
+        store.path().to_str().unwrap(),
+        repo.path().to_str().unwrap(),
+    ]);
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("nooma repo index"), "say what to do: {}", stderr(&output));
+}
+
+/// Only what changed is parsed, and the counts say so.
+#[test]
+fn a_second_pass_reuses_what_did_not_change() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    let first = json_of(&run(&["repo", "index", "--json", "--store", store_path, repo_path]));
+    assert_eq!(first["added"], 2, "both files are new to an empty store");
+    assert_eq!(first["unchanged"], 0);
+
+    let second = json_of(&run(&["repo", "index", "--json", "--store", store_path, repo_path]));
+    assert_eq!(second["added"], 0);
+    assert_eq!(second["changed"], 0);
+    assert_eq!(second["unchanged"], 2, "nothing changed, so nothing is parsed again");
+    assert_eq!(second["symbols"], first["symbols"], "reuse must give the same answer as parsing");
+
+    // One file edited: one file parsed, the other carried across.
+    std::fs::write(repo.path().join("src/util.rs"), "pub fn helper() {}\npub fn second() {}\n").unwrap();
+    let third = json_of(&run(&["repo", "index", "--json", "--store", store_path, repo_path]));
+    assert_eq!(third["changed"], 1);
+    assert_eq!(third["unchanged"], 1);
+    assert_eq!(third["dirty"], true, "the tree no longer matches the commit");
+
+    // `--force` parses everything regardless of what the hashes say.
+    let forced = json_of(&run(&["repo", "index", "--json", "--force", "--store", store_path, repo_path]));
+    assert_eq!(forced["unchanged"], 0, "--force means parse it all");
+    assert_eq!(forced["added"], 2);
+    assert_eq!(forced["symbols"], third["symbols"], "forcing must not change the answer");
+}
+
+/// A dirty index is not current, and no command makes it current: the tree
+/// has edits and will keep having them until they are committed. Telling the
+/// caller to reindex there prescribes the command they just ran.
+#[test]
+fn status_does_not_prescribe_a_command_that_would_change_nothing() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    std::fs::write(repo.path().join("src/util.rs"), "pub fn helper() {}\npub fn second() {}\n").unwrap();
+    run(&["repo", "index", "--store", store_path, repo_path]);
+
+    let output = run(&["repo", "status", "--store", store_path, repo_path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let said = stdout(&output);
+    assert!(said.contains("uncommitted"), "say why it is not current: {said}");
+    assert!(
+        !said.contains("nooma repo index"),
+        "the index was just built and rebuilding changes nothing: {said}"
+    );
+
+    // Still honestly not current, for a caller reading the machine answer.
+    let status = json_of(&run(&["repo", "status", "--json", "--store", store_path, repo_path]));
+    assert_eq!(status["current"], false);
+    assert_eq!(status["indexed_dirty"], true);
+}
+
+/// Committing changes no file's bytes and still changes what the index
+/// describes. Skipping the write when no file changed left the store claiming
+/// the previous revision, and `status` then reported a tree as dirty
+/// immediately after it had been committed - telling the caller to run the
+/// command it had just run.
+#[test]
+fn committing_makes_the_index_clean_again() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    run(&["repo", "index", "--store", store_path, repo_path]);
+    std::fs::write(repo.path().join("src/util.rs"), "pub fn helper() {}\npub fn second() {}\n").unwrap();
+
+    let edited = json_of(&run(&["repo", "index", "--json", "--store", store_path, repo_path]));
+    assert_eq!(edited["dirty"], true);
+
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-m", "the edit"]);
+
+    let committed = json_of(&run(&["repo", "index", "--json", "--store", store_path, repo_path]));
+    assert_eq!(committed["unchanged"], 2, "the bytes on disk did not move");
+    assert_eq!(committed["dirty"], false, "but the tree now matches the commit");
+
+    let status = json_of(&run(&["repo", "status", "--json", "--store", store_path, repo_path]));
+    assert_eq!(status["current"], true, "status must agree with the index just written");
+    assert_eq!(status["indexed_dirty"], false);
+    assert_eq!(status["commit"], status["indexed_commit"]);
 }
 
 /// The `--json` shape is a contract another product reads, and the reference

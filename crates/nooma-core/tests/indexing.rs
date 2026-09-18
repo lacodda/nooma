@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use nooma_core::{RepoIndex, Store, index, repo::Repo, symbols};
+use nooma_core::{RepoIndex, Store, incremental, repo::Repo};
 
 /// Run a git command in `dir`, failing loudly if git itself refuses.
 fn git(dir: &Path, args: &[&str]) {
@@ -72,14 +72,7 @@ fn fixture() -> tempfile::TempDir {
 
 fn index_of(root: &Path) -> (Repo, RepoIndex) {
     let repo = Repo::discover(root).unwrap();
-    let files = repo.source_files().unwrap();
-    let indexed = symbols::index_files(&files);
-    let index = RepoIndex {
-        format_version: index::FORMAT_VERSION,
-        commit: repo.commit().to_string(),
-        root: repo.root().to_path_buf(),
-        files: indexed,
-    };
+    let (index, _) = incremental::update(&repo, None).unwrap();
     (repo, index)
 }
 
@@ -136,8 +129,8 @@ fn the_index_is_pinned_to_the_commit_it_was_built_from() {
     let dir = fixture();
     let (repo, index) = index_of(dir.path());
 
-    assert_eq!(index.commit, repo.commit());
-    assert_eq!(index.commit.len(), 40, "the full hex id, not an abbreviation");
+    assert_eq!(index.revision.commit, repo.commit());
+    assert_eq!(index.revision.commit.len(), 40, "the full hex id, not an abbreviation");
 
     // A second commit must give a different answer — that is what makes the
     // pin worth storing.
@@ -146,7 +139,7 @@ fn the_index_is_pinned_to_the_commit_it_was_built_from() {
     git(dir.path(), &["commit", "-m", "one more"]);
     let (_, second) = index_of(dir.path());
 
-    assert_ne!(second.commit, index.commit);
+    assert_ne!(second.revision.commit, index.revision.commit);
     assert!(paths(&second).contains(&"src/extra.rs"));
 }
 

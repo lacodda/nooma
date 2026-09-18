@@ -12,6 +12,7 @@
 //! [`rigger`]: https://github.com/lacodda/rigger
 
 pub mod error;
+pub mod incremental;
 pub mod index;
 pub mod lang;
 pub mod repo;
@@ -19,7 +20,8 @@ pub mod store;
 pub mod symbols;
 
 pub use error::{Error, Result};
-pub use index::{FileIndex, Import, RepoIndex, Symbol, SymbolKind};
+pub use incremental::Update;
+pub use index::{FileIndex, Import, RepoIndex, Revision, Symbol, SymbolKind};
 pub use lang::Language;
 pub use repo::Repo;
 pub use store::Store;

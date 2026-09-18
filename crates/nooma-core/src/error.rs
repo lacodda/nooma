@@ -51,6 +51,14 @@ pub enum Error {
         language: crate::lang::Language,
     },
 
+    /// Anything git refused that does not deserve a case of its own.
+    ///
+    /// Reading a commit's own objects can fail in ways a caller cannot act on
+    /// differently - a corrupt pack, a missing object - so they share one
+    /// case rather than each getting a name nobody matches on.
+    #[error("git: {0}")]
+    Git(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     /// Anything the filesystem refused.
     #[error("{path}: {source}")]
     Io {
@@ -62,6 +70,11 @@ pub enum Error {
 }
 
 impl Error {
+    /// Wrap a git failure whose type is not worth naming in the signature.
+    pub(crate) fn git(source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Git(Box::new(source))
+    }
+
     /// Attach a path to an [`std::io::Error`], which never carries one.
     pub(crate) fn io(path: impl Into<PathBuf>, source: std::io::Error) -> Self {
         Self::Io { path: path.into(), source }
