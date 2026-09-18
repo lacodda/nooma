@@ -29,7 +29,7 @@ Embeddings run locally on the CPU through ONNX Runtime. The model downloads once
 
 ## What works today
 
-v0.1.0 ships the first half: `nooma-core`, a library that reads a git repository into symbols, imports and module dependencies, and the `nooma repo` command over it.
+v0.2.0 ships the first half: `nooma-core`, a library that reads a git repository into symbols, imports and module dependencies, and the `nooma repo` command over it.
 
 ```
 $ nooma repo index
@@ -43,13 +43,13 @@ $ nooma repo symbols --json | jq '.symbols[0]'
   "kind": "type", "line": 12, "parent": null }
 ```
 
-Rust, TypeScript, Python and Go, parsed with tree-sitter. The index is pinned to a commit hash and kept on disk, so a caller can ask whether what it holds is still true. `.gitignore` and `.nooma-ignore` decide what is left out.
+Rust, TypeScript, Python and Go, parsed with tree-sitter. The index is kept on disk and describes a revision - the commit, and whether the tree still matched it. Only files whose contents actually moved are parsed again, so a second pass over 287 unchanged files takes 165 ms rather than 4.5 seconds. `.gitignore` and `.nooma-ignore` decide what is left out.
 
 This half is built first because [rigger](https://github.com/lacodda/rigger) needs it, and because an index is easier to get right before a window depends on it. Search over documents — and the hybrid the product is named for — comes next.
 
 ## Status
 
-v0.1.0. The repository index works; document search does not exist yet, and nothing here can be pointed at a folder of notes today. The hybrid over documents is the point at which nooma becomes useful to a person rather than to another program. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.2.0. The repository index works; document search does not exist yet, and nothing here can be pointed at a folder of notes today. The hybrid over documents is the point at which nooma becomes useful to a person rather than to another program. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 

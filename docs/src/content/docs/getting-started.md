@@ -11,11 +11,11 @@ Via cargo:
 cargo install nooma
 ```
 
-nooma is early: v0.1.0 has no release archive and no install script yet. Building from source with `cargo install` is the only way in for now.
+nooma is early: there is no install script yet, and the package name is not claimed on crates.io. Each release carries a binary for Windows, Linux and macOS on its [GitHub release page](https://github.com/lacodda/nooma/releases); building from source is the other way in.
 
 ## What works today
 
-v0.1.0 indexes code, not documents. There is no search over files of any kind yet - what exists is `nooma repo`, the repository index that [`rigger`](https://github.com/lacodda/rigger) reads. See [Status](/nooma/#status) for what arrives when.
+nooma indexes code, not documents. There is no search over files of any kind yet - what exists is `nooma repo`, the repository index that [`rigger`](https://github.com/lacodda/rigger) reads. See [Status](/nooma/#status) for what arrives when.
 
 ## Index a repository
 
@@ -27,13 +27,19 @@ indexed 47711d3c: 13 files, 159 symbols
 stored at C:\Users\you\AppData\Local\lacodda\nooma\data\index\a1b2c3d4e5f60718293a4b5c6d7e8f90.json
 ```
 
-Running it again without changes says so instead of doing the work twice:
+Run it again and only the files whose contents changed go back to the parser:
 
 ```console
 $ nooma repo index
-already current at 47711d3c: 13 files, 159 symbols
+nothing changed; reused 13 files
+stored at C:\Users\you\AppData\Local\lacodda\nooma\data\index\a1b2c3d4e5f60718293a4b5c6d7e8f90.json
+
+$ nooma repo index
+parsed 1 files (1 changed); reused 12
 stored at C:\Users\you\AppData\Local\lacodda\nooma\data\index\a1b2c3d4e5f60718293a4b5c6d7e8f90.json
 ```
+
+That is what makes the commands below cheap to run: each of them brings the index up to date before answering, and says on stderr what that cost.
 
 ## Check whether the index is current
 
@@ -42,7 +48,14 @@ $ nooma repo status
 current at 47711d3c: 13 files, 159 symbols
 ```
 
-After a commit, the stored index says so rather than answering with the previous commit's truth:
+`status` is the one command that never changes what it looks at. With edits in the tree it says so, without prescribing a rebuild that would change nothing:
+
+```console
+$ nooma repo status
+indexed at 47711d3c+dirty with uncommitted edits: 13 files, 159 symbols
+```
+
+After a commit, the stored index is genuinely behind:
 
 ```console
 $ nooma repo status
