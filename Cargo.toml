@@ -1,50 +1,51 @@
-[package]
-name = "nooma"
+[workspace]
+members = ["crates/nooma", "crates/nooma-core"]
+resolver = "3"
+
+# Everything published or built from this tree shares one identity. The library
+# and the binary ship together: `nooma-core` is not versioned apart from the
+# product it belongs to.
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
-description = "Local semantic search over your files: find a document by what it is about, fully offline"
 license = "MIT"
 repository = "https://github.com/lacodda/nooma"
 homepage = "https://github.com/lacodda/nooma"
-readme = "README.md"
-keywords = ["search", "semantic-search", "embeddings", "offline", "local"]
-categories = ["text-processing", "filesystem"]
 authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
-# assets/icon.ico is required by build.rs on Windows; the rest of the brand
-# artwork only serves GitHub and the docs site.
-exclude = [
-    "docs/",
-    ".github/",
-    "cliff.toml",
-    "rustfmt.toml",
-    "assets/social-preview.png",
-    "assets/logo-512.png",
-    "assets/apple-touch-icon.png",
-    "assets/favicon-32.png",
-]
 
-[target.'cfg(windows)'.build-dependencies]
-winresource = "0.1"
+[workspace.dependencies]
+nooma-core = { path = "crates/nooma-core", version = "0.1.0" }
 
-[dependencies]
 anyhow = "1"
 thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
-# UI
-eframe = "0.36"
-egui = "0.36"
+# Reading the repository: what the commit is, and which files it holds.
+gix = { version = "0.87.1", default-features = false, features = [
+    "max-performance-safe",
+    "sha1",
+    "basic",
+    "revision",
+] }
+# `.gitignore` semantics without reimplementing them, plus `.nooma-ignore` on
+# the same footing.
+ignore = "0.4"
 
-# Full-text half of the hybrid index; the vector half (usearch + fastembed)
-# arrives in v0.2.0 once the embedding model is chosen by measurement.
-tantivy = "0.26"
+# Parsing source into symbols. The grammars are pinned per language because
+# each one tracks the core crate's ABI on its own schedule.
+tree-sitter = "0.27"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.25"
+tree-sitter-go = "0.25"
 
-walkdir = "2"
+blake3 = "1"
 rayon = "1"
 directories = "6"
-serde = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 
-[dev-dependencies]
 tempfile = "3"
 
 [profile.release]

@@ -1,0 +1,32 @@
+[package]
+name = "nooma-core"
+description = "The indexing library behind nooma: repository symbols, imports and module dependencies, read offline"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["tree-sitter", "code-index", "symbols", "git", "offline"]
+categories = ["development-tools", "parsing"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+gix.workspace = true
+ignore.workspace = true
+tree-sitter.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-typescript.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-go.workspace = true
+blake3.workspace = true
+rayon.workspace = true
+directories.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
