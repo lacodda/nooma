@@ -21,17 +21,18 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
-      - name: Install Linux build deps (eframe)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Format
-        run: cargo fmt --check
+        run: cargo fmt --all --check
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
+      # The test suite builds git repositories from nothing and runs the binary
+      # against them, so git has to be on PATH and the committer has to be
+      # named. Both hold on every runner; the tests clear the global config
+      # rather than relying on one.
       - name: Test
         run: cargo test
       - name: Build
@@ -45,11 +46,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install Linux build deps
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
+      # The workspace manifest carries no package of its own, so the version is
+      # read from a member rather than from `packages[0]`, which is whichever
+      # crate cargo happened to list first.
       - name: Read rust-version from the manifest
         id: msrv
-        run: echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].rust_version')" >> "$GITHUB_OUTPUT"
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "nooma") | .rust_version')
+          test -n "$version" || { echo "no rust-version in the manifest"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
