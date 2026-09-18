@@ -8,17 +8,19 @@ All notable changes to this project are documented in this file.
 
 """
 body = """
-{% if version %}\
-## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
-{% else %}\
-## [Unreleased]
-{% endif %}\
-{% for group, commits in commits | group_by(attribute="group") %}
+{% if version %}## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}## [Unreleased]
+{% endif %}{% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group }}
-{% for commit in commits %}\
-- {{ commit.message | upper_first }}
-{% endfor %}\
-{% endfor %}\
+{% for commit in commits %}- {{ commit.message | upper_first }}
+{% endfor %}{% endfor %}
+{%- set breaking = commits | filter(attribute="breaking", value=true) -%}
+{% if breaking | length > 0 %}
+### Breaking Changes
+{% for commit in breaking %}
+{{ commit.breaking_description }}
+{% endfor %}
+{% endif %}
 """
 trim = true
 
