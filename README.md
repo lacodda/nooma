@@ -27,9 +27,29 @@ This is a condition of the product being usable, not a refinement scheduled for 
 
 Embeddings run locally on the CPU through ONNX Runtime. The model downloads once; after that there is no network path for your content at all. No cloud, no API keys, no telemetry — the same stance as [sefy](https://github.com/lacodda/sefy).
 
+## What works today
+
+v0.1.0 ships the first half: `nooma-core`, a library that reads a git repository into symbols, imports and module dependencies, and the `nooma repo` command over it.
+
+```
+$ nooma repo index
+indexed 47711d3c: 13 files, 159 symbols
+
+$ nooma repo symbols --name ledger --kind type
+src/ledger.rs:12  type  Ledger
+
+$ nooma repo symbols --json | jq '.symbols[0]'
+{ "path": "src/ledger.rs", "language": "rust", "name": "Ledger",
+  "kind": "type", "line": 12, "parent": null }
+```
+
+Rust, TypeScript, Python and Go, parsed with tree-sitter. The index is pinned to a commit hash and kept on disk, so a caller can ask whether what it holds is still true. `.gitignore` and `.nooma-ignore` decide what is left out.
+
+This half is built first because [rigger](https://github.com/lacodda/rigger) needs it, and because an index is easier to get right before a window depends on it. Search over documents — and the hybrid the product is named for — comes next.
+
 ## Status
 
-Scaffold stage: the crate builds and runs, but indexing and search are not written yet — nothing here can be pointed at a folder today. See [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build and the project's principles.
+v0.1.0. The repository index works; document search does not exist yet, and nothing here can be pointed at a folder of notes today. The hybrid over documents is the point at which nooma becomes useful to a person rather than to another program. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 

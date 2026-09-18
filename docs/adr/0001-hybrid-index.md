@@ -20,7 +20,7 @@ Two indexes are built and queried together from v0.1.0 onward:
 
 Results are fused into a single ranked list (reciprocal rank fusion as the starting point, with the balance exposed as a setting).
 
-v0.1.0 ships the full-text half alone because it is independently useful. v0.2.0 adds vectors. v0.3.0 — the fusion — is the MVP boundary: neither half alone constitutes the product.
+The full-text half ships first because it is independently useful, the vector half follows, and the fusion is the MVP boundary: neither half alone constitutes the product. The version numbers moved when the repository index was put first (see 0003) — the full-text half lands in v0.5.0, the model is chosen in v0.6.0, and the hybrid is v0.8.0 — but the ordering and the boundary are unchanged.
 
 ## Consequences
 
@@ -28,7 +28,7 @@ Positive:
 
 - Both query styles work: descriptions and exact identifiers.
 - The full-text index gives a fast first response while the query embedding is still being computed, which reads as low latency.
-- v0.1.0 is shippable and useful before any model is chosen.
+- The full-text half is shippable and useful before any model is chosen.
 
 Negative:
 

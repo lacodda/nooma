@@ -1,0 +1,63 @@
+---
+title: nooma
+description: Local semantic search over your files - find a document by what it is about, fully offline.
+template: splash
+hero:
+  tagline: Local semantic search over your files. Find a document by what it is about, fully offline.
+  image:
+    html: |
+      <div class="nm-install">
+        <div class="nm-install__bar">
+          <span class="nm-install__dot"></span>
+          <span class="nm-install__dot"></span>
+          <span class="nm-install__dot"></span>
+          <span class="nm-install__os">from v0.1.0</span>
+        </div>
+        <pre class="nm-install__body"><span class="nm-install__prompt">$</span> cargo install nooma
+      <span class="nm-install__prompt">$</span> nooma repo index
+      <span class="nm-install__prompt">$</span> nooma repo symbols --name Ledger</pre>
+      </div>
+  actions:
+    - text: Get started
+      link: /nooma/getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/lacodda/nooma
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## The problem
+
+A search box that only matches exact words misses the file you remember by what it says, not by the string it contains - and a search box that only matches meaning cannot find an invoice number or an error code, because embeddings discard exact tokens on purpose. Most tools pick one failure mode. Cloud search avoids both by reading everything you own, which is its own kind of failure for anything personal.
+
+nooma builds two indexes over the same files - full-text for exact strings, a vector index for meaning - and fuses the results, with nothing ever leaving the machine.
+
+## What nooma does
+
+<CardGrid stagger>
+	<Card title="Hybrid index by design" icon="information">
+		`tantivy` finds the invoice number and the identifier; a vector index finds the document you remember by what it is about. Neither half alone is the product - fusing them is.
+	</Card>
+	<Card title="Offline by construction" icon="approve-check">
+		No network path exists for a query or a document to leave the machine. Not a setting to disable - there is nothing to send.
+	</Card>
+	<Card title="A repository index as a library" icon="puzzle">
+		`nooma-core` answers "what is in this repository, at this commit" with no UI and no window. `nooma` the binary is one caller; [`rigger`](https://github.com/lacodda/rigger) is another, and was the reason this half was written first.
+	</Card>
+	<Card title="Pinned to a commit hash" icon="seti:git">
+		An index describes one commit. A stale index is refused, never read - answering with the previous commit's truth is the kind of quiet wrongness that takes an afternoon to notice.
+	</Card>
+	<Card title="Symbols across four languages" icon="document">
+		Rust, TypeScript, Python and Go, parsed with tree-sitter into four coarse kinds - function, type, module, constant - the kinds consumers actually ask for.
+	</Card>
+	<Card title="JSON for machine callers" icon="seti:json">
+		Every subcommand has a `--json` form with a stable field contract. A CLI with machine output is how one product on the line asks another a question, before either speaks MCP.
+	</Card>
+</CardGrid>
+
+## Status
+
+v0.1.0 ships the first block only: `nooma-core`, a library that indexes a git repository into symbols, imports and module dependencies, with a `nooma repo` command to drive it from the shell. There is no document search yet, and no vector index - those arrive later, with the hybrid MVP landing at v0.8.0. See the [`nooma repo` reference](/nooma/reference/repo/) for what works today.

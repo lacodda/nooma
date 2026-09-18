@@ -1,0 +1,130 @@
+/* Brand accent: nooma emerald. */
+:root {
+	--sl-color-accent: #82d0a9;
+	--sl-color-accent-high: #bbe6d0;
+	--sl-color-accent-low: #246042;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent: #5ac18d;
+	--sl-color-accent-high: #2e7c55;
+	--sl-color-accent-low: #e6f6ee;
+}
+
+/* ---------------------------------------------------------------- header -- */
+
+/* The mark is a square hex tile: let it fill the bar height rather than the
+   2rem it was pinned to, and sit close to the wordmark it belongs with. */
+.site-title {
+	gap: 0.4rem;
+}
+
+.site-title img {
+	width: auto;
+	height: 2.5rem;
+}
+
+/* Push search away from the wordmark so the two stop reading as one group. */
+@media (min-width: 50rem) {
+	.header > .title-wrapper {
+		margin-inline-end: 1.5rem;
+	}
+}
+
+/* ------------------------------------------------------------------ hero -- */
+
+/* Starlight splits the hero into 7fr/4fr on wide screens and expects an image
+   in the right column; without one the row is half empty. We fill it with the
+   install block instead, so the two columns carry equal weight. */
+@media (min-width: 50rem) and (max-width: 67.999rem) {
+	.hero {
+		grid-template-columns: 100%;
+		padding-block: clamp(2rem, calc(1rem + 5vmin), 4rem);
+	}
+
+	.hero > .hero-html {
+		width: 100%;
+		max-width: none;
+		margin-inline: 0;
+	}
+}
+
+@media (min-width: 68rem) {
+	.hero {
+		grid-template-columns: 6fr 5fr;
+		gap: 2rem;
+		padding-block: clamp(2rem, calc(1rem + 6vmin), 5rem);
+	}
+
+	.hero > .hero-html {
+		order: 2;
+		width: 100%;
+		max-width: none;
+		align-self: center;
+		margin-block-start: 0.5rem;
+	}
+}
+
+.hero h1 {
+	letter-spacing: -0.02em;
+}
+
+.hero .tagline {
+	max-width: 42ch;
+}
+
+/* Install card in the hero: a terminal-looking panel with the copy line. */
+.nm-install {
+	width: 100%;
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 0.75rem;
+	background: var(--sl-color-black);
+	overflow: hidden;
+	text-align: start;
+	box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
+
+.nm-install__bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.6rem 0.9rem;
+	border-bottom: 1px solid var(--sl-color-gray-5);
+	background: var(--sl-color-gray-6);
+}
+
+.nm-install__dot {
+	width: 0.6rem;
+	height: 0.6rem;
+	border-radius: 50%;
+	background: var(--sl-color-gray-4);
+}
+
+.nm-install__dot:first-child {
+	background: var(--sl-color-accent);
+}
+
+.nm-install__os {
+	margin-inline-start: auto;
+	font-size: var(--sl-text-xs);
+	color: var(--sl-color-gray-3);
+}
+
+.nm-install__body {
+	margin: 0;
+	padding: 0.9rem;
+	font-family: var(--__sl-font-mono);
+	font-size: var(--sl-text-code-sm);
+	line-height: 1.9;
+	overflow-x: auto;
+	color: var(--sl-color-gray-1);
+}
+
+.nm-install__prompt {
+	color: var(--sl-color-accent-high);
+	user-select: none;
+}
+
+.nm-install__comment {
+	color: var(--sl-color-gray-3);
+}
