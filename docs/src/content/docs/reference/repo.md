@@ -172,6 +172,158 @@ With `--json`:
 
 A repository of pure Rust usually yields an empty graph, and that is correct: Rust's `use` paths are not relative, so none of them can be resolved to a file without guessing.
 
+## `repo summary`
+
+```
+nooma repo summary [PATH] [--json] [--under <PREFIX>] [--all] [--no-refresh] [--store <DIR>]
+```
+
+Describes what each module offers: its header comment, and the signature and documentation of each declaration it makes visible. Every line of it is text the author wrote — a signature is the declaration up to its body, a doc is the comment attached to it, and nothing is generated or inferred.
+
+Private declarations are left out unless `--all` is given. What a module keeps to itself is not part of what it offers, and a surface that listed it would describe something other than the module's contract.
+
+```console
+$ nooma repo summary --under src/ledger.rs
+src/ledger.rs
+  Keeps entries in balance.
+      4  pub fn post(entry: Entry) -> Result<Balance>
+     18  pub struct Entry
+```
+
+| Option | What it does |
+| --- | --- |
+| `--under <PREFIX>` | Only modules whose path starts with this. |
+| `--all` | Include declarations the language keeps private. |
+| `--no-refresh` | Answer from the stored index without bringing it up to date. |
+
+With `--json`:
+
+```json
+{
+  "commit": "29028610740cc923baf966791b1e2090597fa546",
+  "dirty": false,
+  "modules": [
+    {
+      "path": "src/ledger.rs",
+      "language": "rust",
+      "header": "Keeps entries in balance.",
+      "public": 2,
+      "text": "src/ledger.rs
+
+Keeps entries in balance.
+
+pub fn post(entry: Entry) -> Result<Balance>
+Post an entry to the ledger.",
+      "entries": [
+        {
+          "name": "post",
+          "kind": "function",
+          "line": 4,
+          "parent": null,
+          "signature": "pub fn post(entry: Entry) -> Result<Balance>",
+          "doc": "Post an entry to the ledger.",
+          "public": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `commit` | The commit the index describes. |
+| `dirty` | Whether the tree had uncommitted edits when it was indexed. |
+| `modules` | One entry per module, in path order. |
+| `path` | The module's path, relative to the repository root. |
+| `language` | The language it was read as. |
+| `header` | The module's own comment, or `null`. |
+| `public` | How many declarations the module makes visible outside. |
+| `text` | The whole summary as one block: the path, the header, then each public signature with its doc. |
+| `entries` | The declarations, in source order. |
+| `name` | What it is called. |
+| `kind` | `function`, `type`, `module` or `constant`. |
+| `line` | The 1-based line it is declared on. |
+| `parent` | The enclosing declaration, or `null`. |
+| `signature` | The declaration as written, up to its body, with whitespace collapsed. |
+| `doc` | The documentation attached to it, markers stripped, or `null`. |
+
+`text` is the field to hand to something that reads prose. The rest is for a caller that wants the parts separately.
+
+### What counts as visible
+
+Each language says it differently, and all four say it somehow.
+
+| Language | Public means |
+| --- | --- |
+| Rust | A bare `pub`. `pub(crate)`, `pub(super)` and `pub(in ...)` are visible inside the crate and are not part of its surface. |
+| TypeScript | `export`, including a declaration inside an exported class. |
+| Go | An initial capital. |
+| Python | A name that does not begin with `_`. |
+
+## `repo history`
+
+```
+nooma repo history [PATH] [--json] [--matching <TEXT>] [--touching <PATH>] [--limit <N>] [--no-refresh] [--store <DIR>]
+```
+
+Reads the commit messages as documents. The code says what it does now; only the commit that introduced it says what it was for, and that reason is in the message and nowhere else — which is what makes *the commit where the PATH handling was fixed* a question this answers and the file index cannot.
+
+```console
+$ nooma repo history --matching "path handling"
+4fa18bad  fix: correct the PATH handling on Windows
+
+$ nooma repo history --touching src/ledger.rs
+29028610  feat: add double entry
+1c0ffee0  feat: add the ledger
+```
+
+Naming both narrows by both.
+
+| Option | What it does |
+| --- | --- |
+| `--matching <TEXT>` | Only commits whose message contains this, compared without case. Summary and body are both searched. |
+| `--touching <PATH>` | Only commits that changed this path, or anything beneath it. |
+| `--limit <N>` | How many commits to read from the top. Defaults to 5000. |
+| `--no-refresh` | Answer from the stored history without reading new commits. |
+
+With `--json`:
+
+```json
+{
+  "head": "29028610740cc923baf966791b1e2090597fa546",
+  "commits": [
+    {
+      "id": "29028610740cc923baf966791b1e2090597fa546",
+      "summary": "feat: add double entry",
+      "body": "Lines sum to zero in every currency.",
+      "author": "A Writer",
+      "time": 1789856815,
+      "paths": ["src/ledger.rs"]
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `head` | The commit the history was read from. |
+| `summary` | The first line of the message. |
+| `commits` | The commits, newest first. |
+| `id` | The full hex object id. |
+| `body` | The rest of the message below the summary, or `null`. |
+| `author` | Who wrote the change. |
+| `time` | When it was written, in seconds since the epoch, UTC. |
+| `paths` | The paths the commit changed, against its first parent. |
+
+A merge is compared against its first parent only. Comparing against all of them reports every path either side touched, which makes a merge look like the work it merged and buries the commit that did it.
+
+### How a history is brought up to date
+
+A commit's id is the hash of everything about it, so a commit already read never needs reading again — there is no comparison pass and nothing to invalidate.
+
+What the walk decides is *membership*, not only freshness. The commits reachable from HEAD are the history; the stored one only says which of them have been read. That distinction is what `git commit --amend` and rebase turn on: a rewritten commit is a different object, so the original stays in the stored history, and carrying that history across from the point a walk stopped would keep the original alive beside its replacement — claiming a commit the repository no longer has.
+
 ## `repo status`
 
 ```

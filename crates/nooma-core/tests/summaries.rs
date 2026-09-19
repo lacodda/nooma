@@ -94,6 +94,23 @@ fn a_rust_doc_comment_is_attached_and_an_ordinary_comment_is_not() {
     assert_eq!(entry(&summary, "helper").doc, None);
 }
 
+/// `pub(crate)` is visible to the crate and to nothing outside it. Counting
+/// it as public puts a crate's internals on the surface it advertises — and
+/// that surface is exactly what a summary is for.
+#[test]
+fn rust_restricted_visibility_is_not_public() {
+    let source = "pub fn open() {}
+pub(crate) fn shared() {}
+pub(super) fn upward() {}
+pub(in crate::inner) fn scoped() {}
+";
+    let summary = summarize(Language::Rust, source);
+    assert!(entry(&summary, "open").public);
+    assert!(!entry(&summary, "shared").public, "pub(crate) is not visible outside the crate");
+    assert!(!entry(&summary, "upward").public);
+    assert!(!entry(&summary, "scoped").public);
+}
+
 #[test]
 fn rust_visibility_comes_from_the_modifier() {
     let summary = summarize(Language::Rust, RUST);

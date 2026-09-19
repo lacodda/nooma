@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand};
-use nooma_core::{FileIndex, RepoIndex, Store, Symbol, SymbolKind, Update, incremental, repo::Repo};
+use nooma_core::{FileIndex, History, RepoIndex, Store, Symbol, SymbolKind, Update, history, incremental, repo::Repo};
 
 /// What is in a repository.
 #[derive(Debug, Args)]
@@ -26,6 +26,10 @@ enum RepoCommand {
     Symbols(SymbolsArgs),
     /// Show which files import which, within this repository
     Deps(ReadArgs),
+    /// Describe what a module offers: its header, signatures and docs
+    Summary(SummaryArgs),
+    /// Search the commit messages: what a change was for
+    History(HistoryArgs),
     /// Say what the stored index describes, without changing it
     Status(CommonArgs),
 }
@@ -90,11 +94,56 @@ struct SymbolsArgs {
     under: Option<String>,
 }
 
+#[derive(Debug, Args)]
+struct SummaryArgs {
+    #[command(flatten)]
+    read: ReadArgs,
+    // A plain comment, not a doc comment: clap reads a doc comment's body as
+    // the long help, and one long help anywhere in a command strips the short
+    // descriptions off every flag in it.
+    //
+    // Named `--under` to match `symbols`, and for the same reason: the
+    // repository itself is the positional `PATH`.
+    /// Only modules whose path starts with this
+    #[arg(long, value_name = "PREFIX")]
+    under: Option<String>,
+    /// Include declarations the language keeps private
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Debug, Args)]
+struct HistoryArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    /// Only commits whose message contains this text, compared without case
+    #[arg(long, value_name = "TEXT")]
+    matching: Option<String>,
+    /// Only commits that touched this path, or anything beneath it
+    #[arg(long, value_name = "PATH")]
+    touching: Option<String>,
+    /// How many commits to read from the top of the history
+    #[arg(long, value_name = "N", default_value_t = DEFAULT_HISTORY_LIMIT)]
+    limit: usize,
+    /// Answer from the stored history without reading new commits
+    #[arg(long)]
+    no_refresh: bool,
+}
+
+/// How far back a history pass reads when the caller does not say.
+///
+/// Large enough to cover the whole history of every repository on this line,
+/// and small enough that a first run on something the size of the Linux kernel
+/// answers rather than appearing to hang.
+const DEFAULT_HISTORY_LIMIT: usize = 5_000;
+
 pub fn run(args: RepoArgs) -> Result<()> {
     match args.command {
         RepoCommand::Index(args) => index_command(args),
         RepoCommand::Symbols(args) => symbols_command(args),
         RepoCommand::Deps(args) => deps_command(args),
+        RepoCommand::Summary(args) => summary_command(args),
+        RepoCommand::History(args) => history_command(args),
         RepoCommand::Status(args) => status_command(args),
     }
 }
@@ -192,6 +241,154 @@ fn deps_command(args: ReadArgs) -> Result<()> {
         eprintln!("{} files with resolved imports", graph.len());
         Ok(())
     }
+}
+
+/// Describe what each module offers.
+///
+/// This is the command `rigger` reads to put one line per module in a packet:
+/// the header sentence is what a module is *about*, which no list of symbol
+/// names conveys.
+fn summary_command(args: SummaryArgs) -> Result<()> {
+    let index = read_index(&args.read)?;
+    let modules: Vec<&FileIndex> = index
+        .files
+        .iter()
+        .filter(|file| args.under.as_ref().is_none_or(|prefix| file.path.starts_with(prefix)))
+        .collect();
+
+    if args.read.common.json {
+        let rows: Vec<_> = modules
+            .iter()
+            .filter_map(|file| file.summary.as_ref())
+            .map(|summary| {
+                let entries: Vec<_> = summary
+                    .entries
+                    .iter()
+                    .filter(|entry| args.all || entry.public)
+                    .map(|entry| {
+                        serde_json::json!({
+                            "name": entry.name,
+                            "kind": entry.kind.name(),
+                            "line": entry.line,
+                            "parent": entry.parent,
+                            "signature": entry.signature,
+                            "doc": entry.doc,
+                            "public": entry.public,
+                        })
+                    })
+                    .collect();
+                serde_json::json!({
+                    "path": summary.path,
+                    "language": summary.language,
+                    "header": summary.header,
+                    "public": summary.public_count(),
+                    "text": summary.to_text(),
+                    "entries": entries,
+                })
+            })
+            .collect();
+        print_json(&serde_json::json!({
+            "commit": index.revision.commit,
+            "dirty": index.revision.dirty,
+            "modules": rows,
+        }))
+    } else {
+        for file in &modules {
+            let Some(summary) = &file.summary else { continue };
+            println!("{}", summary.path);
+            if let Some(header) = &summary.header {
+                // The first line only: a header can run to a paragraph, and a
+                // listing that prints all of it stops being a listing.
+                println!("  {}", header.lines().next().unwrap_or_default());
+            }
+            for entry in summary.entries.iter().filter(|entry| args.all || entry.public) {
+                // The line alone: the path is the heading directly above, and
+                // repeating it on every row pushes the signatures — the part
+                // worth reading — off to the right.
+                println!("  {:>5}  {}", entry.line, entry.signature);
+            }
+        }
+        eprintln!("{} modules", modules.len());
+        Ok(())
+    }
+}
+
+/// Search the commit messages.
+fn history_command(args: HistoryArgs) -> Result<()> {
+    let repo = open(&args.common)?;
+    let store = open_store(&args.common)?;
+    let history = read_history(&repo, &store, &args)?;
+
+    // Both filters narrow the same list, so asking for a message *and* a path
+    // means both, which is what someone naming two things expects.
+    let mut commits: Vec<&nooma_core::CommitDoc> = match &args.matching {
+        Some(text) => history.matching(text),
+        None => history.commits.iter().collect(),
+    };
+    if let Some(path) = &args.touching {
+        let touching = history.touching(path);
+        commits.retain(|commit| touching.iter().any(|other| other.id == commit.id));
+    }
+
+    if args.common.json {
+        let rows: Vec<_> = commits
+            .iter()
+            .map(|commit| {
+                serde_json::json!({
+                    "id": commit.id,
+                    "summary": commit.summary,
+                    "body": commit.body,
+                    "author": commit.author,
+                    "time": commit.time,
+                    "paths": commit.paths,
+                })
+            })
+            .collect();
+        print_json(&serde_json::json!({
+            "head": history.head,
+            "commits": rows,
+        }))
+    } else {
+        for commit in &commits {
+            println!("{}  {}", commit.short(), commit.summary);
+        }
+        eprintln!("{} commits", commits.len());
+        Ok(())
+    }
+}
+
+/// The history a reading command should answer from.
+///
+/// Brought up to date first unless the caller asked otherwise, for the same
+/// reason the index is: reading costs only the commits that are new, and
+/// answering from a stale history costs the caller a wrong answer about their
+/// own newest work.
+fn read_history(repo: &Repo, store: &Store, args: &HistoryArgs) -> Result<History> {
+    // A stored history that cannot be read is not a failure: reading from
+    // scratch is exactly what fixes it.
+    let previous = match history::load(store, repo.root()) {
+        Ok(previous) => previous,
+        Err(error) if error.is_stale_index() => None,
+        Err(error) => return Err(error.into()),
+    };
+
+    if args.no_refresh {
+        return match previous {
+            Some(history) => Ok(history),
+            None => anyhow::bail!("{} has no stored history — run `nooma repo history`", repo.root().display()),
+        };
+    }
+
+    let (history, update) = history::read(repo, previous.as_ref(), args.limit).context("reading the history")?;
+    if previous.as_ref() != Some(&history) {
+        history::save(store, &history).context("storing the history")?;
+    }
+    // On stderr, so `--json` still redirects to a file that parses, and so
+    // work done on the caller's behalf is never silent.
+    if !update.is_noop() {
+        eprintln!("read {} commits; kept {}", update.read, update.kept);
+    }
+    Ok(history)
 }
 
 /// Say what the stored index describes, without changing it.

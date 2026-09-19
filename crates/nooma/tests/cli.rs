@@ -75,6 +75,8 @@ fn the_command_tree_is_well_formed() {
         vec!["repo", "index", "--help"],
         vec!["repo", "symbols", "--help"],
         vec!["repo", "deps", "--help"],
+        vec!["repo", "summary", "--help"],
+        vec!["repo", "history", "--help"],
         vec!["repo", "status", "--help"],
     ] {
         let output = run(&args);
@@ -91,7 +93,7 @@ fn the_command_tree_is_well_formed() {
 /// argument did this to the whole `symbols` page.
 #[test]
 fn every_flag_describes_itself_on_the_help_page() {
-    for command in ["index", "symbols", "deps", "status"] {
+    for command in ["index", "symbols", "deps", "summary", "history", "status"] {
         let output = run(&["repo", command, "--help"]);
         assert!(output.status.success(), "{command}: {}", stderr(&output));
         let help = stdout(&output);
@@ -349,7 +351,7 @@ fn the_reference_page_documents_the_fields_that_are_printed() {
     let store = store.path().to_str().unwrap();
     run(&["repo", "index", "--store", store, repo]);
 
-    for command in ["index", "status", "symbols", "deps"] {
+    for command in ["index", "status", "symbols", "deps", "summary", "history"] {
         let output = run(&["repo", command, "--json", "--store", store, repo]);
         let printed: serde_json::Value = serde_json::from_str(stdout(&output).trim()).unwrap();
         let object = printed.as_object().expect("every --json prints one object");
@@ -396,4 +398,149 @@ fn an_unknown_kind_lists_the_known_ones() {
     assert!(!output.status.success());
     let complaint = stderr(&output);
     assert!(complaint.contains("function"), "name the alternatives: {complaint}");
+}
+
+/// The contract the stage was asked for: one module, one line a packet can
+/// carry. The header is the part that says what the module is *about*, which
+/// is what a list of symbol names cannot say at any length.
+#[test]
+fn summary_gives_a_module_its_header_and_its_public_surface() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    std::fs::write(
+        repo.path().join("src/ledger.rs"),
+        "//! Keeps entries in balance.\n\n/// Post an entry.\npub fn post() {}\n\nfn internal() {}\n",
+    )
+    .unwrap();
+
+    let printed = json_of(&run(&["repo", "summary", "--json", "--store", store_path, repo_path]));
+    let modules = printed["modules"].as_array().expect("modules is a list");
+    let ledger = modules
+        .iter()
+        .find(|m| m["path"] == "src/ledger.rs")
+        .unwrap_or_else(|| panic!("no summary for src/ledger.rs: {printed}"));
+
+    assert_eq!(ledger["header"], "Keeps entries in balance.");
+    assert_eq!(ledger["public"], 1, "one public declaration, not two");
+
+    let entries = ledger["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1, "a private function is off the surface by default");
+    assert_eq!(entries[0]["name"], "post");
+    assert_eq!(entries[0]["signature"], "pub fn post()");
+    assert_eq!(entries[0]["doc"], "Post an entry.");
+}
+
+/// `--all` is for the caller reading a module rather than advertising it.
+#[test]
+fn summary_all_includes_what_the_language_keeps_private() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    std::fs::write(repo.path().join("src/ledger.rs"), "pub fn post() {}\nfn internal() {}\n").unwrap();
+
+    let printed = json_of(&run(&["repo", "summary", "--json", "--all", "--store", store_path, repo_path]));
+    let ledger = printed["modules"].as_array().unwrap().iter().find(|m| m["path"] == "src/ledger.rs").unwrap();
+    let names: Vec<&str> = ledger["entries"].as_array().unwrap().iter().filter_map(|e| e["name"].as_str()).collect();
+    assert_eq!(names, vec!["post", "internal"]);
+}
+
+#[test]
+fn history_finds_a_commit_by_what_its_message_says() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    std::fs::write(repo.path().join("src/env.rs"), "pub fn path() {}\n").unwrap();
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-m", "fix: correct the PATH handling"]);
+
+    let printed = json_of(&run(&[
+        "repo",
+        "history",
+        "--json",
+        "--matching",
+        "path handling",
+        "--store",
+        store_path,
+        repo_path,
+    ]));
+    let commits = printed["commits"].as_array().expect("commits is a list");
+    assert_eq!(commits.len(), 1, "one commit matches: {printed}");
+    assert_eq!(commits[0]["summary"], "fix: correct the PATH handling");
+    assert_eq!(commits[0]["paths"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn history_finds_the_commits_that_touched_a_path() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    std::fs::write(repo.path().join("src/util.rs"), "pub fn helper() {}\npub fn more() {}\n").unwrap();
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-m", "feat: extend the helper"]);
+
+    let printed = json_of(&run(&[
+        "repo",
+        "history",
+        "--json",
+        "--touching",
+        "src/util.rs",
+        "--store",
+        store_path,
+        repo_path,
+    ]));
+    let summaries: Vec<&str> = printed["commits"].as_array().unwrap().iter().filter_map(|c| c["summary"].as_str()).collect();
+    assert_eq!(summaries, vec!["feat: extend the helper", "fixture"]);
+}
+
+/// Naming both narrows by both. A caller who says two things means both, and
+/// an implementation that let the second filter replace the first would answer
+/// a question nobody asked.
+#[test]
+fn history_filters_combine_rather_than_replace_each_other() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    std::fs::write(repo.path().join("src/util.rs"), "pub fn helper() {}\npub fn more() {}\n").unwrap();
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-m", "feat: extend the helper"]);
+
+    // `fixture` also touched src/util.rs, and `feat` also matches only the
+    // newer commit: each filter alone leaves more than their intersection.
+    let printed = json_of(&run(&[
+        "repo",
+        "history",
+        "--json",
+        "--matching",
+        "extend",
+        "--touching",
+        "src/util.rs",
+        "--store",
+        store_path,
+        repo_path,
+    ]));
+    let commits = printed["commits"].as_array().unwrap();
+    assert_eq!(commits.len(), 1, "both filters apply: {printed}");
+    assert_eq!(commits[0]["summary"], "feat: extend the helper");
+}
+
+/// Asking twice must not read twice: the second pass has nothing new, and the
+/// stored history answers it whole.
+#[test]
+fn a_second_history_pass_reads_nothing_and_still_answers() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    let first = json_of(&run(&["repo", "history", "--json", "--store", store_path, repo_path]));
+    let second_output = run(&["repo", "history", "--json", "--store", store_path, repo_path]);
+    let second = json_of(&second_output);
+
+    assert_eq!(first["commits"], second["commits"], "the answer must not change");
+    assert!(!stderr(&second_output).contains("read 1"), "nothing new to read: {}", stderr(&second_output));
 }

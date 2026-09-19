@@ -461,11 +461,16 @@ fn dedent(text: &str) -> String {
 /// Whether the language marks this declaration as visible outside its module.
 fn is_public(language: Language, node: Node<'_>, source: &[u8]) -> bool {
     match language {
-        // `pub`, `pub(crate)`, `pub(super)` — all of them are a visibility
-        // modifier child. A declaration without one is private.
+        // A bare `pub` is visible outside; `pub(crate)`, `pub(super)` and
+        // `pub(in ...)` are not, and calling them public would put a crate's
+        // internals on the surface it advertises. The grammar separates them
+        // cleanly: a bare `pub` modifier has no children, and every restricted
+        // form names its scope as one.
         Language::Rust => {
             let mut cursor = node.walk();
-            node.children(&mut cursor).any(|child| child.kind() == "visibility_modifier")
+            node.children(&mut cursor)
+                .find(|child| child.kind() == "visibility_modifier")
+                .is_some_and(|modifier| modifier.named_child_count() == 0)
         }
         // `export` wraps the declaration; a method inside an exported class is
         // public along with the class, which the climb finds.

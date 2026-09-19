@@ -53,13 +53,36 @@ An import is stored exactly as the source wrote it - `std::collections::BTreeMap
 
 The module dependency graph (`repo deps`) resolves only what can be resolved honestly: relative imports, because the source itself says exactly where to look - `./entry` from `src/ledger.rs` can only mean `src/entry.rs` or one of its language-specific candidates (`.ts`, `/index.ts`, `/__init__.py`, and so on). An import like `crate::store` is never resolved this way, because it could be this repository or a dependency of the same name, and there is no honest way to tell without doing what a compiler does. Such imports remain visible on the file's own `imports` list - a fact about the file - but never become an edge in the graph.
 
+## From identifiers to text with meaning in it
+
+A symbol entry answers *where is `RepoIndex` declared*. That is a lookup, and a list of identifiers is the right shape for it. It is the wrong shape for the question this product is actually for — *what is this module about* — because a bare name carries almost no meaning to match against.
+
+So a file also carries a **module summary**: its header comment, and each declaration's signature and documentation. Nothing in it is generated or inferred. A signature is the declaration as written, up to where its body starts; a doc is the comment the author attached to it. A summary that invented a description would be one nobody could trust, and this product's promise is precisely that the machine did not add anything the author did not write.
+
+Bodies are left out. The body of a function is the one part of it every caller is entitled to ignore, and leaving it out is also what keeps a summary small enough to embed whole.
+
+One mechanism serves four languages, because the symbol query already wraps each whole declaration — a property it has for working out what encloses what. Two details have to be right, and both are silent when wrong:
+
+- **A doc comment can sit above a wrapper rather than above the declaration.** `export function f() {}` parses as an export statement around the declaration, and the comment sits above the export. Walking the declaration's own siblings finds nothing — and it finds nothing for exactly the exported declarations, which is the public API a summary exists to describe.
+- **Not every comment is documentation.** Rust marks `///` and `/**` in the grammar; a plain `//` is an aside. Without the distinction a `// TODO: rewrite this` becomes a function's description, and the noise goes into the text an embedder reads. Go makes no such distinction and needs none: a comment above a declaration is its documentation, by the language's own convention.
+
+## Commit messages are documents too
+
+A repository's history is already a corpus of short documents about the code, written by the people who changed it, saying *why*. That why is nowhere else — the code says what it does now, and only the commit that introduced it says what it was for.
+
+So the history is read alongside the index: each commit's message, and the paths it touched. *The commit where the PATH handling was fixed* is a question the file index cannot answer at all.
+
+It is cached on the opposite principle from a file. A file is keyed by the hash of its contents, because a file changes under a stable name. A commit's id *is* the hash of everything about it, so a commit already read never needs reading again — there is no comparison pass and nothing to invalidate.
+
+But "already read" answers only whether to read it, never whether it belongs. What belongs is what HEAD reaches, and the two part company under `--amend` and rebase: a rewritten commit is a different object, so the original stays in the stored history. A history that carried the stored list across from wherever a walk stopped would keep that original alive beside its replacement, claiming a commit the repository no longer has. Walking every reachable commit and reusing only what is still reachable costs one pass over a list of hashes and makes that unrepresentable.
+
 ## Two version numbers, protecting two different things
 
 The stored index carries two numbers, and each guards against a different way of being quietly wrong.
 
 **`format_version`** covers the file's shape, and is checked before anything else in the file is deserialized. A reader that meets a different number refuses the file outright and says to reindex; it never reads it under today's assumptions. The alternative is the worst failure available to a search tool - a field that changed meaning gets believed under the new meaning, and results stop being right in a way nobody notices. "Stopped finding things" reads as an empty index or a bad query, not as the format having moved out from under it.
 
-**`chunker_version`** covers what an entry *means*. Change a tree-sitter query, a symbol kind, or how a file is divided, and every stored entry now says something different - while the file's bytes, and therefore its hash, are exactly as they were. The hash check would happily reuse all of them. Without a number to compare, entries cut up by the old rules would be kept and extended by the new ones, and the index would become a mixture of two vocabularies. A mismatch forces a full reparse; it does not make the file unreadable, which is what keeps it a separate number rather than a bump of the first.
+**`chunker_version`** covers what an entry *means*. Change a tree-sitter query, a symbol kind, how a file is divided, or what a summary lifts out of it, and every stored entry now says something different - while the file's bytes, and therefore its hash, are exactly as they were. The hash check would happily reuse all of them. Without a number to compare, entries cut up by the old rules would be kept and extended by the new ones, and the index would become a mixture of two vocabularies. A mismatch forces a full reparse; it does not make the file unreadable, which is what keeps it a separate number rather than a bump of the first.
 
 ## Related
 
