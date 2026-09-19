@@ -347,3 +347,56 @@ fn an_empty_file_summarizes_to_nothing_rather_than_failing() {
     assert!(summary.entries.is_empty());
     assert_eq!(summary.to_text(), "fixture.rust");
 }
+
+/// A directive is addressed to a tool, not to a reader, and it sits exactly
+/// where a header is looked for. Measured on a real TypeScript repository: 88
+/// of the 109 headers found were directives, `@vitest-environment jsdom` for
+/// every test file in the tree. Since the header is the field most likely to
+/// say what a module is about, letting a directive fill it would make every
+/// test file in a project embed as the same thing.
+#[test]
+fn a_directive_is_not_a_module_header() {
+    let ts = summarize(Language::TypeScript, "// @ts-check\nexport function f() {}\n");
+    assert_eq!(ts.header, None);
+
+    let vitest = summarize(Language::TypeScript, "/** @vitest-environment jsdom */\nexport function f() {}\n");
+    assert_eq!(vitest.header, None);
+
+    let eslint = summarize(Language::TypeScript, "/* eslint-disable no-console */\nexport function f() {}\n");
+    assert_eq!(eslint.header, None);
+
+    let go = summarize(Language::Go, "//go:build linux\n\npackage p\n\nfunc F() {}\n");
+    assert_eq!(go.header, None);
+
+    let url = summarize(Language::TypeScript, "// https://astro.build/config\nexport function f() {}\n");
+    assert_eq!(url.header, None);
+}
+
+/// A directive is skipped rather than ending the run: it is routinely followed
+/// by the comment that does describe the file, and stopping at the directive
+/// would lose that one too.
+#[test]
+fn a_header_after_a_directive_is_still_found() {
+    let summary = summarize(Language::TypeScript, "// @ts-check\n// The widgets module.\nexport function f() {}\n");
+    assert_eq!(summary.header.as_deref(), Some("The widgets module."));
+}
+
+/// The same rule where a declaration's own doc is read: a build constraint
+/// above a function is not a description of the function.
+#[test]
+fn a_directive_above_a_declaration_is_not_its_doc() {
+    let summary = summarize(Language::Go, "package p\n\n//go:noinline\nfunc Slow() {}\n");
+    assert_eq!(entry(&summary, "Slow").doc, None);
+}
+
+/// A comment that merely begins with a word a directive also begins with is
+/// still prose. The test guards the rule from being widened into a filter that
+/// eats descriptions.
+#[test]
+fn ordinary_prose_is_not_mistaken_for_a_directive() {
+    let summary = summarize(Language::Go, "// Global state lives here, deliberately.\npackage p\n\nfunc F() {}\n");
+    assert_eq!(summary.header.as_deref(), Some("Global state lives here, deliberately."));
+
+    let typed = summarize(Language::TypeScript, "// Type checking happens at the edges.\nexport function f() {}\n");
+    assert_eq!(typed.header.as_deref(), Some("Type checking happens at the edges."));
+}

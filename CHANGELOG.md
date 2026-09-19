@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0] - 2026-09-19
+
+### Features
+- Summarize a module and read commit messages as documents
+- Add `repo summary` and `repo history`
+
+### Miscellaneous Tasks
+- Update the stack before v0.3.0
+
+### Breaking Changes
+
+the chunker version is 2, so the first `nooma repo index` after
+upgrading reparses every file. Nothing has to be deleted and no command
+changes: a file's bytes do not move when the rules for reading it do, so
+without the bump an index built before summaries existed would be reused
+and every file in it would answer "no summary" forever.
+
+`FileIndex` gains `summary`, which is `None` only for a file the parser
+could not read. Commit history is stored in its own file beside the
+index, under its own format number.
+
 ## [0.2.0] - 2026-09-18
 
 ### Documentation

@@ -310,7 +310,12 @@ fn preceding_comments(language: Language, node: Node<'_>, source: &[u8]) -> Opti
         if below.start_position().row > sibling.end_position().row + 1 {
             break;
         }
-        lines.push(strip_marker(sibling.utf8_text(source).unwrap_or_default()));
+        let line = strip_marker(sibling.utf8_text(source).unwrap_or_default());
+        // A directive above a declaration is addressed to a tool, not to a
+        // reader: `//go:build linux` is not what the function below it does.
+        if !is_directive(&line) {
+            lines.push(line);
+        }
         below = sibling;
         previous = sibling.prev_sibling();
     }
@@ -362,10 +367,62 @@ fn is_doc_comment(language: Language, node: Node<'_>) -> bool {
     }
 }
 
+/// Whether a stripped comment is an instruction to a tool rather than prose.
+///
+/// `// @ts-check`, `/** @vitest-environment jsdom */`, `// eslint-disable`,
+/// `//go:build linux`, `# type: ignore`, `# -*- coding: utf-8 -*-`: all of
+/// them are the first comment in a file, which is exactly where a header is
+/// looked for, and none of them says anything about what the module is.
+///
+/// Measured rather than guessed. Over a real TypeScript repository, 88 of the
+/// 109 headers found were directives — `@vitest-environment jsdom` for every
+/// test file in the tree. The header is the single field most likely to say
+/// what a module is *about*, so letting a directive fill it would make every
+/// test file in a project embed as the same thing.
+fn is_directive(text: &str) -> bool {
+    let text = text.trim();
+    // A pragma addressed to a tool: `@ts-check`, `@vitest-environment jsdom`.
+    // A doc comment that opens with `@param` is in the same position and is
+    // equally not a description of the file.
+    text.starts_with('@')
+        // Go build constraints and cgo directives are written tight against
+        // the slashes, which is what tells them from an ordinary comment.
+        || text.starts_with("go:")
+        || text.starts_with("+build")
+        // Linter and formatter instructions.
+        || text.starts_with("eslint")
+        || text.starts_with("prettier")
+        || text.starts_with("biome-ignore")
+        || text.starts_with("oxlint")
+        || text.starts_with("stylelint")
+        || text.starts_with("jshint")
+        || text.starts_with("jslint")
+        || text.starts_with("global ")
+        // Type checkers, and Python's encoding and shebang lines.
+        || text.starts_with("type: ignore")
+        || text.starts_with("mypy:")
+        || text.starts_with("pyright:")
+        || text.starts_with("ruff:")
+        || text.starts_with("noqa")
+        || text.starts_with("-*-")
+        || text.starts_with("!/")
+        // A lone URL is a reference, not a description: `// https://astro.build/config`.
+        || (!text.contains(char::is_whitespace) && (text.starts_with("http://") || text.starts_with("https://")))
+}
+
 /// Strip the comment markers a language writes documentation with.
 fn strip_marker(text: &str) -> String {
     let text = text.trim();
-    if let Some(body) = text.strip_prefix("/**").and_then(|rest| rest.strip_suffix("*/")) {
+    // `/**` and `/*` are stripped the same way. Both are written with a `*`
+    // down the left margin, and the second is the commoner of the two in
+    // hand-written prose; leaving its margin in place put a literal `*` at the
+    // head of every such header, which is what a reader and an embedder would
+    // both see first.
+    if let Some(body) = text
+        .strip_prefix("/**")
+        .or_else(|| text.strip_prefix("/*"))
+        .and_then(|rest| rest.strip_suffix("*/"))
+    {
         return body
             .lines()
             .map(|line| line.trim().trim_start_matches('*').trim())
@@ -373,9 +430,6 @@ fn strip_marker(text: &str) -> String {
             .join("\n")
             .trim()
             .to_string();
-    }
-    if let Some(body) = text.strip_prefix("/*").and_then(|rest| rest.strip_suffix("*/")) {
-        return body.trim().to_string();
     }
     text.trim_start_matches("//!")
         .trim_start_matches("///")
@@ -420,7 +474,14 @@ fn leading_comments(root: Node<'_>, source: &[u8], qualifies: impl Fn(Node<'_>) 
             // everything past it belongs to that item too.
             break;
         }
-        lines.push(strip_marker(child.utf8_text(source).unwrap_or_default()));
+        let line = strip_marker(child.utf8_text(source).unwrap_or_default());
+        // A directive is skipped rather than ending the run: `// @ts-check`
+        // is routinely followed by the comment that does describe the file,
+        // and stopping at it would lose that one too.
+        if is_directive(&line) {
+            continue;
+        }
+        lines.push(line);
     }
     dedent(&lines.join("\n"))
 }
@@ -532,6 +593,12 @@ mod tests {
         assert_eq!(strip_marker("// An ordinary one."), "An ordinary one.");
         assert_eq!(strip_marker("/** A block doc. */"), "A block doc.");
         assert_eq!(strip_marker("/**\n * First.\n * Second.\n */"), "First.\nSecond.");
+        // `/*` carries the same left margin as `/**`, and is the commoner of
+        // the two in hand-written prose. Leaving its margin in place put a
+        // literal `*` at the head of every header written that way — the
+        // first thing a reader, and an embedder, would meet.
+        assert_eq!(strip_marker("/* A plain block. */"), "A plain block.");
+        assert_eq!(strip_marker("/*\n * First.\n *\n * Second.\n */"), "First.\n\nSecond.");
     }
 
     /// The triple quote has to go before the single one, or both ends keep a
