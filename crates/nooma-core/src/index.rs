@@ -33,7 +33,13 @@ pub const FORMAT_VERSION: u32 = 2;
 /// Bumped whenever a query, a symbol kind or the chunking rule changes what a
 /// file yields. A mismatch forces a full reparse; it does not invalidate the
 /// file format, which [`FORMAT_VERSION`] covers.
-pub const CHUNKER_VERSION: u32 = 1;
+///
+/// 2: files carry a module summary — the header, and each declaration's
+/// signature and doc. The bytes of a file are unchanged by that, and so is its
+/// hash, so without this number an index built before summaries existed would
+/// be reused and extended, and every file in it would keep answering "no
+/// summary" forever.
+pub const CHUNKER_VERSION: u32 = 2;
 
 /// What an index describes: a commit, and whether the tree matched it.
 ///
@@ -157,6 +163,15 @@ pub struct FileIndex {
     pub symbols: Vec<Symbol>,
     /// What it pulls in.
     pub imports: Vec<Import>,
+    /// The module's surface in prose: its header, and each declaration's
+    /// signature and doc.
+    ///
+    /// Stored beside the symbols rather than worked out on demand because it
+    /// is keyed by the same content hash: a file that did not change does not
+    /// get summarized again, which is the whole of the cache. `None` only for
+    /// a file the parser could not read at all.
+    #[serde(default)]
+    pub summary: Option<crate::summary::ModuleSummary>,
 }
 
 /// The index of one repository at one revision.

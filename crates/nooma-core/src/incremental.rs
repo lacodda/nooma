@@ -130,13 +130,7 @@ fn plan_and_parse(repo: &Repo, files: &[SourceFile], previous: Option<&RepoIndex
         .into_par_iter()
         .filter_map(|(file, content_hash, bytes)| {
             let (symbols, imports) = symbols::parse(file.language, &bytes)?;
-            Some(FileIndex {
-                path: file.relative.clone(),
-                language: file.language,
-                content_hash,
-                symbols,
-                imports,
-            })
+            Some(symbols::describe(file.relative.clone(), file.language, content_hash, symbols, imports, &bytes))
         })
         .collect();
 

@@ -7,7 +7,7 @@
 //! at, and the next version's incremental pass has to handle a dirty tree
 //! anyway.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
@@ -136,6 +136,77 @@ impl Repo {
         Ok(hashes)
     }
 
+    /// The ids of the commits reachable from HEAD, newest first.
+    ///
+    /// Capped rather than unbounded: a repository with a hundred thousand
+    /// commits must not make an `index` appear to hang, and the newest are
+    /// what every question about history is about.
+    pub fn commit_ids(&self, limit: usize) -> Result<Vec<String>> {
+        let head = self.inner.head_commit().map_err(|_| Error::EmptyRepository(self.root.clone()))?;
+        let walk = head.ancestors().all().map_err(Error::git)?;
+        let mut ids = Vec::new();
+        for info in walk.take(limit) {
+            let info = info.map_err(Error::git)?;
+            ids.push(info.id.to_hex().to_string());
+        }
+        Ok(ids)
+    }
+
+    /// Read one commit into a document.
+    pub fn commit_doc(&self, id: &str) -> Result<crate::history::CommitDoc> {
+        let object_id = gix::ObjectId::from_hex(id.as_bytes()).map_err(Error::git)?;
+        let commit = self.inner.find_commit(object_id).map_err(Error::git)?;
+        let message = commit.message().map_err(Error::git)?;
+        let author = commit.author().map_err(Error::git)?;
+        let time = commit.time().map_err(Error::git)?;
+
+        let body = message.body().map(|body| body.to_string()).filter(|body| !body.trim().is_empty());
+        Ok(crate::history::CommitDoc {
+            id: id.to_string(),
+            summary: message.summary().to_string(),
+            body,
+            author: author.name.to_string(),
+            // Seconds alone: the author's offset says where someone was
+            // sitting, which no query here asks, and keeping it would put two
+            // spellings of one instant in the index.
+            time: time.seconds,
+            paths: self.commit_paths(&commit)?,
+        })
+    }
+
+    /// The paths a commit changed, against its first parent.
+    ///
+    /// The first parent only, because a merge commit against all of them
+    /// reports every path either side touched — which would make every merge
+    /// look like the change it merged, and bury the commit that did the work.
+    /// A root commit has no parent and reports everything it introduced.
+    fn commit_paths(&self, commit: &gix::Commit<'_>) -> Result<Vec<String>> {
+        let tree = commit.tree().map_err(Error::git)?;
+        let parent = commit.parent_ids().next();
+        let parent_tree = match parent {
+            Some(id) => {
+                let parent = self.inner.find_commit(id).map_err(Error::git)?;
+                Some(parent.tree().map_err(Error::git)?)
+            }
+            None => None,
+        };
+
+        let mut paths = BTreeSet::new();
+        let before = parent_tree.map(|tree| flatten(&tree)).transpose()?.unwrap_or_default();
+        let after = flatten(&tree)?;
+        for (path, id) in &after {
+            if before.get(path) != Some(id) {
+                paths.insert(path.clone());
+            }
+        }
+        for path in before.keys() {
+            if !after.contains_key(path) {
+                paths.insert(path.clone());
+            }
+        }
+        Ok(paths.into_iter().collect())
+    }
+
     /// Whether the ignore rules keep this path out of the index.
     ///
     /// Asked of a path out of a commit, which need not exist on disk at all,
@@ -187,6 +258,31 @@ impl Repo {
         files.sort_by(|a, b| a.relative.cmp(&b.relative));
         Ok(files)
     }
+}
+
+/// Every blob a tree holds, by path, with the object id it holds there.
+///
+/// Flattened rather than compared level by level: a diff that descends only
+/// into subtrees whose ids differ is faster, and the whole of that speed is
+/// paid back once per commit read — while getting the descent wrong would
+/// silently drop paths from a commit's record.
+fn flatten(tree: &gix::Tree<'_>) -> Result<BTreeMap<String, gix::ObjectId>> {
+    let mut out = BTreeMap::new();
+    let mut stack = vec![(String::new(), tree.clone())];
+    while let Some((prefix, tree)) = stack.pop() {
+        for entry in tree.iter() {
+            let entry = entry.map_err(Error::git)?;
+            let Ok(name) = std::str::from_utf8(entry.filename()) else { continue };
+            let path = if prefix.is_empty() { name.to_string() } else { format!("{prefix}/{name}") };
+            if entry.mode().is_tree() {
+                let object = entry.object().map_err(Error::git)?;
+                stack.push((path, object.into_tree()));
+            } else {
+                out.insert(path, entry.object_id());
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// The ignore rules that decide what counts as an indexable file.

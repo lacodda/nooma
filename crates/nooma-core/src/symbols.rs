@@ -47,13 +47,33 @@ pub fn index_file(file: &SourceFile) -> Result<FileIndex> {
         path: file.absolute.clone(),
         language: file.language,
     })?;
-    Ok(FileIndex {
-        path: file.relative.clone(),
-        language: file.language,
-        content_hash: blake3::hash(&source).to_hex().to_string(),
+    Ok(describe(
+        file.relative.clone(),
+        file.language,
+        blake3::hash(&source).to_hex().to_string(),
         symbols,
         imports,
-    })
+        &source,
+    ))
+}
+
+/// Assemble one file's entry, summary and all.
+///
+/// The summary is built here rather than by each caller, so a file cannot be
+/// indexed without one: a file whose entry says "no summary" is
+/// indistinguishable from a module that genuinely has nothing to say, and the
+/// difference would only surface as a gap in search results.
+pub fn describe(path: String, language: Language, content_hash: String, symbols: Vec<Symbol>, imports: Vec<Import>, source: &[u8]) -> FileIndex {
+    let mut file = FileIndex {
+        path,
+        language,
+        content_hash,
+        symbols,
+        imports,
+        summary: None,
+    };
+    file.summary = crate::summary::summarize(&file, source);
+    file
 }
 
 /// Index many files, in parallel, keeping the input order.

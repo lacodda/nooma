@@ -289,3 +289,42 @@ fn an_index_of_one_revision_is_the_same_bytes_every_run() {
         "the order files come back in must not depend on which ones were parsed"
     );
 }
+
+/// Every indexed file carries a summary, whether it was parsed on this pass or
+/// carried across from the last one. A summary that survives only on the
+/// parsing path would leave the cache full of files that answer "nothing to
+/// say" — and since the reuse path is the common one, almost every file would.
+#[test]
+fn a_reused_file_keeps_its_summary() {
+    let dir = fixture();
+    let repo = Repo::discover(dir.path()).unwrap();
+
+    let first = full(&repo);
+    let summarized = |index: &RepoIndex| index.files.iter().filter(|f| f.summary.is_some()).count();
+    assert_eq!(summarized(&first), 3, "a full pass summarizes every file");
+
+    // One file changes; the other two must come across with their summaries.
+    write(dir.path(), "src/util.rs", "pub fn helper() {}\npub fn second() {}\n");
+    let (second, update) = incremental::update(&repo, Some(&first)).unwrap();
+    assert_eq!(update.unchanged, 2);
+    assert_eq!(summarized(&second), 3, "the two reused files kept theirs, and the parsed one got a new one");
+}
+
+/// The summary of an unchanged file is the same summary, not merely a present
+/// one: the cache is only worth having if what it hands back equals what a
+/// fresh parse would produce.
+#[test]
+fn a_reused_summary_equals_the_one_a_fresh_parse_gives() {
+    let dir = fixture();
+    let repo = Repo::discover(dir.path()).unwrap();
+
+    let first = full(&repo);
+    write(dir.path(), "src/util.rs", "pub fn helper() {}\npub fn second() {}\n");
+    let (through_reuse, _) = incremental::update(&repo, Some(&first)).unwrap();
+    let through_parsing = full(&repo);
+
+    for (reused, parsed) in through_reuse.files.iter().zip(&through_parsing.files) {
+        assert_eq!(reused.path, parsed.path);
+        assert_eq!(reused.summary, parsed.summary, "{}: the cached summary differs from a fresh one", reused.path);
+    }
+}
