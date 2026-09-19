@@ -8,6 +8,9 @@ All notable changes to this project are documented in this file.
 - Summarize a module and read commit messages as documents
 - Add `repo summary` and `repo history`
 
+### Bug Fixes
+- Keep tool directives and comment margins out of a summary
+
 ### Miscellaneous Tasks
 - Update the stack before v0.3.0
 
