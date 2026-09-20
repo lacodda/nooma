@@ -8,6 +8,8 @@
 //! into symbols, imports and module dependencies. Document search arrives with
 //! the index halves it needs.
 
+#[cfg(feature = "prose")]
+mod prose;
 mod repo;
 
 use clap::{Parser, Subcommand};

@@ -27,9 +27,11 @@ This is a condition of the product being usable, not a refinement scheduled for 
 
 Embeddings run locally on the CPU through ONNX Runtime. The model downloads once; after that there is no network path for your content at all. No cloud, no API keys, no telemetry — the same stance as [sefy](https://github.com/lacodda/sefy).
 
+There is exactly one exception, and it is not in the default build: `--prose` can add a generated paragraph saying what a module is for, by asking the [Claude Code](https://claude.com/claude-code) CLI you installed, under your own subscription. It needs `--features prose` to exist at all, `--prose` to run, and it labels everything it writes. A default build has no such code path in it — check with `strings` rather than taking our word for it.
+
 ## What works today
 
-v0.3.0 ships the first half: `nooma-core`, a library that reads a git repository into symbols, imports and module dependencies, and the `nooma repo` command over it.
+v0.4.0 ships the first half: `nooma-core`, a library that reads a git repository into symbols, imports and module dependencies, and the `nooma repo` command over it.
 
 ```
 $ nooma repo index
@@ -47,13 +49,15 @@ $ nooma repo history --matching "path handling"
 4fa18bad  fix: correct the PATH handling on Windows
 ```
 
+Built with `--features prose`, `nooma repo summary --prose` adds a generated paragraph per module, marked as generated and cached so each distinct file is described — and paid for — once.
+
 Rust, TypeScript, Python and Go, parsed with tree-sitter. The index is kept on disk and describes a revision - the commit, and whether the tree still matched it. Only files whose contents actually moved are parsed again, so a second pass over 287 unchanged files takes 165 ms rather than 4.5 seconds. `.gitignore` and `.nooma-ignore` decide what is left out.
 
 This half is built first because [rigger](https://github.com/lacodda/rigger) needs it, and because an index is easier to get right before a window depends on it. Search over documents — and the hybrid the product is named for — comes next.
 
 ## Status
 
-v0.3.0. The repository index works — symbols, module summaries and commit messages as documents; document search does not exist yet, and nothing here can be pointed at a folder of notes today. The hybrid over documents is the point at which nooma becomes useful to a person rather than to another program. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.4.0. The repository index works — symbols, module summaries, optional generated prose, and commit messages as documents; document search does not exist yet, and nothing here can be pointed at a folder of notes today. The hybrid over documents is the point at which nooma becomes useful to a person rather than to another program. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 

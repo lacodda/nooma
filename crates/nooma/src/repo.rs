@@ -5,6 +5,7 @@
 //! another a question. What `--json` prints is a contract: fields are added,
 //! never renamed or dropped without a format bump.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
@@ -110,6 +111,17 @@ struct SummaryArgs {
     /// Include declarations the language keeps private
     #[arg(long)]
     all: bool,
+    // A plain comment, not a doc comment, for the reason given above.
+    //
+    // Present only in a build made with the `prose` feature. In a default
+    // build the flag does not exist, so `--prose` is an unknown argument
+    // rather than a flag that silently does nothing — the difference between
+    // "this build cannot" and "this build chose not to".
+    /// Add a generated paragraph saying what each module is for, using your
+    /// own installed Claude Code
+    #[cfg(feature = "prose")]
+    #[arg(long)]
+    prose: bool,
 }
 
 #[derive(Debug, Args)]
@@ -256,6 +268,12 @@ fn summary_command(args: SummaryArgs) -> Result<()> {
         .filter(|file| args.under.as_ref().is_none_or(|prefix| file.path.starts_with(prefix)))
         .collect();
 
+    // Prose is asked for before anything is printed, so that a run which
+    // cannot reach Claude Code fails before writing half a report — and so
+    // that `--json` never emits a document with some modules described and
+    // others not because the CLI stopped answering partway.
+    let prose = prose_for(&args, &modules)?;
+
     if args.read.common.json {
         let rows: Vec<_> = modules
             .iter()
@@ -277,14 +295,22 @@ fn summary_command(args: SummaryArgs) -> Result<()> {
                         })
                     })
                     .collect();
-                serde_json::json!({
+                let mut row = serde_json::json!({
                     "path": summary.path,
                     "language": summary.language,
                     "header": summary.header,
                     "public": summary.public_count(),
                     "text": summary.to_text(),
                     "entries": entries,
-                })
+                });
+                // A field of its own, never folded into `header` or `text`.
+                // Those two are lifted from the source word for word, and a
+                // consumer that cannot tell them from a generated paragraph
+                // has lost the one distinction this product is built on.
+                if let Some(paragraph) = prose.get(summary.path.as_str()) {
+                    row["prose"] = serde_json::json!(paragraph);
+                }
+                row
             })
             .collect();
         print_json(&serde_json::json!({
@@ -301,6 +327,12 @@ fn summary_command(args: SummaryArgs) -> Result<()> {
                 // listing that prints all of it stops being a listing.
                 println!("  {}", header.lines().next().unwrap_or_default());
             }
+            // Marked, every time it is shown. The line above it was written
+            // by the module's author and this one was not, and nothing but
+            // the label says so.
+            if let Some(paragraph) = prose.get(summary.path.as_str()) {
+                println!("  [generated] {paragraph}");
+            }
             for entry in summary.entries.iter().filter(|entry| args.all || entry.public) {
                 // The line alone: the path is the heading directly above, and
                 // repeating it on every row pushes the signatures — the part
@@ -311,6 +343,64 @@ fn summary_command(args: SummaryArgs) -> Result<()> {
         eprintln!("{} modules", modules.len());
         Ok(())
     }
+}
+
+/// The prose to show beside each summary, keyed by module path.
+///
+/// Empty unless this build has the `prose` feature *and* the caller passed
+/// `--prose`. Both conditions are deliberate: the feature decides whether the
+/// code exists, the flag decides whether it runs, and neither defaults to yes.
+#[cfg(feature = "prose")]
+fn prose_for(args: &SummaryArgs, modules: &[&FileIndex]) -> Result<BTreeMap<String, String>> {
+    use crate::prose;
+
+    if !args.prose {
+        return Ok(BTreeMap::new());
+    }
+
+    // Checked before the first call rather than discovered on it, so that
+    // "you do not have Claude Code" is one clear sentence instead of a
+    // process-spawn failure repeated once per module.
+    let availability = prose::probe();
+    if !availability.available {
+        anyhow::bail!("{}", availability.reason.unwrap_or_else(|| prose::MISSING.to_owned()));
+    }
+
+    let store = open_store(&args.read.common)?;
+    let cache = prose::Cache::open(store.root())?;
+    // Said before the first call rather than after the last: a run over a
+    // large repository takes minutes and spends money, and the user is
+    // entitled to know what is about to answer and how much of the work is
+    // already paid for while there is still time to stop it.
+    eprintln!(
+        "describing with {} ({} modules already in {})",
+        availability.version.as_deref().unwrap_or("Claude Code"),
+        cache.len(),
+        cache.path().display()
+    );
+
+    let mut spend = prose::Spend::default();
+    let mut described = BTreeMap::new();
+
+    for file in modules {
+        let Some(summary) = &file.summary else { continue };
+        // Keyed by what the file hashes to, not by where it sits: the same
+        // bytes vendored into a second repository are the same module.
+        let prose = prose::describe(&cache, &summary.to_text(), &file.content_hash, &mut spend)?;
+        described.insert(summary.path.clone(), prose);
+    }
+
+    // On stderr, so `--json` still redirects to a file that parses — and
+    // never silent, because this is the one command in nooma that spends the
+    // user's money.
+    eprintln!("{}", spend.describe());
+    Ok(described)
+}
+
+/// Without the feature there is nothing to ask and no flag to ask with.
+#[cfg(not(feature = "prose"))]
+fn prose_for(_args: &SummaryArgs, _modules: &[&FileIndex]) -> Result<BTreeMap<String, String>> {
+    Ok(BTreeMap::new())
 }
 
 /// Search the commit messages.

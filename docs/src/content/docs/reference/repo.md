@@ -175,7 +175,7 @@ A repository of pure Rust usually yields an empty graph, and that is correct: Ru
 ## `repo summary`
 
 ```
-nooma repo summary [PATH] [--json] [--under <PREFIX>] [--all] [--no-refresh] [--store <DIR>]
+nooma repo summary [PATH] [--json] [--under <PREFIX>] [--all] [--no-refresh] [--store <DIR>] [--prose]
 ```
 
 Describes what each module offers: its header comment, and the signature and documentation of each declaration it makes visible. Every line of it is text the author wrote — a signature is the declaration up to its body, a doc is the comment attached to it, and nothing is generated or inferred.
@@ -195,6 +195,7 @@ src/ledger.rs
 | `--under <PREFIX>` | Only modules whose path starts with this. |
 | `--all` | Include declarations the language keeps private. |
 | `--no-refresh` | Answer from the stored index without bringing it up to date. |
+| `--prose` | Add a generated paragraph saying what each module is for. Needs a build made with the `prose` feature, and the Claude Code CLI — see [prose summaries](/reference/prose/). |
 
 With `--json`:
 
@@ -249,6 +250,8 @@ Post an entry to the ledger.",
 | `doc` | The documentation attached to it, markers stripped, or `null`. |
 
 `text` is the field to hand to something that reads prose. The rest is for a caller that wants the parts separately.
+
+Everything above is lifted from the source word for word. Nothing in this command is generated unless [`--prose`](/reference/prose/) asks for it, and what it adds arrives in a field of its own.
 
 ### What counts as visible
 

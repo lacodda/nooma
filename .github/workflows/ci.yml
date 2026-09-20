@@ -29,12 +29,24 @@ jobs:
         run: cargo fmt --all --check
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
+      # `prose` is off by default, so everything under it is invisible to
+      # every command above: an optional feature nobody builds is code that
+      # compiles on the author's machine and nowhere else. Linted and tested
+      # on its own, because that is the only place it is compiled at all.
+      - name: Lint (prose)
+        run: cargo clippy --all-targets --features prose -- -D warnings
       # The test suite builds git repositories from nothing and runs the binary
       # against them, so git has to be on PATH and the committer has to be
       # named. Both hold on every runner; the tests clear the global config
       # rather than relying on one.
       - name: Test
         run: cargo test
+      # The tests differ by feature rather than merely growing: the default
+      # build asserts that `--prose` does not exist, and the feature build
+      # asserts that it exists and stays quiet until asked. Neither statement
+      # can be checked from the other build.
+      - name: Test (prose)
+        run: cargo test --features prose
       - name: Build
         run: cargo build --release
 

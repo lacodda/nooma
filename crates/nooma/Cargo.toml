@@ -24,11 +24,21 @@ exclude = [
     "assets/favicon-32.png",
 ]
 
+# Prose summaries shell out to the user's own Claude Code CLI, and that is the
+# one thing in this product that leaves the machine. It is off unless asked
+# for: a default build contains no such code path at all, which is a claim a
+# user can check rather than take on trust. See docs/adr/0004.
+[features]
+default = []
+prose = ["dep:serde", "dep:tempfile"]
+
 [dependencies]
 nooma-core.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
 clap.workspace = true
+serde = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

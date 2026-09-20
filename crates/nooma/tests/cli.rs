@@ -544,3 +544,58 @@ fn a_second_history_pass_reads_nothing_and_still_answers() {
     assert_eq!(first["commits"], second["commits"], "the answer must not change");
     assert!(!stderr(&second_output).contains("read 1"), "nothing new to read: {}", stderr(&second_output));
 }
+
+/// The promise of ADR 0004, checked rather than asserted in prose.
+///
+/// A default build must not merely decline to use the CLI — it must not be
+/// able to. `--prose` is defined behind the feature, so in a build without it
+/// clap refuses the argument outright. "Unknown flag" and "flag that quietly
+/// did nothing" look identical to whoever forgot the feature, and only one of
+/// them is honest.
+#[cfg(not(feature = "prose"))]
+#[test]
+fn a_default_build_has_no_prose_flag_to_pass() {
+    let (repo, store) = fixture();
+    let output = run(&[
+        "repo",
+        "summary",
+        "--prose",
+        "--store",
+        store.path().to_str().unwrap(),
+        repo.path().to_str().unwrap(),
+    ]);
+    assert!(!output.status.success(), "a build without the feature must refuse --prose outright");
+    assert!(
+        stderr(&output).contains("unexpected argument"),
+        "clap should refuse it as unknown, not accept and ignore it: {}",
+        stderr(&output)
+    );
+}
+
+/// A build *with* the feature still does nothing unless asked.
+///
+/// The feature decides whether the code exists; the flag decides whether it
+/// runs. Without `--prose` no process is started and nothing is spent, which
+/// is what makes the summary command safe to run on a machine that happens to
+/// have Claude Code installed.
+#[cfg(feature = "prose")]
+#[test]
+fn the_feature_alone_does_not_start_anything() {
+    let (repo, store) = fixture();
+    let printed = json_of(&run(&[
+        "repo",
+        "summary",
+        "--json",
+        "--store",
+        store.path().to_str().unwrap(),
+        repo.path().to_str().unwrap(),
+    ]));
+    for module in printed["modules"].as_array().unwrap() {
+        assert!(
+            module.get("prose").is_none(),
+            "a summary without --prose must carry no generated text: {module}"
+        );
+    }
+    // And nothing was written where prose would be cached.
+    assert!(!store.path().join("prose.json").exists(), "no call was asked for, so no cache should exist");
+}
