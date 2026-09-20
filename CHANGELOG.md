@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-09-20
+
+### Features
+- Describe a module in prose with your own Claude Code
+
+### Testing
+- Fail when a stored version bump ships unmarked
+
 ## [0.3.0] - 2026-09-19
 
 ### Features
