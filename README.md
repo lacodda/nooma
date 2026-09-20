@@ -27,7 +27,7 @@ This is a condition of the product being usable, not a refinement scheduled for 
 
 Embeddings run locally on the CPU through ONNX Runtime. The model downloads once; after that there is no network path for your content at all. No cloud, no API keys, no telemetry — the same stance as [sefy](https://github.com/lacodda/sefy).
 
-There is exactly one exception, and it is not in the default build: `--prose` can add a generated paragraph saying what a module is for, by asking the [Claude Code](https://claude.com/claude-code) CLI you installed, under your own subscription. It needs `--features prose` to exist at all, `--prose` to run, and it labels everything it writes. A default build has no such code path in it — check with `strings` rather than taking our word for it.
+There is exactly one exception, and it is not in the default build: `--prose` can add a generated paragraph saying what a module is for, by asking the [Claude Code](https://claude.com/claude-code) CLI you installed, under your own subscription. It needs `--features prose` to exist at all, `--prose` to run, and it labels everything it writes. The released binaries are default builds, so the code is not in them: they answer `--prose` with `error: unexpected argument`, which is what a flag compiled out looks like.
 
 ## What works today
 

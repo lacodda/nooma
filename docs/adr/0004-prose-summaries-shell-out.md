@@ -18,7 +18,7 @@ Prose would say it. Producing prose means a language model, and this product's c
 Prose summaries are produced by shelling out to the user's installed Claude Code CLI, and the feature is off unless asked for, in three separate ways at once:
 
 - **It is not in the library.** `nooma-core` — the crate `rigger` and `scheda` link — has no code that starts a process or opens a socket, and gains none. The prose module lives in the `nooma` binary.
-- **It is behind a Cargo feature.** `prose` is not in the default features. A build that does not ask for it contains no such code path at all, which is a claim a user can check with `strings` rather than take on trust.
+- **It is behind a Cargo feature.** `prose` is not in the default features, and the released binaries are default builds. A build that does not ask for it contains no such code path at all, and says so: `--prose` is itself defined behind the feature, so such a build refuses it as an *unknown argument* rather than accepting a flag that quietly does nothing. That refusal is the check, and the test suite asserts it on every run.
 - **It is behind a flag at run time.** `nooma repo summary --prose` asks for it; nothing else does. There is no setting that turns it on globally, because a setting is how an offline promise becomes an offline default.
 
 Generated prose is stored apart from the summary lifted from source, and is labelled wherever it is shown.

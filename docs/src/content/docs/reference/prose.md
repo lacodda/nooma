@@ -30,7 +30,7 @@ $ nooma repo summary --prose
 error: unexpected argument '--prose' found
 ```
 
-That is deliberate. "Nothing leaves your machine" should be something you can check rather than something you take on trust, and in a default build there is nothing in the binary to check.
+That is deliberate, and the refusal is the check. `--prose` is defined behind the feature, so a build that refuses it as an *unknown argument* is a build the whole module was compiled out of — a flag that existed but did nothing would look quite different. The released binaries on every platform are default builds, and the test suite asserts this of them on each run.
 
 ## Using it
 
