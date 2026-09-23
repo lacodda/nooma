@@ -58,8 +58,62 @@ jobs:
             nooma-*.tar.gz
           if-no-files-found: error
 
+  # The window, as an installer per platform. Built by the Tauri CLI so the
+  # frontend is compiled in and the bundle carries the icon and the product
+  # name; the CLI archives above stay the way to get `nooma` alone.
+  desktop:
+    name: desktop ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+      - name: Bundle
+        working-directory: app
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            target/${{ matrix.target }}/release/bundle/deb/*.deb
+            target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -79,4 +133,5 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           body: ${{ steps.cliff.outputs.content }}
-          files: packages/*
+          # Installers land one folder down, by bundle kind.
+          files: packages/**/*
