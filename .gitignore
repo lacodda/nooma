@@ -4,3 +4,8 @@
 docs/node_modules/
 docs/dist/
 docs/.astro/
+
+# Desktop app (Tauri + Vite)
+app/node_modules/
+app/dist/
+app/src-tauri/gen/

@@ -1,0 +1,49 @@
+{
+  "window": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
+  },
+  "search": {
+    "label": "Search your files",
+    "placeholder": "Search your files",
+    "clear": "Clear the search"
+  },
+  "results": {
+    "label": "Results",
+    "exact": "exact",
+    "exactHint": "The words of the query occur in this document",
+    "line": "line {{line}}",
+    "nothing": "Nothing found",
+    "nothingBody": "No document contains these words. Any form of a word counts - try fewer words, or other ones.",
+    "type": "Type to search",
+    "typeBody": "Words in any form: a search for “contracts” finds “contract”.",
+    "failed": "The search failed"
+  },
+  "sources": {
+    "none": "Nothing to search yet",
+    "noneBody": "Add a folder - notes, text files, an Obsidian vault. Nothing in it leaves this machine.",
+    "add": "Add folder",
+    "addShort": "Add folder",
+    "choose": "Choose a folder to search"
+  },
+  "status": {
+    "current": "index up to date",
+    "indexing": "indexing {{done}} / {{total}}",
+    "starting": "checking for changes",
+    "busy": "another nooma is indexing",
+    "stale": "index needs a rebuild",
+    "failed": "indexing failed",
+    "documents_one": "{{count}} document",
+    "documents_other": "{{count}} documents",
+    "sources_one": "{{count}} folder",
+    "sources_other": "{{count}} folders",
+    "took": "exact {{ms}} ms",
+    "offline": "nothing leaves this machine"
+  },
+  "actions": {
+    "open": "Open",
+    "reveal": "Show in folder"
+  }
+}

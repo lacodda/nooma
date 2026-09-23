@@ -15,7 +15,7 @@ use nooma_core::{Error, Hit, Library, UpdateReport};
 #[derive(Debug, Args)]
 pub struct StoreArgs {
     /// Keep the library in this directory instead of the user's data directory
-    #[arg(long, value_name = "DIR", global = true)]
+    #[arg(long, value_name = "DIR", global = true, env = "NOOMA_STORE")]
     store: Option<PathBuf>,
 }
 
@@ -204,9 +204,14 @@ pub fn find(args: FindArgs) -> Result<()> {
 
 fn print_hit(hit: &Hit) {
     let mut heading = hit.title.clone();
-    if !hit.headings.is_empty() {
+    // A note's top heading is usually its title; saying it twice is noise.
+    let headings = match hit.headings.split_first() {
+        Some((first, rest)) if *first == hit.title => rest,
+        _ => &hit.headings[..],
+    };
+    if !headings.is_empty() {
         heading.push_str(" · ");
-        heading.push_str(&hit.headings.join(" › "));
+        heading.push_str(&headings.join(" › "));
     }
     println!("{heading}");
     println!("  {}:{}", hit.path.display(), hit.line);

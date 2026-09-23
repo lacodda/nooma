@@ -19,6 +19,7 @@ exclude = [
     "cliff.toml",
     "rustfmt.toml",
     "assets/social-preview.png",
+    "assets/screenshot.png",
     "assets/logo-512.png",
     "assets/apple-touch-icon.png",
     "assets/favicon-32.png",

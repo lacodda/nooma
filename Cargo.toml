@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/nooma", "crates/nooma-core"]
+members = ["crates/nooma", "crates/nooma-core", "app/src-tauri"]
 resolver = "3"
 
 # Everything published or built from this tree shares one identity. The library
@@ -44,7 +44,7 @@ tree-sitter-go = "0.25"
 blake3 = "1"
 rayon = "1"
 directories = "6"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 
 tempfile = "3"
 

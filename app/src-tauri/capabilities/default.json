@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions granted to the main window. The window permissions are here because nooma draws its own title bar, as the line's other desktop products do: dragging, resizing and the window buttons are the page's, and the page shows the window once it has painted. Files are opened through nooma's own commands, which check the path belongs to the library, not through the opener's permissions.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-show",
+    "dialog:allow-open"
+  ]
+}

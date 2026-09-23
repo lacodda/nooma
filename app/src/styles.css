@@ -1,0 +1,34 @@
+@import 'tailwindcss';
+
+/*
+ * The theme is dowel's - the token vocabulary of the lacodda line, in dark and
+ * light - and the accent file states nooma's colour, emerald. Everything else
+ * follows from it: the hover shade, the soft fill, the focus ring, the trace
+ * of green in the greys, and what colour text has to be on an accent fill.
+ *
+ * Never write a colour down in a component. Name a token instead, so the theme
+ * can swap it underneath - `eslint` enforces this via `dowel/no-raw-color`.
+ * Exact matches wear the `info` tone: the brand colour is kept for what only
+ * the meaning half will be able to do, as the reference mockup has it.
+ */
+@import 'dowel-ui/theme.css';
+@import 'dowel-ui/accents/nooma.css';
+
+/*
+ * The window is a window, not a page: it never scrolls as a whole, only the
+ * results do. A document left scrollable lets a trackpad slide the title bar
+ * away from the top of the window.
+ */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+}

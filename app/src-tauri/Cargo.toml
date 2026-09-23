@@ -1,0 +1,35 @@
+[package]
+name = "nooma-app"
+description = "The nooma window: one field searching your folders, fully offline"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+# The window ships as an installer from the release page, not as a crate.
+publish = false
+
+[lib]
+# The shell is a library with a thin binary in front of it, so tests reach the
+# commands without opening a window.
+# Named apart from the binary: on Windows both would write nooma_app.pdb.
+name = "nooma_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nooma-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+# The window comes back where and how large it was closed.
+tauri-plugin-window-state = "2"
+
+[dev-dependencies]
+tempfile.workspace = true
