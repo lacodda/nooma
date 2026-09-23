@@ -306,8 +306,27 @@ impl Library {
         self.root.join("manifest.json")
     }
 
+    /// The index directory is named by its format. An index of another
+    /// format is never opened in place: the new one is built beside it and
+    /// the old one removed after, which also works when another process -
+    /// the window, say - still has the old one open, as Windows would refuse
+    /// to delete files in use.
     fn index_dir(&self) -> PathBuf {
-        self.root.join("fulltext")
+        self.root.join(format!("fulltext-{FULLTEXT_FORMAT_VERSION}"))
+    }
+
+    /// Remove index directories of other formats, as far as the system
+    /// allows; one still held open goes on the next update.
+    fn remove_other_formats(&self) {
+        let current = self.index_dir();
+        let Ok(entries) = std::fs::read_dir(&self.root) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            if path != current && path.is_dir() && name.to_string_lossy().starts_with("fulltext") {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+        }
     }
 
     fn load_manifest(&self) -> Result<Option<Manifest>> {
@@ -386,21 +405,29 @@ impl Library {
         let mut report = UpdateReport::default();
 
         let stored = self.load_manifest()?;
-        let (index, fields, mut manifest) = match (self.staleness(stored.as_ref()), stored) {
-            (None, Some(manifest)) => match self.open_index() {
-                Ok((index, fields)) => (index, fields, manifest),
+        // No manifest at all is a first run, not a rebuild worth announcing; a
+        // manifest of another format or chunker is.
+        report.rebuilt = self.staleness(stored.as_ref());
+        let mut start_over = stored.is_none() || report.rebuilt.is_some();
+        let mut manifest = stored.filter(|_| !start_over).unwrap_or_default();
+
+        let (index, fields) = match self.index_dir().join("meta.json").exists() {
+            true => match self.open_index() {
+                Ok(opened) => opened,
                 Err(error) => {
                     report.rebuilt = Some(format!("the stored index could not be opened: {error}"));
-                    let (index, fields) = self.create_index()?;
-                    (index, fields, Manifest::default())
+                    start_over = true;
+                    manifest = Manifest::default();
+                    self.create_index()?
                 }
             },
-            (reason, _) => {
-                // No manifest at all is a first run, not a rebuild worth
-                // announcing; a manifest of another format is.
-                report.rebuilt = reason;
-                let (index, fields) = self.create_index()?;
-                (index, fields, Manifest::default())
+            false => {
+                if !start_over {
+                    report.rebuilt = Some("the stored index is missing".to_string());
+                    start_over = true;
+                    manifest = Manifest::default();
+                }
+                self.create_index()?
             }
         };
 
@@ -409,6 +436,12 @@ impl Library {
             Err(tantivy::TantivyError::LockFailure(..)) => return Err(Error::Busy),
             Err(error) => return Err(Error::fulltext(error)),
         };
+        // Starting over empties the index through the writer, so a reader
+        // elsewhere keeps working and sees the new contents at the commit,
+        // rather than having its files deleted from under it.
+        if start_over {
+            writer.delete_all_documents().map_err(Error::fulltext)?;
+        }
 
         // Walk every source: what is there now, and what can be skipped
         // without opening it.
@@ -563,6 +596,7 @@ impl Library {
         // is on disk keeps a second updater from reading a manifest that is
         // behind the index it is about to extend.
         writer.wait_merging_threads().map_err(Error::fulltext)?;
+        self.remove_other_formats();
 
         report.documents = manifest.files.len();
         report.took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -579,18 +613,59 @@ impl Library {
     ///
     /// One hit per document, at its best chunk.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
+        match self.finder()? {
+            Some(finder) => finder.search(query, limit),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// The index opened for searching, to keep and search many times; `None`
+    /// before the first update.
+    ///
+    /// Opening the index and checking its format costs more than a search
+    /// does, so a caller answering every keystroke opens it once. The finder
+    /// sees each update as it is committed, by this process or another.
+    pub fn finder(&self) -> Result<Option<Finder>> {
         let manifest = self.load_manifest()?;
         if let Some(reason) = self.staleness(manifest.as_ref()) {
             return Err(Error::LibraryStale(reason));
         }
-        if manifest.is_none() || query.trim().is_empty() || limit == 0 {
-            return Ok(Vec::new());
+        if manifest.is_none() {
+            return Ok(None);
         }
         let (index, fields) = self.open_index()?;
         let reader = index.reader().map_err(Error::fulltext)?;
-        let searcher = reader.searcher();
+        Ok(Some(Finder { index, fields, reader }))
+    }
+}
 
-        let mut parser = QueryParser::for_index(&index, fields.searched().iter().map(|(field, _)| *field).collect());
+/// An index open for searching.
+pub struct Finder {
+    index: Index,
+    fields: Fields,
+    reader: tantivy::IndexReader,
+}
+
+impl std::fmt::Debug for Finder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Finder").finish_non_exhaustive()
+    }
+}
+
+impl Finder {
+    /// See [`Library::search`].
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
+        if query.trim().is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        // A commit by another process is picked up now rather than when the
+        // reader's own watcher gets round to it: a search right after an
+        // update has to see it.
+        self.reader.reload().map_err(Error::fulltext)?;
+        let searcher = self.reader.searcher();
+        let fields = &self.fields;
+
+        let mut parser = QueryParser::for_index(&self.index, fields.searched().iter().map(|(field, _)| *field).collect());
         for (field, boost) in fields.searched() {
             parser.set_field_boost(field, boost);
         }
@@ -598,9 +673,9 @@ impl Library {
         parser.set_conjunction_by_default();
         let all = parser.parse_query_lenient(query).0;
 
-        let mut hits = self.collect(&searcher, &fields, &*all, limit)?;
+        let mut hits = self.collect(&searcher, fields, &*all, limit)?;
         if hits.is_empty() {
-            hits = self.collect(&searcher, &fields, &*any, limit)?;
+            hits = self.collect(&searcher, fields, &*any, limit)?;
         }
         Ok(hits)
     }

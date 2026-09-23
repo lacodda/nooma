@@ -29,7 +29,7 @@ pub use history::{CommitDoc, History};
 pub use incremental::Update;
 pub use index::{FileIndex, Import, RepoIndex, Revision, Symbol, SymbolKind};
 pub use lang::Language;
-pub use library::{Hit, Library, Progress, Skipped, Source, Status, UpdateReport};
+pub use library::{Finder, Hit, Library, Progress, Skipped, Source, Status, UpdateReport};
 pub use repo::Repo;
 pub use store::Store;
 pub use summary::{ModuleSummary, SummaryEntry};

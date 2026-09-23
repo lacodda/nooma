@@ -325,7 +325,7 @@ fn a_library_of_another_format_is_refused_then_rebuilt() {
 fn a_second_writer_is_told_the_library_is_busy() {
     let fixture = Fixture::new();
     let library = fixture.indexed();
-    let index = tantivy::Index::open_in_dir(fixture.store.join("fulltext")).unwrap();
+    let index = tantivy::Index::open_in_dir(fixture.store.join(format!("fulltext-{}", nooma_core::library::FULLTEXT_FORMAT_VERSION))).unwrap();
     let _held: tantivy::IndexWriter = index.writer(15_000_000).unwrap();
     assert!(matches!(library.update(), Err(Error::Busy)));
     // Reading is not writing: the stored index still answers.
@@ -368,4 +368,56 @@ fn a_new_namesake_takes_a_backlink_away() {
     library.update().unwrap();
     let hits = library.search("receipts", 10).unwrap();
     assert!(!hits.iter().any(|hit| hit.path.ends_with("home/moving-checklist.md")), "{hits:?}");
+}
+
+/// A finder is kept open between searches; an update, by this library object
+/// or another, has to reach it without reopening.
+#[test]
+fn a_kept_finder_sees_later_updates() {
+    let fixture = Fixture::new();
+    let library = fixture.indexed();
+    let finder = library.finder().unwrap().expect("indexed");
+    assert!(finder.search("zucchini", 10).unwrap().is_empty());
+    rewrite(
+        &fixture.path("home/garden.txt"),
+        "Plant the zucchini in May.
+",
+    );
+    fixture.library().update().unwrap();
+    assert_eq!(finder.search("zucchini", 10).unwrap().len(), 1);
+}
+
+/// Starting over - a new chunker, say - must work while a window holds the
+/// index open: on Windows, deleting the files it has mapped is refused.
+#[test]
+fn starting_over_works_while_a_finder_holds_the_index() {
+    let fixture = Fixture::new();
+    let library = fixture.indexed();
+    let finder = library.finder().unwrap().expect("indexed");
+    let manifest = fixture.store.join("manifest.json");
+    let mut json: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    json["chunker_version"] = serde_json::json!(0);
+    std::fs::write(&manifest, serde_json::to_vec(&json).unwrap()).unwrap();
+    // Gone in the same breath: a stale manifest cannot say it was ever there,
+    // so only emptying the index as a whole takes its chunks out.
+    std::fs::remove_file(fixture.path("home/garden.txt")).unwrap();
+
+    let report = library.update().unwrap();
+    assert!(report.rebuilt.is_some());
+    assert_eq!(report.documents, 8);
+    assert!(finder.search("vents", 10).unwrap().is_empty());
+    let index = tantivy::Index::open_in_dir(fixture.store.join(format!("fulltext-{}", nooma_core::library::FULLTEXT_FORMAT_VERSION))).unwrap();
+    let held = index.reader().unwrap().searcher().num_docs() as usize;
+    assert_eq!(held, library.status().unwrap().chunks, "the rebuilt index holds each chunk once");
+}
+
+#[test]
+fn a_missing_index_with_a_manifest_is_rebuilt_not_trusted() {
+    let fixture = Fixture::new();
+    let library = fixture.indexed();
+    std::fs::remove_dir_all(fixture.store.join(format!("fulltext-{}", nooma_core::library::FULLTEXT_FORMAT_VERSION))).unwrap();
+    let report = library.update().unwrap();
+    assert!(report.rebuilt.is_some());
+    assert_eq!(report.indexed, 9, "a manifest without its index describes nothing");
+    assert_eq!(found(&library, "vents"), vec!["garden.txt"]);
 }
