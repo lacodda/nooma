@@ -1,6 +1,6 @@
 {
   "name": "nooma-app",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The nooma window: one field, searching your folders",
   "license": "MIT",
   "private": true,

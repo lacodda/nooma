@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0] - 2026-09-23
+
+### Features
+- Search folders of text through a stemmed full-text index
+- Search your folders from a window
+
+### Performance
+- Keep the index open between searches
+
+### Documentation
+- Say how to check a default build, with a check that works
+- Describe document search, the window and the build
+
+### CI
+- Build the window and ship it as installers
+
 ## [0.4.0] - 2026-09-20
 
 ### Features

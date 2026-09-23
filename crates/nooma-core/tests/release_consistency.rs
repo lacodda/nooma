@@ -85,6 +85,16 @@ fn the_changelog_describes_the_version_in_the_manifest() {
     );
 }
 
+/// The window's frontend carries a version of its own in `package.json`, and
+/// the installer is named from the crate's. Two numbers for one product drift
+/// the first time only one of them is bumped.
+#[test]
+fn the_window_frontend_carries_the_workspace_version() {
+    let version = workspace_version();
+    let package: serde_json::Value = serde_json::from_str(&read("app/package.json")).expect("app/package.json is JSON");
+    assert_eq!(package["version"].as_str(), Some(version.as_str()), "app/package.json and Cargo.toml disagree");
+}
+
 /// A stored-format bump forces every holder of an index to rebuild it, which
 /// is a breaking change whatever else the release contains. The release notes
 /// are generated from commits, so the commit trail is where it has to be said
