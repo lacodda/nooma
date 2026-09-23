@@ -11,11 +11,11 @@ hero:
           <span class="nm-install__dot"></span>
           <span class="nm-install__dot"></span>
           <span class="nm-install__dot"></span>
-          <span class="nm-install__os">from v0.2.0</span>
+          <span class="nm-install__os">from v0.5.0</span>
         </div>
         <pre class="nm-install__body"><span class="nm-install__prompt">$</span> cargo install nooma
-      <span class="nm-install__prompt">$</span> nooma repo index
-      <span class="nm-install__prompt">$</span> nooma repo symbols --name Ledger</pre>
+      <span class="nm-install__prompt">$</span> nooma source add ~/Notes
+      <span class="nm-install__prompt">$</span> nooma find "warranty claim"</pre>
       </div>
   actions:
     - text: Get started
@@ -41,6 +41,12 @@ nooma builds two indexes over the same files - full-text for exact strings, a ve
 	<Card title="Hybrid index by design" icon="information">
 		`tantivy` finds the invoice number and the identifier; a vector index finds the document you remember by what it is about. Neither half alone is the product - fusing them is.
 	</Card>
+	<Card title="Any form of a word" icon="magnifier">
+		Every word is stemmed in Russian or English by the alphabet it is written in, so *договоров* finds *договор* and *warranties* finds *warranty* - and the English terms in a Russian note keep their English forms.
+	</Card>
+	<Card title="Reads a vault as a vault" icon="open-book">
+		Markdown is cut at its headings; frontmatter tags, aliases, `[[wikilinks]]` and the notes linking back are fields of their own, so a note is found by what it is tagged with and what points at it.
+	</Card>
 	<Card title="Offline by construction" icon="approve-check">
 		No network path exists for a query or a document to leave the machine. Not a setting to disable - there is nothing to send.
 	</Card>
@@ -60,4 +66,4 @@ nooma builds two indexes over the same files - full-text for exact strings, a ve
 
 ## Status
 
-v0.3.0 ships the first block only: `nooma-core`, a library that indexes a git repository into symbols, imports and module dependencies, with a `nooma repo` command to drive it from the shell. It reparses only what changed, so a second pass over an unchanged repository of 287 files takes 165 milliseconds rather than 4.5 seconds. A module now also summarizes itself - its header, and each public declaration's signature and documentation - and commit messages are read as documents, so a change can be found by the reason it was made. There is no document search yet, and no vector index - those arrive later, with the hybrid MVP landing at v0.8.0. See the [`nooma repo` reference](/nooma/reference/repo/) for what works today.
+v0.5.0 searches folders of markdown and text by the words in them, from a window with one field or with `nooma find`. Every word is stemmed in Russian or English by its own alphabet, markdown is cut into chunks at its headings, and an Obsidian vault's tags, wikilinks and backlinks are fields of their own. This is the exact half of the hybrid; the half that finds a document by meaning arrives with the embedding model, and the two merge at v0.8.0. The repository index from earlier versions is unchanged. See [find, index, source](/nooma/reference/find/) for what works today.

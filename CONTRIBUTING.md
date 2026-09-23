@@ -2,10 +2,11 @@
 
 ## Layout
 
-The repository is a cargo workspace of two crates:
+The repository is a cargo workspace of three crates:
 
 - **`crates/nooma-core`** — the indexing library. No UI, no window, no network path. This is where the work is.
-- **`crates/nooma`** — the binary, and the first caller of the library.
+- **`crates/nooma`** — the command-line binary.
+- **`app/src-tauri`** — the window, `nooma-app`: a Tauri 2 shell around the same library. Its frontend is `app/`, React on the line's design system, [dowel](https://github.com/lacodda/dowel).
 
 They share one version. `nooma-core` is not versioned apart from the product it belongs to.
 
@@ -13,13 +14,26 @@ They share one version. `nooma-core` is not versioned apart from the product it 
 
 ```
 cargo build --release
-cargo run -- repo index
+cargo run -- find "query"
 ```
+
+The window needs Node 22 and pnpm 10 besides Rust, and on Linux the webview's headers (`libwebkit2gtk-4.1-dev`):
+
+```
+cd app
+pnpm install
+pnpm tauri dev
+```
+
+`NOOMA_STORE=<dir>` points both the window and the CLI at a library other than your own - for a demo corpus, or for trying a change without touching what you search every day.
 
 The gate, which every commit has to pass:
 
 ```
-cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cargo build --release
+cargo fmt --all --check && cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --features prose -- -D warnings
+cargo test && cargo test --features prose && cargo build --release
+cd app && pnpm lint && pnpm build
 ```
 
 Requires Rust 1.95 or newer. That number is a promise to anyone building from source, not a note about the maintainer's machine: the `msrv` job in CI builds on exactly the version the manifest declares, so raising a toolchain does not quietly raise the floor.

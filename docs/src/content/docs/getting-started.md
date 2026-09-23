@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Install nooma and index a repository.
+description: Install nooma, search your folders, and index a repository.
 ---
 
 ## Install
@@ -13,9 +13,30 @@ cargo install nooma
 
 nooma is early: there is no install script yet, and the package name is not claimed on crates.io. Each release carries a binary for Windows, Linux and macOS on its [GitHub release page](https://github.com/lacodda/nooma/releases); building from source is the other way in.
 
+The window comes as an installer on the same release page: `nooma_<version>_x64-setup.exe` on Windows, a `.deb` or `.AppImage` on Linux, a `.dmg` on macOS. It is not signed yet, so Windows asks before the first run.
+
 ## What works today
 
-nooma indexes code, not documents. There is no search over files of any kind yet - what exists is `nooma repo`, the repository index that [`rigger`](https://github.com/lacodda/rigger) reads. See [Status](/nooma/#status) for what arrives when.
+nooma searches folders of markdown and text by the words in them, from a window or from the shell, and indexes git repositories for [`rigger`](https://github.com/lacodda/rigger). Finding a document by its meaning arrives in a later version; see [Status](/nooma/#status).
+
+## Search your folders
+
+In the window, **Add folder** picks one and reads it; after that the field answers as you type. `↑` `↓` move through the results, `Enter` opens one, `Ctrl+Enter` shows it in its folder, and `Ctrl+K` puts the cursor back in the field from anywhere.
+
+From the shell, add a folder and search:
+
+```console
+$ nooma source add ~/Notes
+added /home/you/Notes
+run `nooma index` to read it
+
+$ nooma find "warranty claim"
+Appliance receipts · March
+  /home/you/Notes/home/receipts.md:5
+  Filed the warranty claim for the espresso machine…
+```
+
+`find` reads whatever changed since the last time before it answers, so there is no separate step to remember. The window and the shell share one library: a folder added in one is searched by the other. Everything - the folders, the options, the JSON `find --json` prints - is on the [reference page](/nooma/reference/find/).
 
 ## Index a repository
 

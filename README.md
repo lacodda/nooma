@@ -31,33 +31,25 @@ There is exactly one exception, and it is not in the default build: `--prose` ca
 
 ## What works today
 
-v0.4.0 ships the first half: `nooma-core`, a library that reads a git repository into symbols, imports and module dependencies, and the `nooma repo` command over it.
+v0.5.0 searches your folders by the words in them - the exact half of the hybrid. Point it at notes, text files or an Obsidian vault, and search from a window with one field or from the shell:
+
+<p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar, results with the matched words marked" width="720"></p>
 
 ```
-$ nooma repo index
-indexed 47711d3c: 13 files, 159 symbols
-
-$ nooma repo symbols --name ledger --kind type
-src/ledger.rs:12  type  Ledger
-
-$ nooma repo summary --under src/ledger.rs
-src/ledger.rs
-  Keeps entries in balance.
-      4  pub fn post(entry: Entry) -> Result<Balance>
-
-$ nooma repo history --matching "path handling"
-4fa18bad  fix: correct the PATH handling on Windows
+$ nooma source add ~/Notes
+$ nooma find "договоров"
+Договоры с подрядчиками · Сроки
+  ~/Notes/work/договоры.md:9
+  Договор поставки продлевается автоматически…
 ```
 
-Built with `--features prose`, `nooma repo summary --prose` adds a generated paragraph per module, marked as generated and cached so each distinct file is described — and paid for — once.
+Any form of a word finds the others, in Russian and English alike. Tags, wikilinks and backlinks count; only files that changed are read again.
 
-Rust, TypeScript, Python and Go, parsed with tree-sitter. The index is kept on disk and describes a revision - the commit, and whether the tree still matched it. Only files whose contents actually moved are parsed again, so a second pass over 287 unchanged files takes 165 ms rather than 4.5 seconds. `.gitignore` and `.nooma-ignore` decide what is left out.
-
-This half is built first because [rigger](https://github.com/lacodda/rigger) needs it, and because an index is easier to get right before a window depends on it. Search over documents — and the hybrid the product is named for — comes next.
+The repository index from earlier versions is still here: `nooma repo` reads a git repository into symbols, imports, module summaries and commit history, for [rigger](https://github.com/lacodda/rigger) and for scripts.
 
 ## Status
 
-v0.4.0. The repository index works — symbols, module summaries, optional generated prose, and commit messages as documents; document search does not exist yet, and nothing here can be pointed at a folder of notes today. The hybrid over documents is the point at which nooma becomes useful to a person rather than to another program. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.5.0. Exact search over markdown and text works, in a window and on the command line; the half that finds a document by meaning arrives with the embedding model, and the two merge into one ranked list at v0.8.0 - the point at which the name is earned. PDF, DOCX and EPUB come after. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 
