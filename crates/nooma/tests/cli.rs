@@ -78,6 +78,12 @@ fn the_command_tree_is_well_formed() {
         vec!["repo", "summary", "--help"],
         vec!["repo", "history", "--help"],
         vec!["repo", "status", "--help"],
+        vec!["find", "--help"],
+        vec!["index", "--help"],
+        vec!["source", "--help"],
+        vec!["source", "add", "--help"],
+        vec!["source", "remove", "--help"],
+        vec!["source", "list", "--help"],
     ] {
         let output = run(&args);
         assert!(output.status.success(), "nooma {args:?}: {}", stderr(&output));
@@ -102,6 +108,14 @@ fn every_flag_describes_itself_on_the_help_page() {
             // one is "      --json" and nothing else.
             let described = line.split_whitespace().count() > 2;
             assert!(described, "nooma repo {command} --help has a bare flag:\n{help}");
+        }
+    }
+    for args in [vec!["find"], vec!["index"], vec!["source", "add"], vec!["source", "list"]] {
+        let mut with_help = args.clone();
+        with_help.push("--help");
+        let help = stdout(&run(&with_help));
+        for line in help.lines().filter(|l| l.trim_start().starts_with("--")) {
+            assert!(line.split_whitespace().count() > 2, "nooma {args:?} --help has a bare flag:\n{help}");
         }
     }
 }

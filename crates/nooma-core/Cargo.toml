@@ -27,6 +27,8 @@ tree-sitter-go.workspace = true
 blake3.workspace = true
 rayon.workspace = true
 directories.workspace = true
+tantivy = "0.26"
+rust-stemmers = "1"
 
 [dev-dependencies]
 tempfile.workspace = true

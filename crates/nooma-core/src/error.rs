@@ -59,6 +59,40 @@ pub enum Error {
     #[error("git: {0}")]
     Git(#[source] Box<dyn std::error::Error + Send + Sync>),
 
+    /// The full-text index refused an operation.
+    #[error("full-text index: {0}")]
+    Fulltext(#[source] Box<tantivy::TantivyError>),
+
+    /// Another process is updating the same library right now.
+    #[error("another nooma is updating this library; try again when it has finished")]
+    Busy,
+
+    /// The stored library index was built by other rules and has to be built
+    /// again before it can be searched.
+    #[error("the stored index cannot be searched: {0} — reindex")]
+    LibraryStale(String),
+
+    /// A source has to be a folder.
+    #[error("{0} is not a folder")]
+    NotADirectory(PathBuf),
+
+    /// A source would overlap one the library already has.
+    #[error("{path} overlaps the source {existing}; a file may belong to one source only")]
+    SourceOverlap {
+        /// The folder that was being added.
+        path: PathBuf,
+        /// The source it overlaps.
+        existing: PathBuf,
+    },
+
+    /// There is no such source to remove.
+    #[error("{0} is not a source of this library")]
+    UnknownSource(PathBuf),
+
+    /// An exclusion pattern is not valid `.gitignore` syntax.
+    #[error("the pattern {0:?} is not valid: {1}")]
+    BadPattern(String, String),
+
     /// Anything the filesystem refused.
     #[error("{path}: {source}")]
     Io {
@@ -75,6 +109,11 @@ impl Error {
         Self::Git(Box::new(source))
     }
 
+    /// Wrap a full-text index failure.
+    pub(crate) fn fulltext(source: tantivy::TantivyError) -> Self {
+        Self::Fulltext(Box::new(source))
+    }
+
     /// Attach a path to an [`std::io::Error`], which never carries one.
     pub(crate) fn io(path: impl Into<PathBuf>, source: std::io::Error) -> Self {
         Self::Io { path: path.into(), source }
@@ -87,6 +126,6 @@ impl Error {
     /// a normal event after a crash mid-write, and both are fixed the same
     /// way.
     pub fn is_stale_index(&self) -> bool {
-        matches!(self, Self::IndexFormat { .. } | Self::IndexUnreadable { .. })
+        matches!(self, Self::IndexFormat { .. } | Self::IndexUnreadable { .. } | Self::LibraryStale(_))
     }
 }

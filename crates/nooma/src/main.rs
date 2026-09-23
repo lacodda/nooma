@@ -4,10 +4,12 @@
 //! index for meaning. Neither half alone is the product — see
 //! `docs/adr/0001-hybrid-index.md`.
 //!
-//! This version ships the repository half: `nooma repo` reads a git work tree
-//! into symbols, imports and module dependencies. Document search arrives with
-//! the index halves it needs.
+//! `nooma find` searches the folders added with `nooma source add`, through
+//! the exact half; `nooma repo` reads a git work tree into symbols, imports and
+//! module dependencies. The window is a separate binary, `nooma-app`, over the
+//! same library.
 
+mod library;
 #[cfg(feature = "prose")]
 mod prose;
 mod repo;
@@ -24,6 +26,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Find the documents that contain the words of a query
+    Find(library::FindArgs),
+    /// Bring the index up to date with the folders
+    Index(library::IndexArgs),
+    /// Add, remove and list the folders nooma searches
+    Source(library::SourceArgs),
     /// What is in a repository: symbols, imports and module dependencies
     Repo(repo::RepoArgs),
 }
@@ -31,6 +39,9 @@ enum Command {
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
+        Command::Find(args) => library::find(args),
+        Command::Index(args) => library::index(args),
+        Command::Source(args) => library::source(args),
         Command::Repo(args) => repo::run(args),
     };
     match result {
