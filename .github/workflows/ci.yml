@@ -65,6 +65,23 @@ jobs:
       # on its own, because that is the only place it is compiled at all.
       - name: Lint (prose)
         run: cargo clippy --all-targets --features prose -- -D warnings
+      # Built on its own, nooma-core leaves the model runner out - that is
+      # the crate rigger links. Everything above builds it with the runner in,
+      # because nooma turns it on, so this is the one place the lean build is
+      # compiled at all.
+      - name: Lint (core without the model runner)
+        run: cargo clippy -p nooma-core --all-targets -- -D warnings
+      # The tests measure the real model rather than skip without it. It is
+      # fetched once per catalogue change and kept between runs.
+      - name: Where the model lives
+        shell: bash
+        run: echo "NOOMA_MODELS=${{ runner.temp }}/nooma-models" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/nooma-models
+          key: nooma-models-${{ hashFiles('crates/nooma-core/src/model.rs') }}
+      - name: Fetch the model
+        run: cargo run -q -p nooma -- model fetch
       # The test suite builds git repositories from nothing and runs the binary
       # against them, so git has to be on PATH and the committer has to be
       # named. Both hold on every runner; the tests clear the global config
