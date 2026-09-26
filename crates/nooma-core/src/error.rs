@@ -105,8 +105,12 @@ pub enum Error {
 
 impl Error {
     /// Wrap a git failure whose type is not worth naming in the signature.
-    pub(crate) fn git(source: impl std::error::Error + Send + Sync + 'static) -> Self {
-        Self::Git(Box::new(source))
+    ///
+    /// Taken as anything that boxes into an error rather than as an error:
+    /// gix reports some failures through its own exception type, which is
+    /// not a `std::error::Error` itself but converts into a boxed one.
+    pub(crate) fn git(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self::Git(source.into())
     }
 
     /// Wrap a full-text index failure.

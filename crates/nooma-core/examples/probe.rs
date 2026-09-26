@@ -6,7 +6,7 @@
 //!
 //! `cargo run -p nooma-core --example probe -- <path>`
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let path = std::env::args().nth(1).unwrap_or_else(|| ".".into());
     let repo = gix::discover(&path)?;
     let commit = repo.head_commit()?;
@@ -16,7 +16,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // What a tree's entries look like at the top level.
     for entry in tree.iter().take(5) {
-        let entry = entry?;
+        // Tree entries fail with gix's own exception type, which boxes into
+        // an error but is not one itself.
+        let entry = entry.map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
         println!("  entry {:?} {:?}", entry.filename(), entry.mode());
     }
 
