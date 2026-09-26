@@ -2,9 +2,10 @@
 
 ## Layout
 
-The repository is a cargo workspace of three crates:
+The repository is a cargo workspace of four crates:
 
-- **`crates/nooma-core`** — the indexing library. No UI, no window, no network path. This is where the work is.
+- **`crates/nooma-core`** — the indexing library: repositories, the document library, the model catalogue, the vector store and the evaluation. No UI, no window, no network path. This is where the work is. Its `semantic` feature adds the model runner (ONNX Runtime, linked statically); it is off by default, so a consumer that only reads repositories does not link an inference runtime.
+- **`crates/nooma-fetch`** — fetches an embedding model, pinned by commit and hash. The one crate in the workspace that opens a connection; a test (`crates/nooma-core/tests/offline.rs`) holds `nooma-core` to having no HTTP client or TLS among its dependencies at all.
 - **`crates/nooma`** — the command-line binary.
 - **`app/src-tauri`** — the window, `nooma-app`: a Tauri 2 shell around the same library. Its frontend is `app/`, React on the line's design system, [dowel](https://github.com/lacodda/dowel).
 
@@ -27,14 +28,27 @@ pnpm tauri dev
 
 `NOOMA_STORE=<dir>` points both the window and the CLI at a library other than your own - for a demo corpus, or for trying a change without touching what you search every day.
 
+ONNX Runtime comes prebuilt and is linked statically; `ort` downloads it while building, never while nooma runs. On Windows the prebuilt library needs the C++ standard library of Visual Studio 2022 17.10 or newer (MSVC 14.40): an older toolset fails to link with `unresolved external symbol __std_find_last_of_trivial_pos_1`, and the cure is updating Visual Studio, not the code.
+
+The tests run the real embedding model rather than skip without it, so fetch it once before the first `cargo test`:
+
+```
+cargo run -- model fetch
+```
+
+It lands in nooma's own models folder. `NOOMA_MODELS=<dir>` points the tests, the CLI and the window at another one; CI keeps it there between runs.
+
 The gate, which every commit has to pass:
 
 ```
 cargo fmt --all --check && cargo clippy --all-targets -- -D warnings
 cargo clippy --all-targets --features prose -- -D warnings
-cargo test && cargo test --features prose && cargo build --release
+cargo clippy -p nooma-core --all-targets -- -D warnings
+cargo test && cargo test --features prose
 cd app && pnpm lint && pnpm build
 ```
+
+The third line is the core built on its own, without the model runner - the build a repository reader links, and one nothing else compiles. There is no release build in the gate: with ONNX Runtime linked statically under LTO it takes longer than everything else together, and a gate that slow stops being run. CI builds the whole workspace in release on every push, on all three systems, and a version is tagged only once that is green.
 
 Requires Rust 1.95 or newer. That number is a promise to anyone building from source, not a note about the maintainer's machine: the `msrv` job in CI builds on exactly the version the manifest declares, so raising a toolchain does not quietly raise the floor.
 
@@ -67,7 +81,9 @@ Green tests are not a verified product. Three defects in v0.1.0 were found only 
 
 ## Principles
 
-**Nothing goes out.** Downloading the embedding model is the only network call, and it is explicit and one-time. There is no cloud mode, not even opt-in.
+**Nothing goes out.** Downloading the embedding model is the only network call, and it is explicit and one-time: `nooma model fetch`, in its own crate. There is no cloud mode, not even opt-in.
+
+**Search quality is measured, not felt.** A change to chunking, stemming, the model or the ranking is run through `nooma eval` - on the bilingual corpus in `crates/nooma-core/tests/meaning`, and on something real.
 
 **Hybrid from the start.** Exact and semantic search are two halves of one feature, not two milestones.
 
