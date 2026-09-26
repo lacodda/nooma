@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0] - 2026-09-26
+
+### Bug Fixes
+- Keep a Rust doc above its attributes, and test-only items off the surface
+
+### CI
+- Fetch the model once and lint the core without its runner
+
+### Documentation
+- Describe search by meaning and how the model was chosen
+
+### Features
+- Keep what nooma builds in the machine's local data directory
+- Pin the embedding models, fetch them in one crate, keep vectors per model
+- Add `nooma model` and `nooma eval`
+
+### Breaking Changes
+
+the repository index chunker is now 3. The first read
+after upgrading reparses every file to rebuild its summary; there is
+nothing to do by hand.
+
+on Windows the library and the repository indexes move
+from %APPDATA%\lacodda\nooma\data to %LOCALAPPDATA%\lacodda\nooma\data.
+Nothing is carried over: add your sources again with `nooma source add`,
+or move the `library` folder across before the first run. Repository
+indexes rebuild on their own at the next `nooma repo` command. Linux and
+macOS are unaffected.
+
 ## [0.5.0] - 2026-09-23
 
 ### Features

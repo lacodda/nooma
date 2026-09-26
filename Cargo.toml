@@ -6,7 +6,7 @@ resolver = "3"
 # and the binary ship together: `nooma-core` is not versioned apart from the
 # product it belongs to.
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -15,8 +15,8 @@ homepage = "https://github.com/lacodda/nooma"
 authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
 
 [workspace.dependencies]
-nooma-core = { path = "crates/nooma-core", version = "0.5.0" }
-nooma-fetch = { path = "crates/nooma-fetch", version = "0.5.0" }
+nooma-core = { path = "crates/nooma-core", version = "0.6.0" }
+nooma-fetch = { path = "crates/nooma-fetch", version = "0.6.0" }
 
 anyhow = "1"
 thiserror = "2"
