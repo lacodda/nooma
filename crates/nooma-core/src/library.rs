@@ -637,6 +637,58 @@ impl Library {
     }
 }
 
+/// A chunk as the full-text index holds it.
+#[derive(Debug, Clone)]
+pub(crate) struct StoredChunk {
+    pub(crate) path: String,
+    pub(crate) title: String,
+    pub(crate) headings: Vec<String>,
+    pub(crate) body: String,
+    pub(crate) line: u32,
+}
+
+impl Library {
+    /// Every chunk in the full-text index, by path and line.
+    ///
+    /// The index is where the chunks are kept, so it is what everything built
+    /// over chunks reads them from: a second copy would be a second answer to
+    /// "what did the chunker make of this file". Empty before the first
+    /// update; an index that must be rebuilt is an error, since its chunks are
+    /// about to change.
+    pub(crate) fn stored_chunks(&self) -> Result<Vec<StoredChunk>> {
+        let manifest = self.load_manifest()?;
+        if let Some(reason) = self.staleness(manifest.as_ref()) {
+            return Err(Error::LibraryStale(reason));
+        }
+        if manifest.is_none() {
+            return Ok(Vec::new());
+        }
+        let (index, fields) = self.open_index()?;
+        let reader = index.reader().map_err(Error::fulltext)?;
+        let searcher = reader.searcher();
+        let addresses = searcher
+            .search(&tantivy::query::AllQuery, &tantivy::collector::DocSetCollector)
+            .map_err(Error::fulltext)?;
+        let mut chunks = Vec::with_capacity(addresses.len());
+        for address in addresses {
+            let doc: TantivyDocument = searcher.doc(address).map_err(Error::fulltext)?;
+            chunks.push(StoredChunk {
+                path: first_text(&doc, fields.path),
+                title: first_text(&doc, fields.title),
+                headings: all_text(&doc, fields.headings),
+                body: first_text(&doc, fields.body),
+                line: doc
+                    .get_first(fields.line)
+                    .and_then(|v| v.as_u64())
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(1),
+            });
+        }
+        chunks.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+        Ok(chunks)
+    }
+}
+
 /// An index open for searching.
 pub struct Finder {
     index: Index,
@@ -783,8 +835,9 @@ fn add_document(writer: &IndexWriter, fields: &Fields, key: &str, entry: &FileEn
 }
 
 /// Indexing shares the machine with whatever the person is doing. Half the
-/// cores, at least one and at most four.
-fn indexing_threads() -> usize {
+/// cores, at least one and at most four - for the full-text writer and for a
+/// model computing vectors alike.
+pub fn indexing_threads() -> usize {
     let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
     (cores / 2).clamp(1, 4)
 }
@@ -795,7 +848,7 @@ fn unix_now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
-fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     let temporary = path.with_extension("tmp");
     std::fs::write(&temporary, bytes).map_err(|e| Error::io(&temporary, e))?;
     std::fs::rename(&temporary, path).map_err(|e| Error::io(path, e))

@@ -93,6 +93,42 @@ pub enum Error {
     #[error("the pattern {0:?} is not valid: {1}")]
     BadPattern(String, String),
 
+    /// A model's files are not all on disk. Nothing is downloaded on the
+    /// way to this error: fetching is a command of its own.
+    #[error("the model {id} is not on this machine (missing {files:?} in {dir}) — fetch it with `nooma model fetch {id}`")]
+    ModelMissing {
+        /// The model.
+        id: String,
+        /// Where its files were looked for.
+        dir: PathBuf,
+        /// The files that are missing or the wrong size.
+        files: Vec<String>,
+    },
+
+    /// The model refused a text, or returned something other than vectors
+    /// of its length.
+    #[error("embedding: {0}")]
+    Embedding(String),
+
+    /// Some chunks have no vector from this model yet. A search over part of
+    /// the library would answer as if it were the whole.
+    #[error("{missing} chunks have no vector from {model} yet — bring the vectors up to date first")]
+    VectorsBehind {
+        /// The model.
+        model: String,
+        /// Chunks without a vector.
+        missing: usize,
+    },
+
+    /// A query set could not be read.
+    #[error("the query set {path} could not be read: {reason}")]
+    QuerySet {
+        /// The file.
+        path: PathBuf,
+        /// What was wrong with it.
+        reason: String,
+    },
+
     /// Anything the filesystem refused.
     #[error("{path}: {source}")]
     Io {

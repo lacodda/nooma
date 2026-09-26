@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/nooma", "crates/nooma-core", "app/src-tauri"]
+members = ["crates/nooma", "crates/nooma-core", "crates/nooma-fetch", "app/src-tauri"]
 resolver = "3"
 
 # Everything published or built from this tree shares one identity. The library
@@ -16,6 +16,7 @@ authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
 
 [workspace.dependencies]
 nooma-core = { path = "crates/nooma-core", version = "0.5.0" }
+nooma-fetch = { path = "crates/nooma-fetch", version = "0.5.0" }
 
 anyhow = "1"
 thiserror = "2"

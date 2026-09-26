@@ -1,0 +1,25 @@
+[package]
+name = "nooma-fetch"
+description = "Fetches nooma's embedding models, pinned by revision and hash: the one part of nooma that opens a network connection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords = ["embeddings", "onnx", "download", "offline"]
+categories = ["network-programming"]
+
+[dependencies]
+nooma-core.workspace = true
+thiserror.workspace = true
+# Blocking, small, and TLS without a system library. No gzip: a compressed
+# response would hash differently from the file it stands for, and ranges
+# over a compressed stream do not resume.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+sha2 = "0.11"
+
+[dev-dependencies]
+tempfile.workspace = true
+sha2 = "0.11"

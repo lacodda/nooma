@@ -12,17 +12,21 @@
 //! [`rigger`]: https://github.com/lacodda/rigger
 
 pub mod document;
+pub mod embed;
 pub mod error;
+pub mod eval;
 pub mod fulltext;
 pub mod history;
 pub mod incremental;
 pub mod index;
 pub mod lang;
 pub mod library;
+pub mod model;
 pub mod repo;
 pub mod store;
 pub mod summary;
 pub mod symbols;
+pub mod vectors;
 
 pub use error::{Error, Result};
 
@@ -38,11 +42,14 @@ pub fn data_dir() -> Result<std::path::PathBuf> {
         .map(|dirs| dirs.data_local_dir().to_path_buf())
         .ok_or_else(|| Error::io(std::path::PathBuf::from("."), std::io::Error::other("no home directory on this system")))
 }
+pub use embed::{Embedder, Role};
 pub use history::{CommitDoc, History};
 pub use incremental::Update;
 pub use index::{FileIndex, Import, RepoIndex, Revision, Symbol, SymbolKind};
 pub use lang::Language;
 pub use library::{Finder, Hit, Library, Progress, Skipped, Source, Status, UpdateReport};
+pub use model::{ModelSpec, Pooling};
 pub use repo::Repo;
 pub use store::Store;
 pub use summary::{ModuleSummary, SummaryEntry};
+pub use vectors::{SemanticHit, SemanticIndex, VectorReport};

@@ -1,0 +1,11 @@
+# Diagnosing a car that won't start
+
+When you turn the key or press the ignition button and nothing happens, or you just hear a single click, the problem is usually either the battery or the starter motor — and it's worth telling them apart before you call a mechanic or buy parts.
+
+## Battery vs. starter motor
+
+If the dashboard lights are dim or don't come on at all, and the engine doesn't turn over, the battery is the more likely culprit — try a jump start first. If the lights and radio work fine but you hear a rapid clicking sound when you turn the key, that's often a weak battery too, just with enough charge for electronics but not enough current to spin the starter. A single loud click followed by silence, with everything else working normally, points more toward a failing starter motor itself.
+
+## When to replace the starter
+
+If jump-starting the car works but the problem keeps recurring, or a mechanic confirms the starter motor is drawing too much current or grinding when engaged, it usually needs to be replaced rather than repaired. It's a fairly standard job at most repair shops and typically takes under two hours.

@@ -1,0 +1,164 @@
+{
+  "queries": [
+    {
+      "query": "Вода понемногу подтекает из излива смесителя, даже когда он полностью закрыт",
+      "expect": ["plumbing/протекает-кран.md"],
+      "group": "ru→ru"
+    },
+    {
+      "query": "why does my kitchen faucet keep dripping",
+      "expect": ["plumbing/протекает-кран.md"],
+      "group": "en→ru"
+    },
+    {
+      "query": "how to stop a leaking tap at home",
+      "expect": ["plumbing/протекает-кран.md"],
+      "group": "en→ru"
+    },
+    {
+      "query": "течёт кран прокладка",
+      "expect": ["plumbing/протекает-кран.md"],
+      "group": "keywords"
+    },
+    {
+      "query": "how often should I refresh my bread yeast culture at home",
+      "expect": ["sourdough/keeping-starter-alive.md"],
+      "group": "en→en"
+    },
+    {
+      "query": "как поддерживать закваску для хлеба живой",
+      "expect": ["sourdough/keeping-starter-alive.md"],
+      "group": "ru→en"
+    },
+    {
+      "query": "сколько раз в неделю нужно кормить закваску",
+      "expect": ["sourdough/keeping-starter-alive.md"],
+      "group": "ru→en"
+    },
+    {
+      "query": "sourdough starter feeding schedule",
+      "expect": ["sourdough/keeping-starter-alive.md"],
+      "group": "keywords"
+    },
+    {
+      "query": "Деталь, которая тянется от педалей к заднему колесу, начала растягиваться — как её поменять самому?",
+      "expect": ["bicycle-chain/замена-велоцепи.md"],
+      "group": "ru→ru"
+    },
+    {
+      "query": "how do I replace a worn bicycle chain myself",
+      "expect": ["bicycle-chain/замена-велоцепи.md"],
+      "group": "en→ru"
+    },
+    {
+      "query": "when should I swap out my bike's drivetrain chain",
+      "expect": ["bicycle-chain/замена-велоцепи.md"],
+      "group": "en→ru"
+    },
+    {
+      "query": "замена велосипедной цепи",
+      "expect": ["bicycle-chain/замена-велоцепи.md"],
+      "group": "keywords"
+    },
+    {
+      "query": "how often should I give my dormant potted desert plants a drink during the cold months",
+      "expect": ["succulents/watering-succulents-in-winter.md"],
+      "group": "en→en"
+    },
+    {
+      "query": "как часто поливать суккуленты зимой",
+      "expect": ["succulents/watering-succulents-in-winter.md"],
+      "group": "ru→en"
+    },
+    {
+      "query": "нужно ли поливать кактусы и суккуленты реже в холодное время года",
+      "expect": ["succulents/watering-succulents-in-winter.md"],
+      "group": "ru→en"
+    },
+    {
+      "query": "watering succulents winter dormancy",
+      "expect": ["succulents/watering-succulents-in-winter.md"],
+      "group": "keywords"
+    },
+    {
+      "query": "Ребёнок каждый вечер закатывает истерику, когда пора в кроватку — как это исправить?",
+      "expect": ["toddler-sleep/уложить-малыша-спать.md"],
+      "group": "ru→ru"
+    },
+    {
+      "query": "how to get a toddler to fall asleep without crying",
+      "expect": ["toddler-sleep/уложить-малыша-спать.md"],
+      "group": "en→ru"
+    },
+    {
+      "query": "bedtime routine tips for a two-year-old who won't settle down",
+      "expect": ["toddler-sleep/уложить-малыша-спать.md"],
+      "group": "en→ru"
+    },
+    {
+      "query": "уложить ребёнка спать без слёз",
+      "expect": ["toddler-sleep/уложить-малыша-спать.md"],
+      "group": "keywords"
+    },
+    {
+      "query": "how do I make sure the pictures on my mobile automatically save somewhere safe",
+      "expect": ["photo-backup/backing-up-phone-photos.md"],
+      "group": "en→en"
+    },
+    {
+      "query": "как настроить автоматическое резервное копирование фотографий с телефона",
+      "expect": ["photo-backup/backing-up-phone-photos.md"],
+      "group": "ru→en"
+    },
+    {
+      "query": "нужно ли вручную сохранять фото с телефона или это делается само",
+      "expect": ["photo-backup/backing-up-phone-photos.md"],
+      "group": "ru→en"
+    },
+    {
+      "query": "automatic phone photo backup",
+      "expect": ["photo-backup/backing-up-phone-photos.md"],
+      "group": "keywords"
+    },
+    {
+      "query": "На стенках моей посуды для кипячения воды появился белый налёт, как его убрать?",
+      "expect": ["kettle-descaling/накипь-в-чайнике.md"],
+      "group": "ru→ru"
+    },
+    {
+      "query": "how to remove limescale buildup from an electric kettle",
+      "expect": ["kettle-descaling/накипь-в-чайнике.md"],
+      "group": "en→ru"
+    },
+    {
+      "query": "best way to descale a kettle with vinegar",
+      "expect": ["kettle-descaling/накипь-в-чайнике.md"],
+      "group": "en→ru"
+    },
+    {
+      "query": "накипь в чайнике уксус",
+      "expect": ["kettle-descaling/накипь-в-чайнике.md"],
+      "group": "keywords"
+    },
+    {
+      "query": "what's a good plan to get ready for my first 21k race",
+      "expect": ["half-marathon/first-half-marathon-training.md"],
+      "group": "en→en"
+    },
+    {
+      "query": "как подготовиться к своему первому полумарафону",
+      "expect": ["half-marathon/first-half-marathon-training.md"],
+      "group": "ru→en"
+    },
+    {
+      "query": "план тренировок для новичка перед первым забегом на 21 км",
+      "expect": ["half-marathon/first-half-marathon-training.md"],
+      "group": "ru→en"
+    },
+    {
+      "query": "half marathon training plan beginner",
+      "expect": ["half-marathon/first-half-marathon-training.md"],
+      "group": "keywords"
+    }
+  ]
+}
