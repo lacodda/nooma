@@ -301,13 +301,23 @@ fn preceding_comments(language: Language, node: Node<'_>, source: &[u8]) -> Opti
     let mut below = anchor;
     let mut previous = anchor.prev_sibling();
     while let Some(sibling) = previous {
+        // Rust writes attributes between a doc comment and its item, and
+        // `/// A folder.` above `#[derive(Debug)]` above `pub struct Source`
+        // documents the struct. An attribute is part of the item it sits on,
+        // so the walk steps over it rather than stopping - stopping lost the
+        // doc of every type that derives anything.
+        if language == Language::Rust && is_attribute(sibling) {
+            below = sibling;
+            previous = sibling.prev_sibling();
+            continue;
+        }
         if !is_comment(sibling) || !is_doc_comment(language, sibling) {
             break;
         }
         // A blank line between a comment and what follows it means the
         // comment is about something else. Rows are compared rather than
         // bytes, since the gap between them is only ever whitespace.
-        if below.start_position().row > sibling.end_position().row + 1 {
+        if below.start_position().row > last_row(sibling) + 1 {
             break;
         }
         let line = strip_marker(sibling.utf8_text(source).unwrap_or_default());
@@ -527,11 +537,18 @@ fn is_public(language: Language, node: Node<'_>, source: &[u8]) -> bool {
         // internals on the surface it advertises. The grammar separates them
         // cleanly: a bare `pub` modifier has no children, and every restricted
         // form names its scope as one.
+        //
+        // And `pub` under `#[cfg(test)]` is not there at all outside a test
+        // build: a method in a test-only `impl` is on no surface a caller can
+        // reach, and advertising it would have the index find a module by an
+        // API it does not have.
         Language::Rust => {
             let mut cursor = node.walk();
-            node.children(&mut cursor)
+            let marked = node
+                .children(&mut cursor)
                 .find(|child| child.kind() == "visibility_modifier")
-                .is_some_and(|modifier| modifier.named_child_count() == 0)
+                .is_some_and(|modifier| modifier.named_child_count() == 0);
+            marked && !only_in_tests(node, source)
         }
         // `export` wraps the declaration; a method inside an exported class is
         // public along with the class, which the climb finds.
@@ -548,6 +565,116 @@ fn is_public(language: Language, node: Node<'_>, source: &[u8]) -> bool {
         // Go and Python say it in the name, which `implied_public` reads.
         Language::Go | Language::Python => implied_public(language, &name_text(node, source)),
     }
+}
+
+/// The last row a node has text on.
+///
+/// A Rust line comment owns its newline, so the grammar ends it at column 0
+/// of the next row. Measuring a gap from there made one blank line look like
+/// none, and a `///` comment about the section above attached itself to the
+/// item below.
+fn last_row(node: Node<'_>) -> usize {
+    let end = node.end_position();
+    if end.column == 0 && end.row > node.start_position().row {
+        end.row - 1
+    } else {
+        end.row
+    }
+}
+
+fn is_attribute(node: Node<'_>) -> bool {
+    node.kind() == "attribute_item"
+}
+
+/// Whether a Rust declaration, or anything enclosing it, exists only when
+/// compiling tests.
+///
+/// The attribute is looked for on every enclosing item as well as the
+/// declaration itself: `#[cfg(test)]` is written on the `impl` or the `mod`,
+/// and every item inside inherits it without saying so.
+fn only_in_tests(node: Node<'_>, source: &[u8]) -> bool {
+    let mut at = Some(node);
+    while let Some(current) = at {
+        if attributes_of(current, source).iter().any(|attribute| {
+            attribute
+                .strip_prefix("cfg(")
+                .and_then(|rest| rest.strip_suffix(')'))
+                .is_some_and(requires_test)
+        }) {
+            return true;
+        }
+        at = current.parent();
+    }
+    false
+}
+
+/// The attributes written above a node, without `#[` and `]` and with
+/// whitespace collapsed: `cfg(all(test, unix))`.
+///
+/// Comments among them are stepped over; anything else ends the run, since an
+/// attribute can only belong to the item below it.
+fn attributes_of(node: Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut previous = outermost_wrapper(node).prev_sibling();
+    while let Some(sibling) = previous {
+        if is_attribute(sibling) {
+            let text = collapse(sibling.utf8_text(source).unwrap_or_default());
+            if let Some(inner) = text.strip_prefix("#[").and_then(|rest| rest.strip_suffix(']')) {
+                found.push(inner.trim().to_string());
+            }
+        } else if !is_comment(sibling) {
+            break;
+        }
+        previous = sibling.prev_sibling();
+    }
+    found
+}
+
+/// Whether a `cfg` predicate can hold only in a test build.
+///
+/// `test` does; `all(...)` does when any of its parts does; `any(...)` only
+/// when every part does. `not(test)` and everything else may hold in an
+/// ordinary build, and is left to count as present.
+fn requires_test(predicate: &str) -> bool {
+    let predicate = predicate.trim();
+    if predicate == "test" {
+        return true;
+    }
+    let parts = |prefix: &str| {
+        predicate
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.trim_start().strip_prefix('('))
+            .and_then(|rest| rest.strip_suffix(')'))
+            .map(split_arguments)
+    };
+    if let Some(parts) = parts("all") {
+        return parts.iter().any(|part| requires_test(part));
+    }
+    if let Some(parts) = parts("any") {
+        return !parts.is_empty() && parts.iter().all(|part| requires_test(part));
+    }
+    false
+}
+
+/// Split a predicate's arguments on the commas at its own level.
+fn split_arguments(arguments: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut depth, mut quoted, mut start) = (0usize, false, 0);
+    for (at, character) in arguments.char_indices() {
+        match character {
+            '"' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted => depth = depth.saturating_sub(1),
+            ',' if !quoted && depth == 0 => {
+                parts.push(arguments[start..at].trim());
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(arguments[start..].trim());
+    parts.retain(|part| !part.is_empty());
+    parts
 }
 
 /// Whether a name alone marks a declaration as public.
@@ -609,6 +736,18 @@ mod tests {
         assert_eq!(unquote("'''Adds.'''"), "Adds.");
         assert_eq!(unquote("\"Adds.\""), "Adds.");
         assert_eq!(unquote("r\"\"\"Adds.\"\"\""), "Adds.");
+    }
+
+    #[test]
+    fn a_cfg_predicate_requires_test_only_when_no_ordinary_build_can_satisfy_it() {
+        assert!(requires_test("test"));
+        assert!(requires_test("all(test, unix)"));
+        assert!(requires_test("all(unix, all(test, feature = \"a,b\"))"));
+        assert!(requires_test("any(test, all(test, unix))"));
+        assert!(!requires_test("any(test, unix)"), "a unix build has it");
+        assert!(!requires_test("not(test)"));
+        assert!(!requires_test("feature = \"test\""), "a feature named test is not the test build");
+        assert!(!requires_test("any()"));
     }
 
     #[test]

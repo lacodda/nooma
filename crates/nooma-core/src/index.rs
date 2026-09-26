@@ -39,7 +39,11 @@ pub const FORMAT_VERSION: u32 = 2;
 /// hash, so without this number an index built before summaries existed would
 /// be reused and extended, and every file in it would keep answering "no
 /// summary" forever.
-pub const CHUNKER_VERSION: u32 = 2;
+///
+/// 3: a Rust doc comment above an attribute is the item's doc, and `pub`
+/// under `#[cfg(test)]` is not public. Stored summaries said otherwise for
+/// every type that derives anything and every test-only helper.
+pub const CHUNKER_VERSION: u32 = 3;
 
 /// What an index describes: a commit, and whether the tree matched it.
 ///

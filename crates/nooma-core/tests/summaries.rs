@@ -120,6 +120,93 @@ fn rust_visibility_comes_from_the_modifier() {
     assert!(!entry(&summary, "hidden").public, "a documented function is still private without `pub`");
 }
 
+/// Rust puts attributes between a doc comment and its item, and nearly every
+/// type carries one. A walk that stopped at the attribute lost the doc of
+/// every struct that derives anything - found by summarizing this crate's
+/// own library module, where not one type kept its sentence.
+#[test]
+fn a_rust_doc_above_an_attribute_is_still_the_items_doc() {
+    let source = "/// A folder the library searches.
+#[derive(Debug, Clone)]
+pub struct Source {
+    path: String,
+}
+
+#[derive(Debug)]
+/// Between two attributes.
+#[non_exhaustive]
+pub enum Kind { A }
+
+/// Across a gap, and about something else.
+
+#[derive(Debug)]
+pub struct Loose {
+    at: u32,
+}
+";
+    let summary = summarize(Language::Rust, source);
+    assert_eq!(entry(&summary, "Source").doc.as_deref(), Some("A folder the library searches."));
+    assert_eq!(entry(&summary, "Kind").doc.as_deref(), Some("Between two attributes."));
+    assert_eq!(entry(&summary, "Loose").doc, None, "the blank-line rule still holds above an attribute");
+}
+
+/// A Rust line comment owns its newline, so the grammar ends it on the row
+/// after its text. Measured from there, one blank line looked like none and
+/// a `///` about the section above became the doc of the item below.
+#[test]
+fn a_rust_doc_across_a_blank_line_is_not_a_doc() {
+    let source = "/// About the section above.
+
+pub fn after() {}
+";
+    let summary = summarize(Language::Rust, source);
+    assert_eq!(entry(&summary, "after").doc, None);
+}
+
+/// `pub` under `#[cfg(test)]` is in no build a caller can link against. The
+/// summary is what an embedder reads, so advertising it would have search
+/// find a module by a method it does not have.
+#[test]
+fn rust_items_that_exist_only_in_tests_are_not_public() {
+    let source = "pub struct Cache;
+
+impl Cache {
+    pub fn len(&self) -> usize { 0 }
+}
+
+#[cfg(test)]
+impl Cache {
+    pub fn is_empty(&self) -> bool { true }
+}
+
+#[cfg(all(test, unix))]
+pub fn only_in_unix_tests() {}
+
+#[cfg(any(test, unix))]
+pub fn also_on_unix() {}
+
+#[cfg(not(test))]
+pub fn only_outside_tests() {}
+
+#[derive(Debug)]
+#[cfg(test)]
+pub struct TestOnly;
+
+#[cfg(test)]
+mod tests {
+    pub fn helper() {}
+}
+";
+    let summary = summarize(Language::Rust, source);
+    assert!(entry(&summary, "len").public);
+    assert!(!entry(&summary, "is_empty").public, "the attribute on the impl covers what is inside it");
+    assert!(!entry(&summary, "only_in_unix_tests").public);
+    assert!(entry(&summary, "also_on_unix").public, "a unix build has it");
+    assert!(entry(&summary, "only_outside_tests").public);
+    assert!(!entry(&summary, "TestOnly").public, "found among other attributes");
+    assert!(!entry(&summary, "helper").public, "the attribute on the module covers what is inside it");
+}
+
 const TYPESCRIPT: &str = r#"/**
  * The widgets module.
  */
