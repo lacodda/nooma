@@ -43,12 +43,12 @@ Brings the index up to date and stores it. A file whose bytes hash to what the i
 $ nooma repo index
 29028610: 3 files, 4 symbols
 parsed 3 files (3 added); reused 0
-stored at C:\Users\you\AppData\Roaming\lacodda\nooma\data\index\5d50076687f7bd4e.json
+stored at C:\Users\you\AppData\Local\lacodda\nooma\data\index\5d50076687f7bd4e.json
 
 $ nooma repo index
 29028610: 3 files, 4 symbols
 nothing changed; reused 3 files
-stored at C:\Users\you\AppData\Roaming\lacodda\nooma\data\index\5d50076687f7bd4e.json
+stored at C:\Users\you\AppData\Local\lacodda\nooma\data\index\5d50076687f7bd4e.json
 ```
 
 With `--json`:
@@ -64,7 +64,7 @@ With `--json`:
   "changed": 0,
   "unchanged": 3,
   "removed": 0,
-  "stored_at": "C:\\Users\\you\\AppData\\Roaming\\lacodda\\nooma\\data\\index\\5d50076687f7bd4e.json"
+  "stored_at": "C:\\Users\\you\\AppData\\Local\\lacodda\\nooma\\data\\index\\5d50076687f7bd4e.json"
 }
 ```
 

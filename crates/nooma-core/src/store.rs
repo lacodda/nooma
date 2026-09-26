@@ -25,9 +25,7 @@ pub struct Store {
 impl Store {
     /// The store in this machine's usual place for application data.
     pub fn open() -> Result<Self> {
-        let dirs = directories::ProjectDirs::from("com", "lacodda", "nooma")
-            .ok_or_else(|| Error::io(PathBuf::from("."), std::io::Error::other("no home directory on this system")))?;
-        Self::open_at(dirs.data_dir().join("index"))
+        Self::open_at(crate::data_dir()?.join("index"))
     }
 
     /// The store in a given directory, created if it is not there.
