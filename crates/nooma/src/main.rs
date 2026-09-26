@@ -5,11 +5,15 @@
 //! `docs/adr/0001-hybrid-index.md`.
 //!
 //! `nooma find` searches the folders added with `nooma source add`, through
-//! the exact half; `nooma repo` reads a git work tree into symbols, imports and
-//! module dependencies. The window is a separate binary, `nooma-app`, over the
-//! same library.
+//! the exact half; `nooma model` fetches the embedding model the other half
+//! runs, and `nooma eval` measures both against questions with known answers;
+//! `nooma repo` reads a git work tree into symbols, imports and module
+//! dependencies. The window is a separate binary, `nooma-app`, over the same
+//! library.
 
+mod eval;
 mod library;
+mod model;
 #[cfg(feature = "prose")]
 mod prose;
 mod repo;
@@ -32,6 +36,10 @@ enum Command {
     Index(library::IndexArgs),
     /// Add, remove and list the folders nooma searches
     Source(library::SourceArgs),
+    /// List, fetch and remove the embedding models
+    Model(model::ModelArgs),
+    /// Measure search against questions whose answers are known
+    Eval(eval::EvalArgs),
     /// What is in a repository: symbols, imports and module dependencies
     Repo(repo::RepoArgs),
 }
@@ -42,6 +50,8 @@ fn main() -> std::process::ExitCode {
         Command::Find(args) => library::find(args),
         Command::Index(args) => library::index(args),
         Command::Source(args) => library::source(args),
+        Command::Model(args) => model::run(args),
+        Command::Eval(args) => eval::run(args),
         Command::Repo(args) => repo::run(args),
     };
     match result {

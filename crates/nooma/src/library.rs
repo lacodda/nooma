@@ -20,7 +20,7 @@ pub struct StoreArgs {
 }
 
 impl StoreArgs {
-    fn open(&self) -> Result<Library> {
+    pub(crate) fn open(&self) -> Result<Library> {
         match &self.store {
             Some(dir) => Library::open_at(dir).with_context(|| format!("opening {}", dir.display())),
             None => Library::open().context("opening the library"),
@@ -161,19 +161,28 @@ fn print_report(report: &UpdateReport) {
     }
 }
 
+/// Bring the full-text index up to date before a reading command answers;
+/// returns whether it was.
+pub(crate) fn refresh(library: &Library) -> Result<bool> {
+    if library.sources().is_empty() {
+        return Ok(false);
+    }
+    match library.update() {
+        Ok(_) => Ok(true),
+        // Another nooma is writing the index right now. The stored index is
+        // still a correct answer about the moment it was written, so it is
+        // used — and the output says it was not refreshed.
+        Err(Error::Busy) => {
+            eprintln!("nooma: another nooma is indexing; answering from the stored index");
+            Ok(false)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
 pub fn find(args: FindArgs) -> Result<()> {
     let library = args.store.open()?;
-    let mut refreshed = false;
-    if !args.no_refresh && !library.sources().is_empty() {
-        match library.update() {
-            Ok(_) => refreshed = true,
-            // Another nooma is writing the index right now. The stored index
-            // is still a correct answer about the moment it was written, so it
-            // is used — and the output says it was not refreshed.
-            Err(Error::Busy) => eprintln!("nooma: another nooma is indexing; answering from the stored index"),
-            Err(error) => return Err(error.into()),
-        }
-    }
+    let refreshed = !args.no_refresh && refresh(&library)?;
     let hits = library.search(&args.query, args.limit)?;
     let status = library.status()?;
 
