@@ -26,6 +26,7 @@ pub mod repo;
 pub mod store;
 pub mod summary;
 pub mod symbols;
+#[cfg(feature = "semantic")]
 pub mod vectors;
 
 pub use error::{Error, Result};
@@ -42,7 +43,7 @@ pub fn data_dir() -> Result<std::path::PathBuf> {
         .map(|dirs| dirs.data_local_dir().to_path_buf())
         .ok_or_else(|| Error::io(std::path::PathBuf::from("."), std::io::Error::other("no home directory on this system")))
 }
-pub use embed::{Embedder, Role};
+pub use embed::{Embedder, Model, Role};
 pub use history::{CommitDoc, History};
 pub use incremental::Update;
 pub use index::{FileIndex, Import, RepoIndex, Revision, Symbol, SymbolKind};
@@ -52,4 +53,5 @@ pub use model::{ModelSpec, Pooling};
 pub use repo::Repo;
 pub use store::Store;
 pub use summary::{ModuleSummary, SummaryEntry};
+#[cfg(feature = "semantic")]
 pub use vectors::{SemanticHit, SemanticIndex, VectorReport};

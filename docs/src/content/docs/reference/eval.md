@@ -45,6 +45,8 @@ Questions worth writing are the ones search finds hard: a description of a note 
 
 Each question is asked of each engine, and the rank of the first expected document among the first ten results is recorded.
 
+Every model is measured twice. `<model>` searches the way `find` does, through the vector index - a graph that finds the closest vectors without reading them all, and is approximate by construction. `<model> exact` compares the question with every vector instead. The two rows side by side are what the approximation costs on your questions: nothing, when they agree. See [Search by meaning](/nooma/concepts/meaning/#finding-the-closest-without-reading-all).
+
 | Measure | Meaning |
 | --- | --- |
 | hit@1 | The share of questions answered by the first result. |
@@ -57,9 +59,11 @@ $ nooma eval queries.json --model multilingual-e5-small --model paraphrase-multi
 32 questions · 24 documents · 64 chunks
 
                                        hit@1  hit@3  hit@10    MRR  ms/question
-fulltext                                0.47   0.50    0.53   0.48          1.5
-multilingual-e5-small                   0.50   0.69    0.94   0.63         24.8
-paraphrase-multilingual-minilm-l12-v2   0.72   0.97    1.00   0.84         22.6
+fulltext                                     0.47   0.50    0.53   0.48          1.5
+multilingual-e5-small                        0.50   0.69    0.94   0.63         24.8
+multilingual-e5-small exact                  0.50   0.69    0.94   0.63         24.9
+paraphrase-multilingual-minilm-l12-v2        0.72   0.97    1.00   0.84         22.6
+paraphrase-multilingual-minilm-l12-v2 exact  0.72   0.97    1.00   0.84         22.7
 ```
 
 That is the bilingual test corpus in nooma's repository, `crates/nooma-core/tests/meaning`, measured on a laptop.
@@ -74,7 +78,7 @@ Then the same table per group, how long each model took to compute its vectors, 
 | `documents` | Documents in the library. |
 | `chunks` | Chunks in the library. |
 | `engines` | One entry per engine, full-text first, with the fields below. |
-| `engine` | `fulltext`, or a model's id. |
+| `engine` | `fulltext`; a model's id, searched through its vector index; or the id followed by ` exact`, the same vectors compared one by one. |
 | `overall` | The measures over every question: `queries`, `hit_at_1`, `hit_at_3`, `hit_at_10`, `mrr`. |
 | `groups` | The same measures per group, by group name. |
 | `outcomes` | One entry per question: `query`, `group`, `rank` (from 1, or `null` when not in the first ten) and `top`, the first three documents found. |

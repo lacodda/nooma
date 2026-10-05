@@ -637,7 +637,17 @@ impl Library {
     }
 }
 
+/// A file as the last update read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IndexedFile {
+    /// The blake3 hash of its bytes.
+    pub(crate) hash: String,
+    /// The chunks it was cut into.
+    pub(crate) chunks: usize,
+}
+
 /// A chunk as the full-text index holds it.
+#[cfg(feature = "semantic")]
 #[derive(Debug, Clone)]
 pub(crate) struct StoredChunk {
     pub(crate) path: String,
@@ -655,6 +665,7 @@ impl Library {
     /// "what did the chunker make of this file". Empty before the first
     /// update; an index that must be rebuilt is an error, since its chunks are
     /// about to change.
+    #[cfg(feature = "semantic")]
     pub(crate) fn stored_chunks(&self) -> Result<Vec<StoredChunk>> {
         let manifest = self.load_manifest()?;
         if let Some(reason) = self.staleness(manifest.as_ref()) {
@@ -686,6 +697,32 @@ impl Library {
         }
         chunks.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
         Ok(chunks)
+    }
+
+    /// Every file the full-text index holds, by path; empty before the first
+    /// update, an error when the index must be rebuilt.
+    pub(crate) fn indexed_files(&self) -> Result<BTreeMap<String, IndexedFile>> {
+        let manifest = self.load_manifest()?;
+        if let Some(reason) = self.staleness(manifest.as_ref()) {
+            return Err(Error::LibraryStale(reason));
+        }
+        Ok(manifest
+            .map(|manifest| {
+                manifest
+                    .files
+                    .into_iter()
+                    .map(|(path, entry)| {
+                        (
+                            path,
+                            IndexedFile {
+                                hash: entry.hash,
+                                chunks: entry.chunks,
+                            },
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 }
 
@@ -784,6 +821,51 @@ impl Finder {
             }
         }
         Ok(hits)
+    }
+}
+
+impl Finder {
+    /// The chunks starting at these lines of these files, as hits without a
+    /// score: the chunk's opening for a fragment, nothing highlighted.
+    ///
+    /// What found them - the vector index - knows where a chunk is and not
+    /// what it says; the text is kept here, once. A file changed since the
+    /// place was recorded gives its chunk at or before the line, and a file
+    /// the index no longer holds gives `None`.
+    pub fn chunks(&self, at: &[(PathBuf, u32)]) -> Result<Vec<Option<Hit>>> {
+        self.reader.reload().map_err(Error::fulltext)?;
+        let searcher = self.reader.searcher();
+        let fields = &self.fields;
+        let mut out = Vec::with_capacity(at.len());
+        for (path, line) in at {
+            let key = path.to_string_lossy();
+            let query = tantivy::query::TermQuery::new(Term::from_field_text(fields.path, &key), tantivy::schema::IndexRecordOption::Basic);
+            let addresses = searcher.search(&query, &tantivy::collector::DocSetCollector).map_err(Error::fulltext)?;
+            let mut chunks = Vec::with_capacity(addresses.len());
+            for address in addresses {
+                let doc: TantivyDocument = searcher.doc(address).map_err(Error::fulltext)?;
+                let starts = doc
+                    .get_first(fields.line)
+                    .and_then(|v| v.as_u64())
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(1);
+                chunks.push((starts, doc));
+            }
+            chunks.sort_by_key(|(starts, _)| *starts);
+            let chosen = chunks.iter().rev().find(|(starts, _)| starts <= line).or_else(|| chunks.first());
+            out.push(chosen.map(|(starts, doc)| Hit {
+                path: path.clone(),
+                kind: first_text(doc, fields.kind),
+                title: first_text(doc, fields.title),
+                headings: all_text(doc, fields.headings),
+                line: *starts,
+                fragment: opening(&first_text(doc, fields.body)),
+                highlights: Vec::new(),
+                tags: all_text(doc, fields.tags),
+                score: 0.0,
+            }));
+        }
+        Ok(out)
     }
 }
 

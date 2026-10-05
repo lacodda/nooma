@@ -29,18 +29,21 @@ rayon.workspace = true
 directories.workspace = true
 tantivy = "0.26"
 rust-stemmers = "1"
-# Embeddings through ONNX Runtime. Only the model runner is behind the
-# feature: the catalogue, the vector store and the evaluation are plain Rust
-# and always here. The runtime is linked statically, fetched by `ort` when it
-# is built - never while nooma runs.
+# Embeddings through ONNX Runtime. The runtime is linked statically, fetched
+# by `ort` when it is built - never while nooma runs.
 fastembed = { version = "7.1", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }
+# The approximate nearest-neighbour graph over the vectors: a C++ library
+# built from source, so it lives behind the same feature as the model runner.
+usearch = { version = "2.26", optional = true }
 
-# A consumer that reads repositories - rigger - has no use for an inference
-# runtime, and linking one costs it tens of megabytes and minutes of build.
+# Everything about vectors - the model runner, the store of computed vectors
+# and the index searched over them - is one feature. A consumer that reads
+# repositories - rigger - has no use for an inference runtime or a C++ graph
+# library, and linking them costs it tens of megabytes and minutes of build.
 # `nooma` and the window turn it on.
 [features]
 default = []
-semantic = ["dep:fastembed"]
+semantic = ["dep:fastembed", "dep:usearch"]
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -48,4 +51,8 @@ tempfile.workspace = true
 # Runs the real model, so it exists only where the model runner does.
 [[test]]
 name = "meaning"
+required-features = ["semantic"]
+
+[[test]]
+name = "vectors"
 required-features = ["semantic"]

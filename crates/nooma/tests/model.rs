@@ -5,18 +5,29 @@
 //! model reads it from `NOOMA_MODELS` or nooma's own folder, and fails with
 //! the command that fetches it when it is not there.
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 /// Run nooma on a temporary library; `--models` goes only to the commands
 /// that load or fetch a model, as it would from a script.
 fn nooma(args: &[&str], models: &Path, store: &Path) -> Output {
+    nooma_with_input(args, models, store, None)
+}
+
+fn nooma_with_input(args: &[&str], models: &Path, store: &Path, input: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_nooma"));
     command.args(args).arg("--store").arg(store);
-    if matches!(args.first(), Some(&"model" | &"eval")) {
+    if matches!(args.first(), Some(&"model" | &"eval" | &"index" | &"find" | &"similar")) {
         command.arg("--models").arg(models);
     }
-    command.output().expect("the binary did not start")
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().expect("the binary did not start");
+    if let Some(input) = input {
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    }
+    drop(child.stdin.take());
+    child.wait_with_output().expect("the binary did not finish")
 }
 
 fn stdout(output: &Output) -> String {
@@ -192,6 +203,10 @@ fn eval_measures_both_halves_and_keeps_the_vectors() {
     assert_eq!(engines[0]["engine"], "fulltext");
     assert_eq!(engines[1]["engine"], "multilingual-e5-small");
     assert_eq!(engines[1]["overall"]["hit_at_1"], 1.0, "{}", engines[1]);
+    // The graph beside exact search over the same vectors: what the
+    // approximation costs, measured on every run.
+    assert_eq!(engines[2]["engine"], "multilingual-e5-small exact");
+    assert_eq!(engines[2]["overall"], engines[1]["overall"]);
     assert_eq!(first["vectors"][0]["report"]["embedded"], 2);
 
     let page = reference("eval.md");
@@ -208,4 +223,53 @@ fn eval_measures_both_halves_and_keeps_the_vectors() {
 
     let second = json_of(&nooma(&["eval", set.to_str().unwrap(), "--json"], &models, library.store.path()));
     assert_eq!(second["vectors"][0]["report"]["embedded"], 0, "the vectors were kept");
+}
+
+/// The whole path a person takes with the real model: `index` reads the
+/// folder into both halves, `find` answers with both lists, and `similar`
+/// finds what a passage is like - leaving out the file it came from. Every
+/// field printed is on the reference page.
+#[test]
+fn index_computes_the_vectors_and_find_and_similar_answer_by_meaning() {
+    let library = library();
+    let models = real_models();
+    let store = library.store.path();
+
+    let indexed = json_of(&nooma(&["index", "--json"], &models, store));
+    assert_eq!(indexed["documents"], 2);
+    assert_eq!(indexed["vectors"]["embedded"], 2);
+    let again = json_of(&nooma(&["index", "--json"], &models, store));
+    assert_eq!(again["vectors"]["embedded"], 0, "the vectors were kept");
+
+    let found = json_of(&nooma(&["find", "how do I get rid of limescale", "--json"], &models, store));
+    assert!(found["hits"].as_array().unwrap().is_empty(), "no note holds these words");
+    assert_eq!(found["meaning"]["state"], "ready");
+    assert_eq!(found["meaning"]["behind"], 0);
+    let first = &found["meaning"]["hits"][0];
+    assert!(first["path"].as_str().unwrap().ends_with("kettle.md"), "{found}");
+    let score = first["score"].as_f64().unwrap();
+    assert!(score > 0.5 && score <= 1.0, "a cosine: {score}");
+
+    let report = stdout(&nooma(&["find", "how do I get rid of limescale"], &models, store));
+    assert!(report.contains("by meaning · multilingual-e5-small"), "{report}");
+
+    let kettle = library.notes.path().join("kettle.md");
+    let similar = json_of(&nooma(&["similar", kettle.to_str().unwrap(), "--json"], &models, store));
+    let paths: Vec<&str> = similar["hits"].as_array().unwrap().iter().map(|hit| hit["path"].as_str().unwrap()).collect();
+    assert_eq!(paths.len(), 1, "the example's own file is left out: {paths:?}");
+    assert!(paths[0].ends_with("чай.md"));
+
+    let passage = "Limescale builds up inside the kettle, and citric acid dissolves it.";
+    let piped = json_of(&nooma_with_input(&["similar", "-", "--json"], &models, store, Some(passage)));
+    assert_eq!(piped["example"], "-");
+    assert!(piped["hits"][0]["path"].as_str().unwrap().ends_with("kettle.md"), "{piped}");
+
+    let page = reference("find.md");
+    for printed in [&indexed, &found, &similar] {
+        let mut fields = Vec::new();
+        keys(printed, &mut fields);
+        for field in fields {
+            assert!(page.contains(&format!("`{field}`")), "find.md does not mention `{field}`");
+        }
+    }
 }

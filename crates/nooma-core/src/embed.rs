@@ -6,6 +6,11 @@
 //! run through ONNX Runtime. It is behind the `semantic` feature; the rest of
 //! this module is not.
 //!
+//! [`Model`] is the part of an embedder that says which vectors it makes,
+//! and a catalogue entry has it without loading anything: whether stored
+//! vectors can be searched is known before the half-gigabyte of weights is
+//! read.
+//!
 //! Loading reads files and nothing else. A model that is not on disk is an
 //! error naming the command that fetches it, never a download: the one
 //! network call the product makes is one the person asked for.
@@ -25,11 +30,9 @@ pub enum Role {
     Passage,
 }
 
-/// Something that turns text into vectors.
-///
-/// Every vector has [`Embedder::dimensions`] components and unit length, so
-/// the dot product of two is their cosine.
-pub trait Embedder {
+/// Which vectors a model makes: enough to tell whether stored vectors came
+/// from it.
+pub trait Model {
     /// The model's id: what its vectors are stored and compared under.
     fn model_id(&self) -> &str;
 
@@ -42,11 +45,34 @@ pub trait Embedder {
         self.model_id().to_string()
     }
 
-    /// The length of every vector it returns.
+    /// The length of every vector it makes.
     fn dimensions(&self) -> usize;
+}
 
+/// Something that turns text into vectors.
+///
+/// Every vector has [`Model::dimensions`] components and unit length, so the
+/// dot product of two is their cosine.
+pub trait Embedder: Model {
     /// One vector per text, in order.
     fn embed(&mut self, texts: &[&str], role: Role) -> Result<Vec<Vec<f32>>>;
+}
+
+impl Model for crate::model::ModelSpec {
+    fn model_id(&self) -> &str {
+        self.id
+    }
+
+    fn recipe(&self) -> String {
+        format!(
+            "{}@{} max_tokens={} pooling={:?} query={:?} passage={:?}",
+            self.repository, self.revision, self.max_tokens, self.pooling, self.query_prefix, self.passage_prefix
+        )
+    }
+
+    fn dimensions(&self) -> usize {
+        self.dimensions
+    }
 }
 
 /// Scale a vector to unit length; a zero vector is left as it is.
@@ -68,7 +94,7 @@ mod onnx {
 
     use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
 
-    use super::{Embedder, Role, normalize};
+    use super::{Embedder, Model, Role, normalize};
     use crate::error::{Error, Result};
     use crate::model::{self, ModelSpec, Pooling};
 
@@ -136,22 +162,21 @@ mod onnx {
         }
     }
 
-    impl Embedder for OnnxEmbedder {
+    impl Model for OnnxEmbedder {
         fn model_id(&self) -> &str {
-            self.spec.id
+            self.spec.model_id()
         }
 
         fn recipe(&self) -> String {
-            format!(
-                "{}@{} max_tokens={} pooling={:?} query={:?} passage={:?}",
-                self.spec.repository, self.spec.revision, self.spec.max_tokens, self.spec.pooling, self.spec.query_prefix, self.spec.passage_prefix
-            )
+            self.spec.recipe()
         }
 
         fn dimensions(&self) -> usize {
-            self.spec.dimensions
+            self.spec.dimensions()
         }
+    }
 
+    impl Embedder for OnnxEmbedder {
         fn embed(&mut self, texts: &[&str], role: Role) -> Result<Vec<Vec<f32>>> {
             let texts: Vec<String> = texts
                 .iter()

@@ -110,15 +110,20 @@ pub enum Error {
     #[error("embedding: {0}")]
     Embedding(String),
 
-    /// Some chunks have no vector from this model yet. A search over part of
-    /// the library would answer as if it were the whole.
-    #[error("{missing} chunks have no vector from {model} yet — bring the vectors up to date first")]
+    /// Some documents are not in this model's vector index yet. A
+    /// measurement over part of the library would read as one over the whole.
+    #[error("{documents} documents are not in the vectors of {model} yet — bring the vectors up to date first")]
     VectorsBehind {
         /// The model.
         model: String,
-        /// Chunks without a vector.
-        missing: usize,
+        /// Documents whose chunks are not all in the index, or are there as an
+        /// older version of the file.
+        documents: usize,
     },
+
+    /// The vector index refused an operation.
+    #[error("vector index: {0}")]
+    VectorIndex(String),
 
     /// A query set could not be read.
     #[error("the query set {path} could not be read: {reason}")]

@@ -1,5 +1,5 @@
 //! The vector half: every chunk of the library as a vector, one store per
-//! model.
+//! model, and an index over them that finds the closest without reading all.
 //!
 //! # One directory per model
 //!
@@ -25,54 +25,100 @@
 //! update stopped half way keeps the half it paid for. A record cut short by
 //! a crash is recognised by length and dropped on the next open.
 //!
-//! # Search
+//! # What was computed, and what is searched
 //!
-//! Exact: the query against every chunk, best chunk per document. An
-//! approximate index is the next step, and changes how fast the answer
-//! comes, not what it is.
+//! `vectors.bin` is the record of what the model computed: every passage it
+//! has read, including ones no file holds any more until there are enough of
+//! those to rewrite it. `index.bin` is built from it: the passages the
+//! library holds now, in an approximate nearest-neighbour graph (`usearch`),
+//! each beside the chunks it stands for. The first is expensive and is never
+//! thrown away lightly; the second is derived, and is built again from the
+//! first in seconds whenever it cannot be trusted.
+//!
+//! The index is one file, written whole and renamed into place: a reader sees
+//! one state or the next, never the graph of one with the chunks of another.
+//! It is read into memory rather than mapped - on Windows a mapped file
+//! cannot be replaced, and a window holding it would hold off every update
+//! made from the command line.
+//!
+//! A long first update saves the index as it goes, so search by meaning
+//! answers over what has been read before the rest is. Passages are read in
+//! the order of their documents, so what is covered is whole documents, and
+//! the index says how many are not covered yet.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
+use usearch::{IndexOptions, MetricKind, ScalarKind};
 
-use crate::embed::{Embedder, Role};
+use crate::embed::{Embedder, Model, Role};
 use crate::error::{Error, Result};
-use crate::library::{Library, Progress};
+use crate::library::{Finder, Hit, IndexedFile, Library, Progress, StoredChunk};
 
 /// The format of a vector store: its `meta.json` and the record layout of
 /// `vectors.bin`.
 pub const VECTORS_FORMAT_VERSION: u32 = 1;
 
-/// Passages handed to the model and written to disk together.
-const BATCH: usize = 64;
+/// The format of `index.bin`, the graph and the chunks beside it.
+pub const INDEX_FORMAT_VERSION: u32 = 1;
+
+/// Passages handed to the model and written to disk together. Small: the
+/// runtime's memory grows with the batch, a long update shares the machine
+/// with its owner, and a search waiting for the model waits at most one
+/// batch.
+const BATCH: usize = 16;
+
+/// Passages sorted by length together. A batch is padded to its longest
+/// passage, and the model reads the padding as it reads text: mixing a
+/// one-line note with a full chunk made it read the one line as five hundred
+/// tokens. Sorting a window rather than everything keeps documents whole as
+/// they are read.
+const WINDOW: usize = 256;
 
 /// Dead records tolerated before a store is rewritten without them.
 const COMPACT_AFTER: usize = 1024;
 
+/// How long an update runs before it saves the index so far, and again after
+/// every as long, once the index has grown by a tenth.
+const SAVE_AFTER: Duration = Duration::from_secs(60);
+
+/// What `index.bin` starts with.
+const INDEX_MAGIC: &[u8; 8] = b"NOOMAVIX";
+
+/// How many candidates a search of the graph keeps while it walks: the
+/// trade between finding what exact search finds and time. The graph's own
+/// default, 64, missed one in ten of the closest ten over random vectors;
+/// 256 missed three in a thousand, for a few milliseconds a search over tens
+/// of thousands of passages - beside the tens of milliseconds the model takes
+/// to read the question. `nooma eval` shows what it costs on real questions.
+const EXPANSION_SEARCH: usize = 256;
+
 /// A key: the BLAKE3 hash of a passage.
 type Key = [u8; 32];
 
-#[derive(Debug, Serialize, Deserialize)]
+/// The graph from `usearch`.
+type Graph = usearch::Index;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Meta {
     format_version: u32,
     model: String,
     dimensions: usize,
-    /// What filled the store: see [`Embedder::recipe`].
+    /// What filled the store: see [`Model::recipe`].
     recipe: String,
 }
 
 impl Meta {
-    fn of(embedder: &dyn Embedder) -> Self {
+    fn of(model: &dyn Model) -> Self {
         Self {
             format_version: VECTORS_FORMAT_VERSION,
-            model: embedder.model_id().to_string(),
-            dimensions: embedder.dimensions(),
-            recipe: embedder.recipe(),
+            model: model.model_id().to_string(),
+            dimensions: model.dimensions(),
+            recipe: model.recipe(),
         }
     }
 
@@ -223,6 +269,11 @@ impl Store {
         self.index.contains_key(key)
     }
 
+    fn vector(&self, key: &Key) -> Option<&[f32]> {
+        let at = *self.index.get(key)?;
+        Some(&self.data[at * self.dimensions..(at + 1) * self.dimensions])
+    }
+
     fn append(&mut self, keys: &[Key], vectors: &[Vec<f32>]) -> Result<()> {
         let path = self.dir.join("vectors.bin");
         let file = File::options().create(true).append(true).open(&path).map_err(|e| Error::io(&path, e))?;
@@ -294,6 +345,335 @@ fn read_records(path: &Path, dimensions: usize) -> Result<(Vec<Key>, Vec<f32>)> 
     Ok((keys, data))
 }
 
+/// A document as the index knows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct IndexedDoc {
+    /// The file, as the full-text index names it.
+    path: String,
+    /// The hash of the file's bytes when its chunks were read.
+    hash: String,
+    /// Whether every chunk of it is in the graph.
+    complete: bool,
+}
+
+/// The part of `index.bin` a person could read: what it was built by, and
+/// over which documents.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Head {
+    model: String,
+    recipe: String,
+    dimensions: usize,
+    documents: Vec<IndexedDoc>,
+}
+
+/// A passage in the graph, and the chunks it stands for: a document, by its
+/// place in [`Head::documents`], and the line its chunk starts on.
+#[derive(Debug, Clone, PartialEq)]
+struct Entry {
+    key: Key,
+    chunks: Vec<(u32, u32)>,
+}
+
+fn graph_error(error: impl std::fmt::Display) -> Error {
+    Error::VectorIndex(error.to_string())
+}
+
+/// An empty graph for vectors of this length.
+///
+/// Inner product on unit vectors is their cosine, so the distance it reports
+/// is one minus the cosine; vectors are kept as they came, at full precision.
+/// The graph's own defaults for its shape are used, and a wider search than
+/// its default - see [`EXPANSION_SEARCH`]; the answer is checked against exact
+/// search in this crate's tests.
+fn new_graph(dimensions: usize) -> Result<Graph> {
+    let options = IndexOptions {
+        dimensions,
+        metric: MetricKind::IP,
+        quantization: ScalarKind::F32,
+        connectivity: 0,
+        expansion_add: 0,
+        expansion_search: EXPANSION_SEARCH,
+        multi: false,
+    };
+    Graph::new(&options).map_err(graph_error)
+}
+
+/// The contents of `index.bin`.
+struct Snapshot {
+    head: Head,
+    /// By the passage's id in the graph.
+    entries: BTreeMap<u64, Entry>,
+    graph: Graph,
+}
+
+impl Snapshot {
+    /// The file's bytes:
+    ///
+    /// ```text
+    /// "NOOMAVIX"  u32 format
+    /// u32 length  the head, as JSON
+    /// u32 count   per passage: u64 id, 32-byte key, u32 chunks, per chunk u32 document, u32 line
+    /// u64 length  the graph, as usearch saves it
+    /// ```
+    fn encode(head: &Head, entries: &BTreeMap<u64, Entry>, graph: &Graph) -> Result<Vec<u8>> {
+        let head = serde_json::to_vec(head).expect("the head serializes");
+        let mut saved = vec![0u8; graph.serialized_length()];
+        graph.save_to_buffer(&mut saved).map_err(graph_error)?;
+        let graph = saved;
+        let mut out = Vec::with_capacity(head.len() + graph.len() + entries.len() * 56 + 32);
+        out.extend_from_slice(INDEX_MAGIC);
+        out.extend_from_slice(&INDEX_FORMAT_VERSION.to_le_bytes());
+        out.extend_from_slice(&u32::try_from(head.len()).map_err(graph_error)?.to_le_bytes());
+        out.extend_from_slice(&head);
+        out.extend_from_slice(&u32::try_from(entries.len()).map_err(graph_error)?.to_le_bytes());
+        for (id, entry) in entries {
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&entry.key);
+            out.extend_from_slice(&u32::try_from(entry.chunks.len()).map_err(graph_error)?.to_le_bytes());
+            for (doc, line) in &entry.chunks {
+                out.extend_from_slice(&doc.to_le_bytes());
+                out.extend_from_slice(&line.to_le_bytes());
+            }
+        }
+        out.extend_from_slice(&(graph.len() as u64).to_le_bytes());
+        out.extend_from_slice(&graph);
+        Ok(out)
+    }
+
+    /// Read `index.bin`; the error says what was wrong, for a person.
+    fn decode(bytes: &[u8]) -> std::result::Result<Self, String> {
+        let mut at = Cursor { bytes, at: 0 };
+        if at.take(INDEX_MAGIC.len())? != INDEX_MAGIC {
+            return Err("it is not a nooma vector index".to_string());
+        }
+        let format = at.u32()?;
+        if format != INDEX_FORMAT_VERSION {
+            return Err(format!("the index is format {format}, this nooma writes {INDEX_FORMAT_VERSION}"));
+        }
+        let head_len = at.u32()? as usize;
+        let head: Head = serde_json::from_slice(at.take(head_len)?).map_err(|e| format!("its head could not be read: {e}"))?;
+        let count = at.u32()? as usize;
+        let mut entries = BTreeMap::new();
+        for _ in 0..count {
+            let id = at.u64()?;
+            let key: Key = at.take(32)?.try_into().expect("32 bytes");
+            let chunk_count = at.u32()? as usize;
+            let mut chunks = Vec::with_capacity(chunk_count.min(1024));
+            for _ in 0..chunk_count {
+                let doc = at.u32()?;
+                let line = at.u32()?;
+                if doc as usize >= head.documents.len() {
+                    return Err("a chunk names a document the index does not have".to_string());
+                }
+                chunks.push((doc, line));
+            }
+            entries.insert(id, Entry { key, chunks });
+        }
+        let graph_len = usize::try_from(at.u64()?).map_err(|e| e.to_string())?;
+        let graph_bytes = at.take(graph_len)?;
+        if at.at != bytes.len() {
+            return Err("it has bytes after its end".to_string());
+        }
+        let graph = new_graph(head.dimensions).map_err(|e| e.to_string())?;
+        graph.load_from_buffer(graph_bytes).map_err(|e| format!("its graph could not be read: {e}"))?;
+        // What a file says about searching it is not trusted to be this
+        // build's choice.
+        graph.change_expansion_search(EXPANSION_SEARCH);
+        if graph.size() != entries.len() || graph.dimensions() != head.dimensions {
+            return Err("its graph and its passages disagree".to_string());
+        }
+        Ok(Self { head, entries, graph })
+    }
+}
+
+struct Cursor<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn take(&mut self, n: usize) -> std::result::Result<&'a [u8], String> {
+        let end = self.at.checked_add(n).filter(|end| *end <= self.bytes.len()).ok_or("it is cut short")?;
+        let out = &self.bytes[self.at..end];
+        self.at = end;
+        Ok(out)
+    }
+
+    fn u32(&mut self) -> std::result::Result<u32, String> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().expect("4 bytes")))
+    }
+
+    fn u64(&mut self) -> std::result::Result<u64, String> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().expect("8 bytes")))
+    }
+}
+
+/// The library's chunks as passages: which passage each chunk is, and which
+/// documents they belong to.
+struct Passages {
+    /// Every distinct passage with its text, in the order of the first
+    /// chunk that has it.
+    texts: Vec<(Key, String)>,
+    /// Per passage, the chunks it stands for.
+    chunks: HashMap<Key, Vec<(u32, u32)>>,
+    /// Per document, its path and hash.
+    documents: Vec<(String, String)>,
+}
+
+impl Passages {
+    fn of(chunks: &[StoredChunk], files: &BTreeMap<String, IndexedFile>) -> Self {
+        let mut texts = Vec::new();
+        let mut by_key: HashMap<Key, Vec<(u32, u32)>> = HashMap::new();
+        let mut documents: Vec<(String, String)> = Vec::new();
+        let mut document_of: HashMap<&str, u32> = HashMap::new();
+        for chunk in chunks {
+            let doc = *document_of.entry(chunk.path.as_str()).or_insert_with(|| {
+                let hash = files.get(&chunk.path).map(|file| file.hash.clone()).unwrap_or_default();
+                documents.push((chunk.path.clone(), hash));
+                u32::try_from(documents.len() - 1).unwrap_or(u32::MAX)
+            });
+            let text = passage(&chunk.title, &chunk.headings, &chunk.body);
+            let key = key_of(&text);
+            let refs = by_key.entry(key).or_default();
+            if refs.is_empty() {
+                texts.push((key, text));
+            }
+            refs.push((doc, chunk.line));
+        }
+        Self {
+            texts,
+            chunks: by_key,
+            documents,
+        }
+    }
+}
+
+/// The index while an update changes it.
+struct Building {
+    graph: Graph,
+    /// Per passage in the graph, its id there.
+    ids: HashMap<Key, u64>,
+    next_id: u64,
+    /// The head and passages of the file as it was read, to tell whether
+    /// writing it again would change anything.
+    saved: Option<(Head, BTreeMap<u64, Entry>)>,
+}
+
+impl Building {
+    fn fresh(dimensions: usize) -> Result<Self> {
+        Ok(Self {
+            graph: new_graph(dimensions)?,
+            ids: HashMap::new(),
+            next_id: 0,
+            saved: None,
+        })
+    }
+
+    /// The index on disk, if it was built by these vectors; why not, if it
+    /// was there and was not.
+    fn open(path: &Path, meta: &Meta) -> Result<(Self, Option<String>)> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Self::fresh(meta.dimensions)?, None)),
+            Err(e) => return Err(Error::io(path, e)),
+        };
+        let snapshot = match Snapshot::decode(&bytes) {
+            Ok(snapshot) => snapshot,
+            Err(reason) => return Ok((Self::fresh(meta.dimensions)?, Some(reason))),
+        };
+        if snapshot.head.model != meta.model || snapshot.head.recipe != meta.recipe || snapshot.head.dimensions != meta.dimensions {
+            return Ok((Self::fresh(meta.dimensions)?, Some("it was built from other vectors".to_string())));
+        }
+        let ids = snapshot.entries.iter().map(|(id, entry)| (entry.key, *id)).collect();
+        let next_id = snapshot.entries.keys().next_back().map_or(0, |id| id + 1);
+        Ok((
+            Self {
+                graph: snapshot.graph,
+                ids,
+                next_id,
+                saved: Some((snapshot.head, snapshot.entries)),
+            },
+            None,
+        ))
+    }
+
+    fn add(&mut self, key: Key, vector: &[f32]) -> Result<()> {
+        if self.ids.contains_key(&key) {
+            return Ok(());
+        }
+        if self.graph.size() >= self.graph.capacity() {
+            // Grown by half again: one reservation per vector would copy the
+            // graph's tables every time.
+            let wanted = (self.graph.capacity() + self.graph.capacity() / 2).max(self.graph.size() + BATCH).max(64);
+            self.graph.reserve(wanted).map_err(graph_error)?;
+        }
+        let id = self.next_id;
+        self.graph.add(id, vector).map_err(graph_error)?;
+        self.ids.insert(key, id);
+        self.next_id += 1;
+        Ok(())
+    }
+
+    fn remove(&mut self, key: &Key) -> Result<()> {
+        if let Some(id) = self.ids.remove(key) {
+            self.graph.remove(id).map_err(graph_error)?;
+        }
+        Ok(())
+    }
+
+    /// What `index.bin` would hold now.
+    fn contents(&self, meta: &Meta, passages: &Passages) -> (Head, BTreeMap<u64, Entry>) {
+        let mut complete = vec![true; passages.documents.len()];
+        let mut entries = BTreeMap::new();
+        for (key, chunks) in &passages.chunks {
+            match self.ids.get(key) {
+                Some(id) => {
+                    entries.insert(
+                        *id,
+                        Entry {
+                            key: *key,
+                            chunks: chunks.clone(),
+                        },
+                    );
+                }
+                None => {
+                    for (doc, _) in chunks {
+                        complete[*doc as usize] = false;
+                    }
+                }
+            }
+        }
+        let documents = passages
+            .documents
+            .iter()
+            .zip(complete)
+            .map(|((path, hash), complete)| IndexedDoc {
+                path: path.clone(),
+                hash: hash.clone(),
+                complete,
+            })
+            .collect();
+        let head = Head {
+            model: meta.model.clone(),
+            recipe: meta.recipe.clone(),
+            dimensions: meta.dimensions,
+            documents,
+        };
+        (head, entries)
+    }
+
+    /// Write `index.bin`, unless it would say what it says already.
+    fn save(&mut self, path: &Path, meta: &Meta, passages: &Passages) -> Result<bool> {
+        let (head, entries) = self.contents(meta, passages);
+        if self.saved.as_ref().is_some_and(|(h, e)| *h == head && *e == entries) {
+            return Ok(false);
+        }
+        crate::library::write_atomically(path, &Snapshot::encode(&head, &entries, &self.graph)?)?;
+        self.saved = Some((head, entries));
+        Ok(true)
+    }
+}
+
 impl Library {
     fn vectors_root(&self) -> PathBuf {
         self.root().join("vectors")
@@ -303,51 +683,93 @@ impl Library {
         self.vectors_root().join(model)
     }
 
+    fn index_file(&self, model: &str) -> PathBuf {
+        self.vectors_dir(model).join("index.bin")
+    }
+
     /// Bring one model's vectors up to date with the full-text index: embed
-    /// every passage the store does not have yet.
+    /// every passage the store does not have yet, and the search index after.
     ///
     /// The chunks are read from the full-text index, so it is updated first;
     /// a library whose index has to be rebuilt says so rather than embedding
-    /// what is about to change.
+    /// what is about to change. `progress` counts passages to embed.
+    ///
+    /// Fails with [`Error::Busy`] when another process is updating the same
+    /// model's vectors.
     pub fn update_vectors(&self, embedder: &mut dyn Embedder, progress: &(dyn Fn(Progress) + Sync)) -> Result<VectorReport> {
         let started = Instant::now();
-        let model = embedder.model_id().to_string();
+        let meta = Meta::of(&*embedder);
+        let model = meta.model.clone();
         let chunks = self.stored_chunks()?;
-        let (mut store, rebuilt) = Store::open(self.vectors_dir(&model), &Meta::of(embedder))?;
+        let passages = Passages::of(&chunks, &self.indexed_files()?);
+        let (mut store, rebuilt) = Store::open(self.vectors_dir(&model), &meta)?;
+        let index_path = self.index_file(&model);
 
-        let mut live = HashSet::new();
-        let mut wanted: Vec<(Key, String)> = Vec::new();
-        for chunk in &chunks {
-            let text = passage(&chunk.title, &chunk.headings, &chunk.body);
-            let key = key_of(&text);
-            if live.insert(key) && !store.contains(&key) {
-                wanted.push((key, text));
-            }
+        let live: HashSet<Key> = passages.chunks.keys().copied().collect();
+        let mut wanted: Vec<&(Key, String)> = passages.texts.iter().filter(|(key, _)| !store.contains(key)).collect();
+        for window in wanted.chunks_mut(WINDOW) {
+            window.sort_by(|a, b| a.1.len().cmp(&b.1.len()).then_with(|| a.0.cmp(&b.0)));
         }
 
-        // Passages of a like length go together. A batch is padded to its
-        // longest passage, and the model reads the padding as it reads text:
-        // mixing a one-line note with a full chunk made it read the one line
-        // as five hundred tokens.
-        wanted.sort_by(|a, b| a.1.len().cmp(&b.1.len()).then_with(|| a.0.cmp(&b.0)));
+        // The index follows the store: passages no chunk has leave it, and
+        // passages the store has and it does not - computed by an update
+        // that stopped before saving it - join it.
+        let (mut building, _) = Building::open(&index_path, &meta)?;
+        let gone: Vec<Key> = building.ids.keys().filter(|key| !live.contains(*key)).copied().collect();
+        if gone.len() > building.ids.len() / 4 {
+            // A graph with many holes searches worse than one built again,
+            // and building one over the store takes seconds.
+            building = Building::fresh(meta.dimensions)?;
+        } else {
+            for key in &gone {
+                building.remove(key)?;
+            }
+        }
+        for (key, _) in &passages.texts {
+            if let Some(vector) = store.vector(key) {
+                building.add(*key, vector)?;
+            }
+        }
 
         let total = wanted.len();
-        let done = AtomicUsize::new(0);
         progress(Progress { done: 0, total });
-        let mut embed_ms = 0u128;
-        for batch in wanted.chunks(BATCH) {
-            let texts: Vec<&str> = batch.iter().map(|(_, text)| text.as_str()).collect();
-            let keys: Vec<Key> = batch.iter().map(|(key, _)| *key).collect();
-            let at = Instant::now();
-            let vectors = embedder.embed(&texts, Role::Passage)?;
-            embed_ms += at.elapsed().as_millis();
-            if vectors.len() != texts.len() || vectors.iter().any(|v| v.len() != store.dimensions) {
-                return Err(Error::Embedding(format!("{model} returned vectors of the wrong number or length")));
+        let mut embed = || -> Result<u128> {
+            let mut embed_ms = 0u128;
+            let mut last_save = Instant::now();
+            let mut saved_size = building.graph.size();
+            for (done, batch) in wanted.chunks(BATCH).enumerate() {
+                let texts: Vec<&str> = batch.iter().map(|(_, text)| text.as_str()).collect();
+                let keys: Vec<Key> = batch.iter().map(|(key, _)| *key).collect();
+                let at = Instant::now();
+                let vectors = embedder.embed(&texts, Role::Passage)?;
+                embed_ms += at.elapsed().as_millis();
+                if vectors.len() != texts.len() || vectors.iter().any(|v| v.len() != store.dimensions) {
+                    return Err(Error::Embedding(format!("{model} returned vectors of the wrong number or length")));
+                }
+                store.append(&keys, &vectors)?;
+                for (key, vector) in keys.iter().zip(&vectors) {
+                    building.add(*key, vector)?;
+                }
+                progress(Progress {
+                    done: (done * BATCH + batch.len()).min(total),
+                    total,
+                });
+                let size = building.graph.size();
+                if last_save.elapsed() >= SAVE_AFTER && size >= saved_size + saved_size / 10 {
+                    building.save(&index_path, &meta, &passages)?;
+                    last_save = Instant::now();
+                    saved_size = size;
+                }
             }
-            store.append(&keys, &vectors)?;
-            let done = done.fetch_add(batch.len(), Ordering::Relaxed) + batch.len();
-            progress(Progress { done, total });
-        }
+            Ok(embed_ms)
+        };
+        let embedded = embed();
+        // What was computed is searchable even when the update stopped half
+        // way: the next one would add it to the index anyway, and until then
+        // a search by meaning covers what it can and says what it cannot.
+        let saved = building.save(&index_path, &meta, &passages);
+        let embed_ms = embedded?;
+        saved?;
         let dropped = store.compact(&live)?;
 
         Ok(VectorReport {
@@ -362,63 +784,57 @@ impl Library {
         })
     }
 
-    /// Every chunk of the library with its vector from one model, held in
-    /// memory for searching.
+    /// One model's search index, read into memory; `None` when it has none,
+    /// or one built from other vectors than this model makes.
     ///
-    /// Fails when a chunk has no vector from this model yet: a search over
-    /// part of the library would answer as if it were the whole.
-    pub fn semantic(&self, embedder: &dyn Embedder) -> Result<SemanticIndex> {
-        let model = embedder.model_id();
-        let dimensions = embedder.dimensions();
-        let chunks = self.stored_chunks()?;
-        let dir = self.vectors_dir(model);
-        let meta: Option<Meta> = std::fs::read(dir.join("meta.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok());
-        let usable = meta.is_some_and(|meta| meta.mismatch(&Meta::of(embedder)).is_none());
-        let (keys, data) = if usable {
-            read_records(&dir.join("vectors.bin"), dimensions)?
-        } else {
-            (Vec::new(), Vec::new())
+    /// The model is named, not loaded: a catalogue entry will do, and the
+    /// weights are needed only to turn a query into a vector.
+    ///
+    /// The index may be behind the full-text index - an update of the
+    /// vectors still running, or files changed since the last - and says by
+    /// how many documents: see [`SemanticIndex::behind`]. Documents removed
+    /// since it was built are never found by it.
+    pub fn semantic(&self, model: &dyn Model) -> Result<Option<SemanticIndex>> {
+        let meta = Meta::of(model);
+        let path = self.index_file(&meta.model);
+        let (bytes, stamp) = match read_stamped(&path) {
+            Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(Error::io(&path, e)),
         };
-        let index: HashMap<Key, usize> = keys.iter().enumerate().map(|(i, key)| (*key, i)).collect();
+        // An index that cannot be read is built again by the next update,
+        // which says why; until then there is nothing to search.
+        let Ok(snapshot) = Snapshot::decode(&bytes) else {
+            return Ok(None);
+        };
+        if snapshot.head.model != meta.model || snapshot.head.recipe != meta.recipe || snapshot.head.dimensions != meta.dimensions {
+            return Ok(None);
+        }
 
-        let mut documents: Vec<SemanticDoc> = Vec::new();
-        let mut document_of: BTreeMap<String, u32> = BTreeMap::new();
-        let mut entries = Vec::with_capacity(chunks.len());
-        let mut matrix = Vec::with_capacity(chunks.len() * dimensions);
-        let mut missing = 0usize;
-        for chunk in chunks {
-            let key = key_of(&passage(&chunk.title, &chunk.headings, &chunk.body));
-            let Some(&at) = index.get(&key) else {
-                missing += 1;
-                continue;
-            };
-            let next = u32::try_from(documents.len()).unwrap_or(u32::MAX);
-            let doc = *document_of.entry(chunk.path.clone()).or_insert_with(|| {
-                documents.push(SemanticDoc {
-                    path: PathBuf::from(&chunk.path),
-                    title: chunk.title.clone(),
-                });
-                next
-            });
-            entries.push((doc, chunk.line, chunk.headings));
-            matrix.extend_from_slice(&data[at * dimensions..(at + 1) * dimensions]);
-        }
-        if missing > 0 {
-            return Err(Error::VectorsBehind {
-                model: model.to_string(),
-                missing,
-            });
-        }
-        Ok(SemanticIndex {
-            model: model.to_string(),
-            dimensions,
-            documents,
-            chunks: entries,
-            matrix,
-        })
+        let current = self.indexed_files()?;
+        let by_path: HashMap<&str, &IndexedDoc> = snapshot.head.documents.iter().map(|doc| (doc.path.as_str(), doc)).collect();
+        let behind = current
+            .iter()
+            .filter(|(path, file)| file.chunks > 0 && !by_path.get(path.as_str()).is_some_and(|doc| doc.complete && doc.hash == file.hash))
+            .count();
+        let present = snapshot.head.documents.iter().map(|doc| current.contains_key(&doc.path)).collect();
+        let passages = snapshot.entries.len();
+        Ok(Some(SemanticIndex {
+            model: meta.model,
+            dimensions: meta.dimensions,
+            graph: snapshot.graph,
+            chunks: snapshot.entries.into_iter().map(|(id, entry)| (id, entry.chunks)).collect(),
+            documents: snapshot.head.documents.into_iter().map(|doc| PathBuf::from(doc.path)).collect(),
+            present,
+            behind,
+            passages,
+            file: path,
+            stamp,
+        }))
     }
 
-    /// Delete one model's vectors. Returns whether there were any.
+    /// Delete one model's vectors and its index. Returns whether there were
+    /// any.
     pub fn remove_vectors(&self, model: &str) -> Result<bool> {
         let dir = self.vectors_dir(model);
         match std::fs::remove_dir_all(&dir) {
@@ -429,37 +845,60 @@ impl Library {
     }
 }
 
-#[derive(Debug, Clone)]
-struct SemanticDoc {
-    path: PathBuf,
-    title: String,
+/// A file's size and modification time: enough to tell that it was replaced.
+type Stamp = (u64, SystemTime);
+
+fn stamp_of(path: &Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
 }
 
-/// One document found by meaning.
+/// Read a file whole, with the stamp it had when it was read.
+fn read_stamped(path: &Path) -> std::io::Result<(Vec<u8>, Option<Stamp>)> {
+    let mut file = File::open(path)?;
+    let meta = file.metadata()?;
+    let stamp = meta.modified().ok().map(|modified| (meta.len(), modified));
+    let mut bytes = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+    file.read_to_end(&mut bytes)?;
+    Ok((bytes, stamp))
+}
+
+/// One chunk found by meaning: where it is, and how close.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SemanticHit {
     /// The file.
     pub path: PathBuf,
-    /// The document's title.
-    pub title: String,
-    /// The headings above the closest chunk, outermost first.
-    pub headings: Vec<String>,
-    /// The line the closest chunk starts on.
+    /// The line the chunk starts on.
     pub line: u32,
-    /// The cosine between the query and the closest chunk: 1 is the same
-    /// direction, 0 unrelated.
+    /// The cosine between the query and the chunk: 1 is the same direction,
+    /// 0 unrelated.
     pub score: f32,
 }
 
-/// A library's chunks as vectors from one model, in memory.
-#[derive(Debug, Clone)]
+/// A model's search index over the library, in memory.
 pub struct SemanticIndex {
     model: String,
     dimensions: usize,
-    documents: Vec<SemanticDoc>,
-    /// Per chunk: its document, its line and its headings.
-    chunks: Vec<(u32, u32, Vec<String>)>,
-    matrix: Vec<f32>,
+    graph: Graph,
+    /// Per passage id, its chunks: a document and a line.
+    chunks: HashMap<u64, Vec<(u32, u32)>>,
+    documents: Vec<PathBuf>,
+    /// Per document, whether the library still holds it.
+    present: Vec<bool>,
+    behind: usize,
+    passages: usize,
+    file: PathBuf,
+    stamp: Option<Stamp>,
+}
+
+impl std::fmt::Debug for SemanticIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SemanticIndex")
+            .field("model", &self.model)
+            .field("passages", &self.passages)
+            .field("behind", &self.behind)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SemanticIndex {
@@ -468,52 +907,124 @@ impl SemanticIndex {
         &self.model
     }
 
-    /// Chunks held.
+    /// Passages in the index.
     pub fn len(&self) -> usize {
-        self.chunks.len()
+        self.passages
     }
 
-    /// Whether it holds no chunks.
+    /// Whether it holds no passages.
     pub fn is_empty(&self) -> bool {
-        self.chunks.is_empty()
+        self.passages == 0
     }
 
-    /// The documents closest to a query vector, one hit per document at its
-    /// closest chunk.
-    pub fn search(&self, query: &[f32], limit: usize) -> Vec<SemanticHit> {
-        if limit == 0 || query.len() != self.dimensions {
-            return Vec::new();
+    /// Documents of the library the index does not cover yet: not in it at
+    /// all, in it in part, or in it as an older version of the file.
+    pub fn behind(&self) -> usize {
+        self.behind
+    }
+
+    /// Whether the file it was read from is still the one on disk. An update
+    /// replaces it; a caller keeping an index open reads it again when this
+    /// turns false.
+    pub fn is_current(&self) -> bool {
+        self.stamp.is_some() && stamp_of(&self.file) == self.stamp
+    }
+
+    /// The chunks closest to a query vector, at most one per document,
+    /// closest first.
+    pub fn search(&self, query: &[f32], limit: usize) -> Result<Vec<SemanticHit>> {
+        self.closest(query, limit, false)
+    }
+
+    /// [`SemanticIndex::search`] by comparing the query with every vector
+    /// rather than walking the graph: the answer the graph approximates, for
+    /// measuring how closely it does.
+    pub fn search_exact(&self, query: &[f32], limit: usize) -> Result<Vec<SemanticHit>> {
+        self.closest(query, limit, true)
+    }
+
+    fn closest(&self, query: &[f32], limit: usize, exact: bool) -> Result<Vec<SemanticHit>> {
+        let size = self.graph.size();
+        if limit == 0 || size == 0 {
+            return Ok(Vec::new());
         }
-        let mut best: HashMap<u32, (f32, usize)> = HashMap::new();
-        for (i, row) in self.matrix.chunks_exact(self.dimensions).enumerate() {
-            let score: f32 = row.iter().zip(query).map(|(a, b)| a * b).sum();
-            let doc = self.chunks[i].0;
-            let held = best.entry(doc).or_insert((f32::NEG_INFINITY, i));
-            if score > held.0 {
-                *held = (score, i);
+        if query.len() != self.dimensions {
+            return Err(Error::Embedding(format!(
+                "a query vector of {} components, where {} has {}",
+                query.len(),
+                self.model,
+                self.dimensions
+            )));
+        }
+        // Several chunks of one document can be closer than any chunk of the
+        // next, so more chunks are asked for than documents wanted, and more
+        // again when they fall on too few documents.
+        let mut count = limit.saturating_mul(4).saturating_add(16).min(size);
+        loop {
+            let found = match exact {
+                false => self.graph.search(query, count),
+                true => self.graph.exact_search(query, count),
             }
-        }
-        let mut ranked: Vec<(u32, f32, usize)> = best.into_iter().map(|(doc, (score, chunk))| (doc, score, chunk)).collect();
-        // Ties go to the path, so two runs over the same library agree.
-        ranked.sort_by(|a, b| {
-            b.1.total_cmp(&a.1)
-                .then_with(|| self.documents[a.0 as usize].path.cmp(&self.documents[b.0 as usize].path))
-        });
-        ranked
-            .into_iter()
-            .take(limit)
-            .map(|(doc, score, chunk)| {
-                let document = &self.documents[doc as usize];
-                let (_, line, headings) = &self.chunks[chunk];
-                SemanticHit {
-                    path: document.path.clone(),
-                    title: document.title.clone(),
-                    headings: headings.clone(),
-                    line: *line,
-                    score,
+            .map_err(graph_error)?;
+            let mut best: HashMap<u32, (f32, u32)> = HashMap::new();
+            for (id, distance) in found.keys.iter().zip(&found.distances) {
+                let score = 1.0 - distance;
+                for &(doc, line) in self.chunks.get(id).map_or(&[][..], Vec::as_slice) {
+                    if !self.present[doc as usize] {
+                        continue;
+                    }
+                    let held = best.entry(doc).or_insert((f32::NEG_INFINITY, line));
+                    if score > held.0 || (score == held.0 && line < held.1) {
+                        *held = (score, line);
+                    }
                 }
+            }
+            if best.len() >= limit || count >= size {
+                let mut ranked: Vec<(u32, f32, u32)> = best.into_iter().map(|(doc, (score, line))| (doc, score, line)).collect();
+                // Ties go to the path, so two runs over the same library agree.
+                ranked.sort_by(|a, b| {
+                    b.1.total_cmp(&a.1)
+                        .then_with(|| self.documents[a.0 as usize].cmp(&self.documents[b.0 as usize]))
+                });
+                return Ok(ranked
+                    .into_iter()
+                    .take(limit)
+                    .map(|(doc, score, line)| SemanticHit {
+                        path: self.documents[doc as usize].clone(),
+                        line,
+                        score,
+                    })
+                    .collect());
+            }
+            count = count.saturating_mul(4).min(size);
+        }
+    }
+
+    /// The documents closest to a vector, as hits read from the full-text
+    /// index: the chunk's title, headings and opening, the score a cosine.
+    ///
+    /// `skip` leaves one file out - the one an example was taken from, which
+    /// would otherwise be the closest to itself.
+    pub fn hits(&self, finder: &Finder, vector: &[f32], limit: usize, skip: Option<&Path>) -> Result<Vec<Hit>> {
+        let wanted = limit + usize::from(skip.is_some());
+        let found: Vec<SemanticHit> = self
+            .search(vector, wanted)?
+            .into_iter()
+            .filter(|hit| skip.is_none_or(|skip| hit.path != skip))
+            .take(limit)
+            .collect();
+        let at: Vec<(PathBuf, u32)> = found.iter().map(|hit| (hit.path.clone(), hit.line)).collect();
+        Ok(finder
+            .chunks(&at)?
+            .into_iter()
+            .zip(&found)
+            .filter_map(|(hit, semantic)| {
+                hit.map(|mut hit| {
+                    hit.score = semantic.score;
+                    hit
+                })
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -610,5 +1121,105 @@ mod tests {
         let (reopened, _) = Store::open(dir.path().join("m"), &meta("m", 1)).unwrap();
         assert_eq!(reopened.keys, keys[..10].to_vec());
         assert_eq!(reopened.data, (0..10).map(|i| i as f32).collect::<Vec<_>>());
+    }
+
+    /// Unit vectors from a seed, without a random-number crate: the bytes of
+    /// a hash, centred and normalized.
+    fn unit_vector(seed: u32, dimensions: usize) -> Vec<f32> {
+        let mut out = Vec::with_capacity(dimensions);
+        let mut block = 0u32;
+        while out.len() < dimensions {
+            let hash = blake3::hash(&[seed.to_le_bytes(), block.to_le_bytes()].concat());
+            out.extend(hash.as_bytes().iter().map(|b| f32::from(*b) - 127.5));
+            block += 1;
+        }
+        out.truncate(dimensions);
+        crate::embed::normalize(&mut out);
+        out
+    }
+
+    /// The graph answers approximately, and the claim is that the
+    /// approximation does not change the answer a person sees. Measured
+    /// against exact search over the same vectors: of the ten closest, the
+    /// graph finds nearly all.
+    #[test]
+    fn the_graph_finds_what_exact_search_finds() {
+        let dimensions = 64;
+        let graph = new_graph(dimensions).unwrap();
+        graph.reserve(5000).unwrap();
+        let vectors: Vec<Vec<f32>> = (0..5000).map(|i| unit_vector(i, dimensions)).collect();
+        for (i, vector) in vectors.iter().enumerate() {
+            graph.add(i as u64, vector).unwrap();
+        }
+        let mut found = 0usize;
+        let queries = 200;
+        for q in 0..queries {
+            let query = unit_vector(1_000_000 + q, dimensions);
+            let mut exact: Vec<(f32, u64)> = vectors
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (v.iter().zip(&query).map(|(a, b)| a * b).sum::<f32>(), i as u64))
+                .collect();
+            exact.sort_by(|a, b| b.0.total_cmp(&a.0));
+            let truth: HashSet<u64> = exact.iter().take(10).map(|(_, id)| *id).collect();
+            let approximate = graph.search(&query, 10).unwrap();
+            found += approximate.keys.iter().filter(|id| truth.contains(id)).count();
+            // The distance is one minus the cosine: the score a hit carries.
+            let first = &vectors[approximate.keys[0] as usize];
+            let cosine: f32 = first.iter().zip(&query).map(|(a, b)| a * b).sum();
+            assert!(
+                (1.0 - approximate.distances[0] - cosine).abs() < 1e-4,
+                "{} against {cosine}",
+                1.0 - approximate.distances[0]
+            );
+        }
+        let recall = found as f64 / (queries * 10) as f64;
+        assert!(recall >= 0.95, "recall at ten: {recall:.3}");
+    }
+
+    #[test]
+    fn an_index_file_reads_back_as_it_was_written_and_a_damaged_one_does_not() {
+        let graph = new_graph(4).unwrap();
+        graph.reserve(8).unwrap();
+        graph.add(3, &[1.0, 0.0, 0.0, 0.0]).unwrap();
+        graph.add(7, &[0.0, 1.0, 0.0, 0.0]).unwrap();
+        let head = Head {
+            model: "m".to_string(),
+            recipe: "m".to_string(),
+            dimensions: 4,
+            documents: vec![IndexedDoc {
+                path: "/notes/a.md".to_string(),
+                hash: "h".to_string(),
+                complete: true,
+            }],
+        };
+        let entries = BTreeMap::from([
+            (
+                3,
+                Entry {
+                    key: [1; 32],
+                    chunks: vec![(0, 1)],
+                },
+            ),
+            (
+                7,
+                Entry {
+                    key: [2; 32],
+                    chunks: vec![(0, 5), (0, 9)],
+                },
+            ),
+        ]);
+        let bytes = Snapshot::encode(&head, &entries, &graph).unwrap();
+
+        let read = Snapshot::decode(&bytes).unwrap();
+        assert_eq!(read.head, head);
+        assert_eq!(read.entries, entries);
+        assert_eq!(read.graph.search(&[0.0f32, 1.0, 0.0, 0.0][..], 1).unwrap().keys, vec![7]);
+
+        assert!(Snapshot::decode(&bytes[..bytes.len() - 1]).is_err(), "a file cut short");
+        assert!(Snapshot::decode(&[bytes.as_slice(), &[0]].concat()).is_err(), "a file with more after its end");
+        let mut other = bytes.clone();
+        other[8] = 99;
+        assert!(Snapshot::decode(&other).err().unwrap().contains("format 99"));
     }
 }

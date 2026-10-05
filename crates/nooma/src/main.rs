@@ -4,15 +4,18 @@
 //! index for meaning. Neither half alone is the product — see
 //! `docs/adr/0001-hybrid-index.md`.
 //!
-//! `nooma find` searches the folders added with `nooma source add`, through
-//! the exact half; `nooma model` fetches the embedding model the other half
-//! runs, and `nooma eval` measures both against questions with known answers;
-//! `nooma repo` reads a git work tree into symbols, imports and module
-//! dependencies. The window is a separate binary, `nooma-app`, over the same
-//! library.
+//! `nooma index` reads the folders added with `nooma source add` into both
+//! halves; `nooma find` searches them by the words of a query and by its
+//! meaning, side by side, and `nooma similar` by the meaning of a whole
+//! passage. `nooma model` fetches the embedding model the vector half runs,
+//! and `nooma eval` measures both halves against questions with known
+//! answers; `nooma repo` reads a git work tree into symbols, imports and
+//! module dependencies. The window is a separate binary, `nooma-app`, over
+//! the same library.
 
 mod eval;
 mod library;
+mod meaning;
 mod model;
 #[cfg(feature = "prose")]
 mod prose;
@@ -30,9 +33,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Find the documents that contain the words of a query
+    /// Find documents by the words of a query, and by what it means
     Find(library::FindArgs),
-    /// Bring the index up to date with the folders
+    /// Find documents that say what a passage says
+    Similar(library::SimilarArgs),
+    /// Bring the index and the vectors up to date with the folders
     Index(library::IndexArgs),
     /// Add, remove and list the folders nooma searches
     Source(library::SourceArgs),
@@ -48,6 +53,7 @@ fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Find(args) => library::find(args),
+        Command::Similar(args) => library::similar(args),
         Command::Index(args) => library::index(args),
         Command::Source(args) => library::source(args),
         Command::Model(args) => model::run(args),

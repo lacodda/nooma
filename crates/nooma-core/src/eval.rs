@@ -31,6 +31,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "semantic")]
 use crate::embed::{Embedder, Role};
 use crate::error::{Error, Result};
 use crate::library::Library;
@@ -157,7 +158,7 @@ pub struct Evaluation<'a> {
 impl<'a> Evaluation<'a> {
     /// Check that every expected document is in the library.
     pub fn new(library: &'a Library, set: QuerySet) -> Result<Self> {
-        let present: BTreeSet<String> = library.stored_chunks()?.into_iter().map(|chunk| chunk.path).collect();
+        let present: BTreeSet<String> = library.indexed_files()?.into_keys().collect();
         let mut expected = Vec::with_capacity(set.queries.len());
         let mut unknown = BTreeSet::new();
         for query in &set.queries {
@@ -197,17 +198,49 @@ impl<'a> Evaluation<'a> {
         })
     }
 
-    /// Ask every question of one model's vectors, which must be up to date.
+    /// Ask every question of one model's vector index, which must cover the
+    /// whole library.
+    #[cfg(feature = "semantic")]
     pub fn semantic(&self, embedder: &mut dyn Embedder) -> Result<EngineReport> {
+        self.semantic_by(embedder, false)
+    }
+
+    /// [`Evaluation::semantic`] by exact search over the same vectors,
+    /// reported as `<model> exact`: beside the graph's own report, it shows
+    /// what the approximation costs on these questions - nothing, when the
+    /// two agree.
+    #[cfg(feature = "semantic")]
+    pub fn semantic_exact(&self, embedder: &mut dyn Embedder) -> Result<EngineReport> {
+        self.semantic_by(embedder, true)
+    }
+
+    #[cfg(feature = "semantic")]
+    fn semantic_by(&self, embedder: &mut dyn Embedder, exact: bool) -> Result<EngineReport> {
         let model = embedder.model_id().to_string();
-        let index = self.library.semantic(embedder)?;
-        self.run(&model, |query| {
+        let index = match self.library.semantic(&*embedder)? {
+            Some(index) if index.behind() == 0 => index,
+            Some(index) => {
+                return Err(Error::VectorsBehind {
+                    model,
+                    documents: index.behind(),
+                });
+            }
+            None => {
+                return Err(Error::VectorsBehind {
+                    model,
+                    documents: self.library.status()?.documents,
+                });
+            }
+        };
+        let engine = if exact { format!("{model} exact") } else { model };
+        self.run(&engine, |query| {
             let vector = embedder.embed(&[query], Role::Query)?.pop().unwrap_or_default();
-            Ok(index
-                .search(&vector, DEPTH)
-                .into_iter()
-                .map(|hit| hit.path.to_string_lossy().into_owned())
-                .collect())
+            let found = if exact {
+                index.search_exact(&vector, DEPTH)?
+            } else {
+                index.search(&vector, DEPTH)?
+            };
+            Ok(found.into_iter().map(|hit| hit.path.to_string_lossy().into_owned()).collect())
         })
     }
 

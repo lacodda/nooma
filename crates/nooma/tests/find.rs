@@ -1,19 +1,33 @@
-//! `nooma source`, `nooma index` and `nooma find`, run as a script would run
-//! them.
+//! `nooma source`, `nooma index`, `nooma find` and `nooma similar`, run as a
+//! script would run them, without a model.
 //!
 //! The corpus is written here, synthetic, in English and Russian. The library
-//! goes into a temporary `--store`, never the user's data directory.
+//! goes into a temporary `--store`, never the user's data directory, and the
+//! commands that would load a model are pointed at an empty `--models`
+//! folder: these tests are about the exact half and about what the half by
+//! meaning says when it cannot answer. The real model is run in `model.rs`.
 
+use std::io::Write as _;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
-fn nooma(store: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_nooma"))
-        .args(args)
-        .arg("--store")
-        .arg(store)
-        .output()
-        .expect("the binary did not start")
+fn nooma(store: &Path, models: &Path, args: &[&str]) -> Output {
+    nooma_with_input(store, models, args, None)
+}
+
+fn nooma_with_input(store: &Path, models: &Path, args: &[&str], input: Option<&str>) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nooma"));
+    command.args(args).arg("--store").arg(store);
+    if matches!(args.first(), Some(&"index" | &"find" | &"similar")) {
+        command.arg("--models").arg(models);
+    }
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().expect("the binary did not start");
+    if let Some(input) = input {
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    }
+    drop(child.stdin.take());
+    child.wait_with_output().expect("the binary did not finish")
 }
 
 fn stdout(output: &Output) -> String {
@@ -33,6 +47,8 @@ fn json_of(output: &Output) -> serde_json::Value {
 struct Fixture {
     notes: tempfile::TempDir,
     store: tempfile::TempDir,
+    /// Empty: no model is on this machine, as far as these tests go.
+    models: tempfile::TempDir,
 }
 
 impl Fixture {
@@ -47,11 +63,16 @@ impl Fixture {
         Self {
             notes,
             store: tempfile::tempdir().unwrap(),
+            models: tempfile::tempdir().unwrap(),
         }
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        nooma(self.store.path(), args)
+        nooma(self.store.path(), self.models.path(), args)
+    }
+
+    fn run_with_input(&self, args: &[&str], input: &str) -> Output {
+        nooma_with_input(self.store.path(), self.models.path(), args, Some(input))
     }
 
     fn added(self) -> Self {
@@ -106,6 +127,58 @@ fn index_reports_what_it_did() {
     assert_eq!(again["indexed"], 0);
 }
 
+/// Without the model, everything exact works as before, and each command
+/// says how to get the other half rather than leaving it out in silence.
+#[test]
+fn without_the_model_find_answers_exactly_and_says_how_to_get_meaning() {
+    let fixture = Fixture::new().added();
+    let json = json_of(&fixture.run(&["find", "warranty", "--json"]));
+    assert_eq!(json["hits"].as_array().unwrap().len(), 1);
+    assert_eq!(json["meaning"]["state"], "no-model");
+    assert_eq!(json["meaning"]["model"], "multilingual-e5-small");
+    assert!(json["meaning"]["hits"].as_array().unwrap().is_empty());
+
+    let report = fixture.run(&["find", "warranty"]);
+    assert!(report.status.success());
+    let text = stdout(&report);
+    assert!(text.starts_with("exact"), "{text}");
+    assert!(text.contains("nooma model fetch"), "{text}");
+    assert!(!text.contains("by meaning ·"), "no list by meaning without a model: {text}");
+}
+
+#[test]
+fn without_the_model_index_reads_the_words_and_says_how_to_get_meaning() {
+    let fixture = Fixture::new().added();
+    let json = json_of(&fixture.run(&["index", "--json"]));
+    assert_eq!(json["documents"], 2);
+    assert_eq!(json["vectors"], serde_json::Value::Null);
+    let again = fixture.run(&["index"]);
+    assert!(stdout(&again).contains("nooma model fetch"), "{}", stdout(&again));
+}
+
+/// A passage has only the half by meaning to answer it, so without the model
+/// there is no answer - and the command fails saying why.
+#[test]
+fn similar_without_the_model_fails_saying_what_is_missing() {
+    let fixture = Fixture::new().added();
+    let example = fixture.notes.path().join("receipts.md");
+    let output = fixture.run(&["similar", example.to_str().unwrap()]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("nooma model fetch"));
+}
+
+#[test]
+fn similar_refuses_an_empty_passage() {
+    let fixture = Fixture::new().added();
+    let output = fixture.run_with_input(&["similar", "-"], "  \n\t\n");
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("passage is empty"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn index_without_sources_says_what_to_do() {
     let fixture = Fixture::new();
@@ -138,13 +211,32 @@ fn the_reference_page_documents_the_fields_that_are_printed() {
     let fixture = Fixture::new().added();
     for args in [vec!["index", "--json"], vec!["source", "list", "--json"], vec!["find", "warranty", "--json"]] {
         let printed = json_of(&fixture.run(&args));
-        let object = printed.as_object().expect("every --json prints one object");
-        let rows = object.values().filter_map(|v| v.as_array().and_then(|a| a.first()).and_then(|v| v.as_object()));
-        for field in object.keys().chain(rows.flat_map(|row| row.keys())) {
+        assert!(printed.is_object(), "every --json prints one object");
+        let mut fields = Vec::new();
+        keys(&printed, &mut fields);
+        for field in fields {
             assert!(
                 page.contains(&format!("`{field}`")),
                 "`nooma {args:?}` prints `{field}`, which the reference page does not mention"
             );
         }
+    }
+}
+
+/// Every key of every object in a JSON document, however deep.
+fn keys(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, value) in object {
+                out.push(key.clone());
+                keys(value, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                keys(item, out);
+            }
+        }
+        _ => {}
     }
 }

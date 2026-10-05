@@ -7,19 +7,19 @@
 //! Vectors a model has not computed yet are computed first, and kept - the
 //! second run over the same library costs only the questions.
 
-use std::io::IsTerminal as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::Result;
 use clap::Args;
+use nooma_core::VectorReport;
 use nooma_core::embed::OnnxEmbedder;
 use nooma_core::eval::{EngineReport, Evaluation, Metrics, QuerySet};
 use nooma_core::library::indexing_threads;
 use nooma_core::model::ModelSpec;
-use nooma_core::{Progress, VectorReport};
 
 use crate::library::{StoreArgs, refresh};
+use crate::meaning::progress_for;
 use crate::model::{ModelsArgs, spec};
 
 /// Measure search against questions with known answers.
@@ -76,10 +76,8 @@ pub fn run(args: EvalArgs) -> Result<()> {
         let mut embedder = OnnxEmbedder::load(spec, &models_dir, indexing_threads())?;
         let load_ms = loading.elapsed().as_millis();
         let report = library.update_vectors(&mut embedder, &progress_for(spec.id))?;
-        if std::io::stderr().is_terminal() {
-            eprintln!();
-        }
         engines.push(evaluation.semantic(&mut embedder)?);
+        engines.push(evaluation.semantic_exact(&mut embedder)?);
         vectors.push((report, load_ms));
     }
 
@@ -126,20 +124,6 @@ pub fn run(args: EvalArgs) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn progress_for(model: &str) -> impl Fn(Progress) + Sync + '_ {
-    let terminal = std::io::stderr().is_terminal();
-    move |progress: Progress| {
-        if progress.total == 0 {
-            return;
-        }
-        if terminal {
-            eprint!("\r{model}: {} / {} passages", progress.done, progress.total);
-        } else if progress.done == 0 {
-            eprintln!("{model}: computing {} vectors", progress.total);
-        }
-    }
 }
 
 fn print_table(title: &str, engines: &[EngineReport], metrics: impl Fn(&EngineReport) -> Option<Metrics>, timing: bool) {

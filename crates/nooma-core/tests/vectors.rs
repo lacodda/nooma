@@ -1,18 +1,18 @@
-//! The vector store and the evaluation, with a stand-in model.
+//! The vector store, its index and the evaluation, with a stand-in model.
 //!
 //! The stand-in hashes words into buckets: a bag of words, deterministic and
 //! instant, needing nothing on disk. It cannot tell meaning from spelling -
 //! which is not what these tests are about. They are about what is stored,
-//! under which key, what is computed again and what is not, and whether the
-//! counting in an evaluation is right. The real model is measured in
-//! `meaning.rs`.
+//! under which key, what is computed again and what is not, what the index
+//! covers and says it covers, and whether the counting in an evaluation is
+//! right. The real model is measured in `meaning.rs`.
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use nooma_core::eval::{EvalQuery, Evaluation, QuerySet};
-use nooma_core::{Embedder, Error, Library, Progress, Role};
+use nooma_core::{Embedder, Error, Library, Model, Progress, Role};
 
 /// Words hashed into 64 buckets, normalized. Counts every passage it reads.
 struct Hashing {
@@ -34,7 +34,7 @@ impl Hashing {
     }
 }
 
-impl Embedder for Hashing {
+impl Model for Hashing {
     fn model_id(&self) -> &str {
         self.id
     }
@@ -42,7 +42,9 @@ impl Embedder for Hashing {
     fn dimensions(&self) -> usize {
         64
     }
+}
 
+impl Embedder for Hashing {
     fn embed(&mut self, texts: &[&str], role: Role) -> nooma_core::Result<Vec<Vec<f32>>> {
         self.calls += 1;
         if self.fail_on_call == Some(self.calls) {
@@ -145,8 +147,13 @@ fn a_renamed_note_keeps_its_vectors() {
     library.update().unwrap();
     let after = library.update_vectors(&mut model, &quiet()).unwrap();
     assert_eq!(after.embedded, 0);
-    let index = library.semantic(&Hashing::new("hash")).unwrap();
-    assert_eq!(index.len(), 4, "the renamed note is searchable under its new name");
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    assert_eq!(index.len(), 4);
+    assert_eq!(index.behind(), 0);
+    let query = model.embed(&["descale kettle"], Role::Query).unwrap().pop().unwrap();
+    let hits = index.search(&query, 10).unwrap();
+    assert!(hits[0].path.ends_with("kitchen-kettle.md"), "the renamed note is found under its new name");
+    assert!(hits.iter().all(|hit| !hit.path.ends_with("kettle.md")), "and never under its old one");
 }
 
 #[test]
@@ -165,19 +172,90 @@ fn an_edited_note_is_read_again_and_no_other() {
     assert_eq!(after.embedded, 1);
 }
 
-/// A search over part of the library would answer as if it were the whole,
-/// and nobody reading the results could tell.
+/// A search over part of the library is still worth answering - the vectors
+/// of a large library take an hour - as long as it says what it does not
+/// cover yet.
 #[test]
-fn a_library_with_chunks_the_model_has_not_read_is_not_searched() {
+fn an_index_says_how_many_documents_it_does_not_cover() {
     let fixture = Fixture::new(&notes());
     let library = fixture.library();
-    assert!(matches!(library.semantic(&Hashing::new("hash")), Err(Error::VectorsBehind { missing: 4, .. })));
+    assert!(library.semantic(&Hashing::new("hash")).unwrap().is_none(), "no vectors, no index");
 
     let mut model = Hashing::new("hash");
     library.update_vectors(&mut model, &quiet()).unwrap();
     std::fs::write(fixture.notes.join("new.md"), "# New\n\nA note written after the vectors.\n").unwrap();
+    rewrite(&fixture.notes.join("bicycle.md"), "# Bicycle\n\nThe brakes squeal in the rain.\n");
     library.update().unwrap();
-    assert!(matches!(library.semantic(&Hashing::new("hash")), Err(Error::VectorsBehind { missing: 1, .. })));
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    assert_eq!(index.behind(), 2, "one new note and one changed");
+
+    let query = model.embed(&["note written after"], Role::Query).unwrap().pop().unwrap();
+    assert!(index.search(&query, 10).unwrap().iter().all(|hit| !hit.path.ends_with("new.md")));
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    assert_eq!(index.behind(), 0);
+    assert!(index.search(&query, 1).unwrap()[0].path.ends_with("new.md"));
+}
+
+/// A deleted file can be neither opened nor shown, so it is never a result -
+/// not even before the vectors are brought up to date.
+#[test]
+fn a_removed_document_is_not_found_before_the_vectors_catch_up() {
+    let fixture = Fixture::new(&notes());
+    let library = fixture.library();
+    let mut model = Hashing::new("hash");
+    library.update_vectors(&mut model, &quiet()).unwrap();
+
+    std::fs::remove_file(fixture.notes.join("bicycle.md")).unwrap();
+    library.update().unwrap();
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    let query = model.embed(&["chain oil rainy ride"], Role::Query).unwrap().pop().unwrap();
+    let hits = index.search(&query, 10).unwrap();
+    assert_eq!(hits.len(), 3);
+    assert!(hits.iter().all(|hit| !hit.path.ends_with("bicycle.md")));
+    assert_eq!(index.behind(), 0, "a removed document is not one the index is behind on");
+}
+
+/// Reading the index again costs a search; writing it again costs every
+/// window that keeps one open a reload. An update that changed nothing
+/// writes nothing.
+#[test]
+fn an_update_that_changes_nothing_leaves_the_index_file_alone() {
+    let fixture = Fixture::new(&notes());
+    let library = fixture.library();
+    let mut model = Hashing::new("hash");
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    assert!(index.is_current());
+
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    assert!(index.is_current(), "nothing changed, so the file was not written");
+
+    rewrite(&fixture.notes.join("kettle.md"), "# Kettle\n\nDescale it with vinegar instead.\n");
+    library.update().unwrap();
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    assert!(!index.is_current(), "a kept index learns that it is out of date");
+}
+
+/// Moving a file changes no passage, and so nothing for the model to read -
+/// but it changes where every chunk is, and the index must say the new
+/// place.
+#[test]
+fn an_index_follows_a_moved_chunk_without_reading_it_again() {
+    let fixture = Fixture::new(&notes());
+    let library = fixture.library();
+    let mut model = Hashing::new("hash");
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    std::fs::create_dir_all(fixture.notes.join("bikes")).unwrap();
+    std::fs::rename(fixture.notes.join("bicycle.md"), fixture.notes.join("bikes").join("bicycle.md")).unwrap();
+    library.update().unwrap();
+    let report = library.update_vectors(&mut model, &quiet()).unwrap();
+    assert_eq!(report.embedded, 0);
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    let query = model.embed(&["chain oil rainy ride"], Role::Query).unwrap().pop().unwrap();
+    let hit = &index.search(&query, 1).unwrap()[0];
+    assert_eq!(hit.path, fixture.notes.join("bikes").join("bicycle.md"));
+    assert_eq!(index.behind(), 0);
 }
 
 #[test]
@@ -189,10 +267,10 @@ fn the_closest_document_comes_first_once_per_document() {
     let library = fixture.library();
     let mut model = Hashing::new("hash");
     library.update_vectors(&mut model, &quiet()).unwrap();
-    let index = library.semantic(&Hashing::new("hash")).unwrap();
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
 
     let query = model.embed(&["descale kettle"], Role::Query).unwrap().pop().unwrap();
-    let hits = index.search(&query, 10);
+    let hits = index.search(&query, 10).unwrap();
     assert_eq!(hits.len(), 2, "two chunks of the kettle note are one result");
     assert!(hits[0].path.ends_with("kettle.md"));
     assert!(hits[0].score > hits[1].score);
@@ -213,8 +291,8 @@ fn two_models_keep_their_vectors_side_by_side() {
     assert!(fixture.store.join("vectors/second/vectors.bin").exists());
 
     assert!(library.remove_vectors("first").unwrap());
-    assert!(library.semantic(&Hashing::new("second")).is_ok());
-    assert!(matches!(library.semantic(&Hashing::new("first")), Err(Error::VectorsBehind { .. })));
+    assert!(library.semantic(&Hashing::new("second")).unwrap().is_some());
+    assert!(library.semantic(&Hashing::new("first")).unwrap().is_none());
     assert!(!library.remove_vectors("first").unwrap());
 }
 
@@ -235,9 +313,64 @@ fn an_update_that_fails_keeps_what_it_computed() {
     let kept = failing.read.get();
     assert!(kept > 0 && kept < 100, "the first batch was read: {kept}");
 
+    // What it computed is searchable already, and the index says how much
+    // it does not cover.
+    let partial = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    assert_eq!(partial.len(), kept);
+    assert_eq!(partial.behind(), 100 - kept);
+
     let mut model = Hashing::new("hash");
     let resumed = library.update_vectors(&mut model, &quiet()).unwrap();
     assert_eq!(resumed.embedded, 100 - kept, "only the rest is read");
+    let whole = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    assert_eq!((whole.len(), whole.behind()), (100, 0));
+}
+
+/// The index is derived from the store and can be thrown away: the next
+/// update builds it again from the vectors already computed, reading
+/// nothing with the model.
+#[test]
+fn a_lost_or_damaged_index_is_built_again_from_the_store() {
+    let fixture = Fixture::new(&notes());
+    let library = fixture.library();
+    let mut model = Hashing::new("hash");
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    let index_file = fixture.store.join("vectors").join("hash").join("index.bin");
+
+    std::fs::write(&index_file, b"not an index").unwrap();
+    assert!(library.semantic(&Hashing::new("hash")).unwrap().is_none(), "a damaged index is not searched");
+    let report = library.update_vectors(&mut model, &quiet()).unwrap();
+    assert_eq!(report.embedded, 0);
+    assert_eq!(library.semantic(&Hashing::new("hash")).unwrap().unwrap().len(), 4);
+
+    std::fs::remove_file(&index_file).unwrap();
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    assert_eq!(model.read.get(), 4, "the model read every passage once, in the first update");
+    assert_eq!(library.semantic(&Hashing::new("hash")).unwrap().unwrap().len(), 4);
+}
+
+/// Hits read from the full-text index: the chunk's own title and text, the
+/// score the cosine, the example's own file left out.
+#[test]
+fn hits_by_meaning_carry_the_chunk_and_can_leave_one_file_out() {
+    let fixture = Fixture::new(&notes());
+    let library = fixture.library();
+    let mut model = Hashing::new("hash");
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    let finder = library.finder().unwrap().unwrap();
+
+    let vector = model.embed(&["Descale the kettle with citric acid"], Role::Passage).unwrap().pop().unwrap();
+    let hits = index.hits(&finder, &vector, 2, None).unwrap();
+    assert_eq!(hits[0].title, "Kettle");
+    assert!(hits[0].fragment.contains("citric acid"));
+    assert!(hits[0].highlights.is_empty());
+    assert!(hits[0].score > 0.5 && hits[0].score <= 1.0 + 1e-5);
+
+    let kettle = hits[0].path.clone();
+    let others = index.hits(&finder, &vector, 2, Some(&kettle)).unwrap();
+    assert_eq!(others.len(), 2, "the limit still holds without the left-out file");
+    assert!(others.iter().all(|hit| hit.path != kettle));
 }
 
 fn query(text: &str, expect: &str, group: &str) -> EvalQuery {
@@ -276,7 +409,7 @@ fn an_evaluation_counts_where_each_answer_landed() {
     assert_eq!(fulltext.groups["en"].queries, 3);
 
     let mut model = Hashing::new("hash");
-    assert!(matches!(evaluation.semantic(&mut model), Err(Error::VectorsBehind { .. })));
+    assert!(matches!(evaluation.semantic(&mut model), Err(Error::VectorsBehind { documents: 4, .. })));
     library.update_vectors(&mut model, &quiet()).unwrap();
     let semantic = evaluation.semantic(&mut model).unwrap();
     assert_eq!(semantic.engine, "hash");
@@ -294,4 +427,25 @@ fn a_query_set_naming_a_document_the_library_lacks_is_refused() {
     };
     let error = Evaluation::new(&library, set).unwrap_err();
     assert!(error.to_string().contains("kettel.md"), "{error}");
+}
+
+/// A hit by meaning points at the chunk that matched, not the top of its
+/// file: its line, its headings, its own opening for a fragment.
+#[test]
+fn a_hit_by_meaning_is_the_chunk_that_matched() {
+    let fixture = Fixture::new(&[(
+        "kitchen.md",
+        "# Kitchen\n\n## Espresso\n\nDial the grinder in at eighteen grams.\n\n## Kettle\n\nDescale the kettle with citric acid.\n",
+    )]);
+    let library = fixture.library();
+    let mut model = Hashing::new("hash");
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    let finder = library.finder().unwrap().unwrap();
+
+    let vector = model.embed(&["descale kettle citric acid"], Role::Query).unwrap().pop().unwrap();
+    let hits = index.hits(&finder, &vector, 1, None).unwrap();
+    assert_eq!(hits[0].headings, vec!["Kitchen".to_string(), "Kettle".to_string()]);
+    assert_eq!(hits[0].line, 9, "the line its text starts on");
+    assert!(hits[0].fragment.starts_with("Descale"), "{}", hits[0].fragment);
 }
