@@ -1,9 +1,9 @@
 ---
 title: Search by meaning
-description: How a passage becomes a vector, why each model keeps its own, what never leaves the machine, and how the model was chosen.
+description: How a passage becomes a vector, how the vectors are searched and kept current, what never leaves the machine, and how the model was chosen.
 ---
 
-Full-text search finds a document because the words of the question occur in it. That fails exactly when it matters: you remember what a note was about, not how you phrased it, and half your notes are in the other language. The second half of nooma finds a document by what it means. Its first piece - the model, and the vectors it computes - arrived in v0.6.0; searching with it arrives in v0.7.0, and the two halves become one ranked list in v0.8.0.
+Full-text search finds a document because the words of the question occur in it. That fails exactly when it matters: you remember what a note was about, not how you phrased it, and half your notes are in the other language. The second half of nooma finds a document by what it means. The model and the vectors it computes arrived in v0.6.0; searching with them - beside the words, as a list of its own, and by a whole passage - in v0.7.0. The two halves become one ranked list in v0.8.0.
 
 ## A passage becomes a vector
 
@@ -19,6 +19,27 @@ A vector means something only next to vectors from the same weights. So the libr
 
 Inside a store, a vector is kept under the hash of its passage and nothing else. Computing vectors is the slowest thing nooma does, and keying them by text means each distinct passage is computed once: a renamed file, a note copied to two folders, a document cut again by a new chunker whose chunks mostly come out the same - all find their vectors already there. Vectors are written as they are computed, so an update stopped half way keeps the half it paid for.
 
+## Finding the closest without reading all
+
+Comparing a question with every vector in the library is exact, and its cost grows with the library. nooma keeps the vectors of the passages the library holds now in a graph - HNSW, through [`usearch`](https://github.com/unum-cloud/USearch) - where each vector is linked to its near neighbours, and a search walks from neighbour to neighbour toward the question instead of reading them all. The answer is approximate by construction; the claim is that the approximation does not change what you see. It is measured, not assumed: against exact search over the same vectors, on the private corpus below, the graph finds the same documents - see [How the index was checked](#how-the-index-was-checked).
+
+The graph is kept in `index.bin`, beside the store, with the chunks each passage stands for. It is derived: the store of computed vectors is what is expensive, and the graph is built again from it in seconds when it is lost, damaged, or built from another model. The file is written whole and renamed into place, so a search reading it sees one state or the next - never the graph of one with the chunks of another.
+
+A search asks the graph for more chunks than it needs documents, because several chunks of one document can be closer than any chunk of the next, and keeps each document's closest. The hit's text comes from the full-text index, which is where the chunks are kept: the vector index knows where a chunk is, not what it says.
+
+## Kept current, and honest about how far
+
+The first reading of a library is long - an hour or two for a few thousand notes. Waiting for all of it before answering anything would make the half by meaning useless for that hour, so the index is saved as it goes: every minute, once it has grown by a tenth. Passages are read in the order of their documents, so what is covered is whole documents. A search answers over what is covered, and says how many documents are not yet; the window shows the count in its status line, `nooma find` in a line under the list.
+
+Later, the index follows the full-text index: a changed file's new passages are read, a removed file's leave the graph, and a renamed file - the same passages in a new place - costs no reading at all. A document deleted since the last update is never a result, even before the vectors catch up: it could be neither shown nor opened.
+
+In the window this all happens in the background: after the folders are read, the vectors are brought up to date while the field already answers. The model is shared between that work and your searches, borrowed by the update one small batch at a time - sixteen passages - and handed to a search that is waiting first, so a search waits at most about a batch. On the command line it is [`nooma index`](/nooma/reference/find/#index) that computes them; `find` and `similar` answer from what is stored.
+
+## Searching by example
+
+A question is a few words; sometimes what you have is a paragraph - from a letter, from a note open in another window - and the question is what else you wrote about this. Paste it into the window's field, or give it to [`nooma similar`](/nooma/reference/find/#similar), and the documents closest to it in meaning come back. A paste is taken as a passage rather than a query when it has more than one line or is longer than 140 characters.
+
+A passage is compared with passages: it is read the way the documents were, with the model's passage prefix, not as a question. The exact half is not asked - a paragraph's words are not a query, and every one of them would have to occur.
 ## What never leaves the machine
 
 The model runs on your CPU, through ONNX Runtime linked into nooma. Fetching it - [`nooma model fetch`](/nooma/reference/model/) - is the one thing nooma does over the network, only when you run it, and it downloads the model's files and sends nothing.
@@ -54,3 +75,9 @@ What the numbers say:
 - **`bge-m3` is the strongest on the synthetic set, and twenty times slower.** At 0.6 passages a second a two-thousand-note vault takes most of a day to read. For a tool that runs on your laptop beside your work, that rules it out whatever it scores; it is in the catalogue for measuring with `nooma eval`.
 
 A better multilingual model will come. Changing to it costs a catalogue entry and one pass of computing vectors, and is measured on the same questions before it is made.
+
+## How the index was checked
+
+On the private corpus above - grown since to 984 documents, 13,463 chunks and 13,260 distinct passages - `nooma eval` asked each of the seventy questions of the graph and of exact search over the same vectors. They found the answer to the same questions at the same ranks: MRR 0.39 and hit@3 0.49 both, in every group alike, and what exact search measured when the model was chosen. Three questions of seventy differed at all, and only in the order of documents below the answer. A question took 35 ms either way, nearly all of it the model reading the question.
+
+Building the graph again from the stored vectors - after the index is lost, damaged or mostly rewritten - took nine seconds for those 13,260 passages, and an update that finds nothing changed takes a fifth of a second. Reading the passages with the model the first time used at most 1.5 GB of memory: the batches are small, sixteen passages, against the 2.1 to 2.7 GB that batches of thirty-two took. Over random vectors - the hardest case for a graph - its default search width missed one in ten of the closest ten; nooma searches four times wider, and a test holds that against exact search.

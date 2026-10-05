@@ -4,7 +4,7 @@
 
 The repository is a cargo workspace of four crates:
 
-- **`crates/nooma-core`** — the indexing library: repositories, the document library, the model catalogue, the vector store and the evaluation. No UI, no window, no network path. This is where the work is. Its `semantic` feature adds the model runner (ONNX Runtime, linked statically); it is off by default, so a consumer that only reads repositories does not link an inference runtime.
+- **`crates/nooma-core`** — the indexing library: repositories, the document library, the model catalogue, the vector store and its index, and the evaluation. No UI, no window, no network path. This is where the work is. Its `semantic` feature adds everything about vectors - the model runner (ONNX Runtime, linked statically), the store and the graph searched over it (`usearch`, C++ built from source); it is off by default, so a consumer that only reads repositories builds and links neither.
 - **`crates/nooma-fetch`** — fetches an embedding model, pinned by commit and hash. The one crate in the workspace that opens a connection; a test (`crates/nooma-core/tests/offline.rs`) holds `nooma-core` to having no HTTP client or TLS among its dependencies at all.
 - **`crates/nooma`** — the command-line binary.
 - **`app/src-tauri`** — the window, `nooma-app`: a Tauri 2 shell around the same library. Its frontend is `app/`, React on the line's design system, [dowel](https://github.com/lacodda/dowel).
@@ -28,7 +28,7 @@ pnpm tauri dev
 
 `NOOMA_STORE=<dir>` points both the window and the CLI at a library other than your own - for a demo corpus, or for trying a change without touching what you search every day.
 
-ONNX Runtime comes prebuilt and is linked statically; `ort` downloads it while building, never while nooma runs. On Windows the prebuilt library needs the C++ standard library of Visual Studio 2022 17.10 or newer (MSVC 14.40): an older toolset fails to link with `unresolved external symbol __std_find_last_of_trivial_pos_1`, and the cure is updating Visual Studio, not the code.
+ONNX Runtime comes prebuilt and is linked statically; `ort` downloads it while building, never while nooma runs. On Windows the prebuilt library needs the C++ standard library of Visual Studio 2022 17.10 or newer (MSVC 14.40): an older toolset fails to link with `unresolved external symbol __std_find_last_of_trivial_pos_1`, and the cure is updating Visual Studio, not the code. `usearch` is compiled from its C++ source, which takes a C++17 compiler: MSVC on Windows, which the Rust toolchain needs there anyway; `g++` or `clang++` elsewhere.
 
 The tests run the real embedding model rather than skip without it, so fetch it once before the first `cargo test`:
 

@@ -31,27 +31,44 @@ There is exactly one exception, and it is not in the default build: `--prose` ca
 
 ## What works today
 
-v0.5.0 searches your folders by the words in them - the exact half of the hybrid. Point it at notes, text files or an Obsidian vault, and search from a window with one field or from the shell:
+v0.7.0 searches your folders two ways at once: by the words in them, and by what they mean. Point it at notes, text files or an Obsidian vault, and search from a window with one field or from the shell:
 
-<p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar, results with the matched words marked" width="720"></p>
+<p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar, exact matches and matches by meaning in two lists" width="720"></p>
 
 ```
 $ nooma source add ~/Notes
-$ nooma find "договоров"
-Договоры с подрядчиками · Сроки
-  ~/Notes/work/договоры.md:9
-  Договор поставки продлевается автоматически…
+$ nooma index
+$ nooma find "coffee machine warranty"
+exact
+
+Appliance receipts · March
+  ~/Notes/home/appliance-receipts.md:5
+  Filed the warranty claim for the espresso machine on 14 March…
+
+by meaning · multilingual-e5-small
+
+Appliance receipts · March (0.88)
+  ~/Notes/home/appliance-receipts.md:5
+  Filed the warranty claim for the espresso machine on 14 March…
+
+Kitchen appliances · Espresso setup (0.82)
+  ~/Notes/home/kitchen-appliances.md:5
+  …the seller promises a replacement part under guarantee.
+
+Home insurance (0.80)
+  ~/Notes/home/insurance.md:3
+  Household appliances are covered for accidental damage…
 ```
 
-Any form of a word finds the others, in Russian and English alike. Tags, wikilinks and backlinks count; only files that changed are read again.
+Any form of a word finds the others, in Russian and English alike; the half by meaning finds the notes in words they do not use - a guarantee, an insurance claim. Paste a paragraph into the window - or give it to `nooma similar` - to find what else says the same.
 
-The model for the other half is chosen and on hand: `nooma model fetch` downloads it, and `nooma eval` measures search against questions whose answers you know - by words and by meaning, side by side, on your own folders.
+The model runs on your CPU and is fetched once, when you ask: a button in the window, `nooma model fetch` in the shell. The first reading of a large library takes an hour or so; it runs in the background, and search answers over what is read meanwhile. `nooma eval` measures both halves against questions whose answers you know, on your own folders.
 
 The repository index from earlier versions is still here: `nooma repo` reads a git repository into symbols, imports, module summaries and commit history, for [rigger](https://github.com/lacodda/rigger) and for scripts.
 
 ## Status
 
-v0.6.0. Exact search over markdown and text works, in a window and on the command line. The embedding model is chosen by measurement and fetched on request; searching by meaning with it arrives in v0.7.0, and the two halves merge into one ranked list at v0.8.0 - the point at which the name is earned. PDF, DOCX and EPUB come after. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.7.0. Both halves search markdown and text - by words and by meaning, side by side, in a window and on the command line - and a pasted passage finds its kin. The two lists merge into one ranking at v0.8.0, the point at which the name is earned. Search across languages is v0.9.0: the model nooma uses does not cross them yet. PDF, DOCX and EPUB come after. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 

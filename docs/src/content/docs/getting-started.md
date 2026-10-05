@@ -17,11 +17,13 @@ The window comes as an installer on the same release page: `nooma_<version>_x64-
 
 ## What works today
 
-nooma searches folders of markdown and text by the words in them, from a window or from the shell, and indexes git repositories for [`rigger`](https://github.com/lacodda/rigger). Finding a document by its meaning arrives in a later version; see [Status](/nooma/#status).
+nooma searches folders of markdown and text by the words in them and by what they mean, from a window or from the shell, and indexes git repositories for [`rigger`](https://github.com/lacodda/rigger). The two halves answer as two lists for now, and merge into one ranking in a later version; see [Status](/nooma/#status).
 
 ## Search your folders
 
-In the window, **Add folder** picks one and reads it; after that the field answers as you type. `↑` `↓` move through the results, `Enter` opens one, `Ctrl+Enter` shows it in its folder, and `Ctrl+K` puts the cursor back in the field from anywhere.
+In the window, **Add folder** picks one and reads it; after that the field answers as you type, with the exact matches first and the matches by meaning under them. `↑` `↓` move through both, `Enter` opens one, `Ctrl+Enter` shows it in its folder, and `Ctrl+K` puts the cursor back in the field from anywhere.
+
+Search by meaning needs its model, about half a gigabyte: the first time, the window offers to download it - the one thing nooma ever downloads, and nothing of yours is sent. Then it reads your documents for meaning in the background; the status line counts the passages and the time left, and search by meaning answers over what is read so far. Paste a paragraph into the field and the window finds the documents that say the same.
 
 From the shell, add a folder and search:
 
@@ -36,7 +38,17 @@ Appliance receipts · March
   Filed the warranty claim for the espresso machine…
 ```
 
-`find` reads whatever changed since the last time before it answers, so there is no separate step to remember. The window and the shell share one library: a folder added in one is searched by the other. Everything - the folders, the options, the JSON `find --json` prints - is on the [reference page](/nooma/reference/find/).
+`find` reads whatever changed since the last time before it answers, so there is no separate step to remember.
+
+For the half by meaning, fetch the model once and let `index` read the folder with it - the first time, an hour or so for a few thousand notes; after that, seconds for what changed:
+
+```console
+$ nooma model fetch
+$ nooma index
+multilingual-e5-small: 1840 / 4210 passages · 9 min left
+```
+
+`find` then answers with both lists, and `nooma similar` takes a passage - a file, or `-` for standard input - and finds what else says the same. The window and the shell share one library and one set of vectors: a folder added in one is searched by the other. Everything - the folders, the options, the JSON each command prints - is on the [reference page](/nooma/reference/find/).
 
 ## Index a repository
 
