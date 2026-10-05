@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0] - 2026-10-05
+
+### Documentation
+- Describe the vector index, the two lists and search by example
+
+### Features
+- Search by meaning through a graph index over the vectors
+- Search by meaning beside the words, read in the background
+
+### Breaking Changes
+
+in nooma-core, the vector store and its index are
+behind the `semantic` feature; `Library::semantic` takes a `Model`
+and returns `Option<SemanticIndex>` that answers over what it covers
+instead of failing; `Embedder` is split into `Model` and `Embedder`,
+and `Error::VectorsBehind` counts documents. `nooma find --json` adds
+`meaning`, and `nooma index --json` adds `vectors`.
+
 ## [0.6.0] - 2026-09-26
 
 ### Bug Fixes
