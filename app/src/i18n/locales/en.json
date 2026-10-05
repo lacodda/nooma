@@ -7,7 +7,7 @@
   },
   "search": {
     "label": "Search your files",
-    "placeholder": "Search your files",
+    "placeholder": "Search your files - or paste a passage to find more like it",
     "clear": "Clear the search"
   },
   "results": {
@@ -19,7 +19,18 @@
     "nothingBody": "No document contains these words. Any form of a word counts - try fewer words, or other ones.",
     "type": "Type to search",
     "typeBody": "Words in any form: a search for “contracts” finds “contract”.",
-    "failed": "The search failed"
+    "failed": "The search failed",
+    "exactSection": "Exact matches",
+    "meaningSection": "By meaning",
+    "similarSection": "Similar to the pasted passage",
+    "meaning": "meaning",
+    "meaningHint": "Close in meaning to the query, whatever the words",
+    "nothingExact": "No document contains these words.",
+    "nothingMeaning": "Nothing close in meaning.",
+    "nothingSimilar": "Nothing in your files is close to this passage.",
+    "behind_one": "{{count}} document not read for meaning yet",
+    "behind_other": "{{count}} documents not read for meaning yet",
+    "more": "Show all {{count}}"
   },
   "sources": {
     "none": "Nothing to search yet",
@@ -40,10 +51,34 @@
     "sources_one": "{{count}} folder",
     "sources_other": "{{count}} folders",
     "took": "exact {{ms}} ms",
-    "offline": "nothing leaves this machine"
+    "offline": "nothing leaves this machine",
+    "tookMeaning": "meaning {{ms}} ms",
+    "meaningReady": "meaning ready",
+    "meaningNoModel": "meaning off: no model",
+    "meaningNone": "meaning not read yet",
+    "meaningFetching": "downloading model {{percent}}%",
+    "meaningReading": "meaning {{done}} / {{total}}",
+    "meaningLeft": "about {{minutes}} min left",
+    "meaningBusy": "another nooma is reading for meaning",
+    "meaningFailed": "reading for meaning failed",
+    "meaningBehind_one": "meaning behind by {{count}} document",
+    "meaningBehind_other": "meaning behind by {{count}} documents"
   },
   "actions": {
     "open": "Open",
     "reveal": "Show in folder"
+  },
+  "meaning": {
+    "needsModel": "Search by meaning needs its model",
+    "needsModelBody": "{{size}} MB, downloaded once from Hugging Face. It is the one download nooma ever makes - your files never leave this machine.",
+    "download": "Download the model",
+    "retry": "Try again",
+    "downloading": "Downloading the model",
+    "downloadingOf": "Downloading the model: {{done}} of {{total}} MB",
+    "downloadFailed": "The download stopped: {{message}}",
+    "reading": "Reading your documents for meaning",
+    "readingOf": "Reading your documents for meaning: {{done}} of {{total}} passages",
+    "notYet": "Nothing has been read for meaning yet.",
+    "failed": "Search by meaning failed: {{message}}"
   }
 }

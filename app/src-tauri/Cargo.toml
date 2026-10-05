@@ -22,7 +22,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-nooma-core.workspace = true
+# The window searches by meaning too, so it runs the model, and fetches it
+# when the person asks - through nooma-fetch, the one crate with a network
+# client in it.
+nooma-core = { workspace = true, features = ["semantic"] }
+nooma-fetch.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }

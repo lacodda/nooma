@@ -1,10 +1,11 @@
 //! The nooma window.
 //!
 //! A shell around `nooma-core`: the library the CLI keeps is the library the
-//! window searches, in the same place on disk. Nothing here reaches the
-//! network — the plugins are the dialog that picks a folder, the opener that
-//! hands a found file to its application, and the one that remembers where the
-//! window was.
+//! window searches, in the same place on disk. The one thing here that
+//! reaches the network is fetching the model, through `nooma-fetch`, when the
+//! person presses the button for it. The plugins are the dialog that picks a
+//! folder, the opener that hands a found file to its application, and the one
+//! that remembers where the window was.
 
 pub mod commands;
 
@@ -34,7 +35,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::status,
             commands::search,
+            commands::search_meaning,
+            commands::similar,
             commands::update,
+            commands::update_vectors,
+            commands::meaning_status,
+            commands::fetch_model,
             commands::add_source,
             commands::open_document,
             commands::reveal_document,
