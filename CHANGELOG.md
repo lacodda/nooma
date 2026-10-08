@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.0] - 2026-10-08
+
+### Documentation
+- Describe one list from two halves
+
+### Features
+- Rank the words and the meaning as one list
+- Show one list from both halves
+
+### Testing
+- Watch every stored format since the last tag
+
+### Breaking Changes
+
+the full-text index goes to format 2 - every chunk
+keeps its file's modification time and every searched field - and is
+rebuilt on the next update, in seconds; the vectors are kept. In
+nooma-core the full-text search returns Matched, with the share of the
+query each hit holds and all_words, and every Hit carries modified.
+The JSON of find prints one hits list of ranked documents, each with
+the place the words and the meaning gave it, plus all_words; meaning
+no longer carries hits. The JSON of similar prints the same shape.
+
 ## [0.7.0] - 2026-10-05
 
 ### Documentation
