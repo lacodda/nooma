@@ -4,6 +4,9 @@ All notable changes to this project are documented in this file.
 
 ## [0.8.0] - 2026-10-08
 
+### Bug Fixes
+- Let a waiting search have the model on every system
+
 ### Documentation
 - Describe one list from two halves
 
