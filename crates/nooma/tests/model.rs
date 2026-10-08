@@ -207,6 +207,9 @@ fn eval_measures_both_halves_and_keeps_the_vectors() {
     // approximation costs, measured on every run.
     assert_eq!(engines[2]["engine"], "multilingual-e5-small exact");
     assert_eq!(engines[2]["overall"], engines[1]["overall"]);
+    // And the one list `find` shows, words and meaning together.
+    assert_eq!(engines[3]["engine"], "multilingual-e5-small hybrid");
+    assert_eq!(engines[3]["overall"]["hit_at_1"], 1.0, "{}", engines[3]);
     assert_eq!(first["vectors"][0]["report"]["embedded"], 2);
 
     let page = reference("eval.md");
@@ -226,7 +229,7 @@ fn eval_measures_both_halves_and_keeps_the_vectors() {
 }
 
 /// The whole path a person takes with the real model: `index` reads the
-/// folder into both halves, `find` answers with both lists, and `similar`
+/// folder into both halves, `find` answers with one list from both, and `similar`
 /// finds what a passage is like - leaving out the file it came from. Every
 /// field printed is on the reference page.
 #[test]
@@ -242,16 +245,16 @@ fn index_computes_the_vectors_and_find_and_similar_answer_by_meaning() {
     assert_eq!(again["vectors"]["embedded"], 0, "the vectors were kept");
 
     let found = json_of(&nooma(&["find", "how do I get rid of limescale", "--json"], &models, store));
-    assert!(found["hits"].as_array().unwrap().is_empty(), "no note holds these words");
     assert_eq!(found["meaning"]["state"], "ready");
     assert_eq!(found["meaning"]["behind"], 0);
-    let first = &found["meaning"]["hits"][0];
+    let first = &found["hits"][0];
     assert!(first["path"].as_str().unwrap().ends_with("kettle.md"), "{found}");
-    let score = first["score"].as_f64().unwrap();
-    assert!(score > 0.5 && score <= 1.0, "a cosine: {score}");
+    assert_eq!(first["words"], serde_json::Value::Null, "no note holds these words: {found}");
+    let cosine = first["meaning"]["score"].as_f64().unwrap();
+    assert!(cosine > 0.5 && cosine <= 1.0, "a cosine: {cosine}");
 
     let report = stdout(&nooma(&["find", "how do I get rid of limescale"], &models, store));
-    assert!(report.contains("by meaning · multilingual-e5-small"), "{report}");
+    assert!(report.contains("(meaning 0."), "{report}");
 
     let kettle = library.notes.path().join("kettle.md");
     let similar = json_of(&nooma(&["similar", kettle.to_str().unwrap(), "--json"], &models, store));

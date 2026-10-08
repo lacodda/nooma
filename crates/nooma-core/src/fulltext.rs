@@ -67,6 +67,8 @@ pub struct Fields {
     pub backlink_count: Field,
     /// The 1-based line the chunk starts on.
     pub line: Field,
+    /// When the file was last modified, in seconds since the epoch.
+    pub modified: Field,
 }
 
 impl Fields {
@@ -78,19 +80,22 @@ impl Fields {
                 .set_tokenizer(ANALYZER)
                 .set_index_option(IndexRecordOption::WithFreqsAndPositions),
         );
-        let stored = indexed.clone().set_stored();
+        // Every searched field is stored too: how much of a query a chunk
+        // holds is counted over all of them.
+        let stored = indexed.set_stored();
         let fields = Self {
             path: builder.add_text_field("path", STRING | STORED),
             kind: builder.add_text_field("kind", STRING | STORED),
             title: builder.add_text_field("title", stored.clone()),
-            aliases: builder.add_text_field("aliases", indexed.clone()),
+            aliases: builder.add_text_field("aliases", stored.clone()),
             headings: builder.add_text_field("headings", stored.clone()),
             body: builder.add_text_field("body", stored.clone()),
-            tags: builder.add_text_field("tags", stored),
-            links: builder.add_text_field("links", indexed.clone()),
-            backlinks: builder.add_text_field("backlinks", indexed),
+            tags: builder.add_text_field("tags", stored.clone()),
+            links: builder.add_text_field("links", stored.clone()),
+            backlinks: builder.add_text_field("backlinks", stored),
             backlink_count: builder.add_u64_field("backlink_count", FAST),
             line: builder.add_u64_field("line", STORED | INDEXED),
+            modified: builder.add_u64_field("modified", STORED),
         };
         (builder.build(), fields)
     }
@@ -110,6 +115,7 @@ impl Fields {
             backlinks: get("backlinks")?,
             backlink_count: get("backlink_count")?,
             line: get("line")?,
+            modified: get("modified")?,
         })
     }
 

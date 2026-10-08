@@ -414,6 +414,39 @@ fn an_evaluation_counts_where_each_answer_landed() {
     let semantic = evaluation.semantic(&mut model).unwrap();
     assert_eq!(semantic.engine, "hash");
     assert_eq!(semantic.outcomes[0].rank, Some(1));
+
+    let hybrid = evaluation.hybrid(&mut model).unwrap();
+    assert_eq!(hybrid.engine, "hash hybrid");
+    assert_eq!(hybrid.outcomes[0].rank, Some(1));
+    assert_eq!(hybrid.overall.queries, 4);
+}
+
+/// `find` asks both halves and shows one list: a document found by the words
+/// and by the meaning is one row, and says where each put it.
+#[test]
+fn a_search_ranks_both_halves_as_one_list() {
+    let fixture = Fixture::new(&notes());
+    let library = fixture.library();
+    let mut model = Hashing::new("hash");
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    let finder = library.finder().unwrap().unwrap();
+
+    let vector = model.embed(&["descale kettle"], Role::Query).unwrap().pop().unwrap();
+    let answer = nooma_core::hybrid::search(&finder, Some((&index, &vector)), "descale kettle", 10).unwrap();
+    assert!(answer.all_words);
+    assert_eq!(answer.hits[0].hit.title, "Kettle");
+    assert_eq!(answer.hits[0].words.map(|place| place.rank), Some(1));
+    assert_eq!(answer.hits[0].meaning.map(|place| place.rank), Some(1));
+    assert_eq!(answer.hits[0].words.and_then(|place| place.share), Some(1.0));
+    let mut paths: Vec<_> = answer.hits.iter().map(|ranked| ranked.hit.path.clone()).collect();
+    paths.sort();
+    paths.dedup();
+    assert_eq!(paths.len(), answer.hits.len(), "one row per document");
+
+    let alone = nooma_core::hybrid::search(&finder, None, "descale kettle", 10).unwrap();
+    assert_eq!(alone.hits.len(), 1, "without vectors, the words answer alone");
+    assert!(alone.hits[0].meaning.is_none());
 }
 
 /// A misspelt path in a query set would count as a miss for every engine,

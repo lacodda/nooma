@@ -58,8 +58,9 @@ fn found(library: &Library, query: &str) -> Vec<String> {
     library
         .search(query, 10)
         .unwrap()
+        .hits
         .into_iter()
-        .map(|hit| hit.path.file_name().unwrap().to_string_lossy().into_owned())
+        .map(|found| found.hit.path.file_name().unwrap().to_string_lossy().into_owned())
         .collect()
 }
 
@@ -143,9 +144,9 @@ fn when_no_document_has_every_word_any_word_will_do() {
 fn a_hit_is_one_document_at_its_best_chunk() {
     let fixture = Fixture::new();
     let library = fixture.indexed();
-    let hits = library.search("steam wand leaking", 10).unwrap();
+    let hits = library.search("steam wand leaking", 10).unwrap().hits;
     assert_eq!(hits.len(), 1);
-    let hit = &hits[0];
+    let hit = &hits[0].hit;
     assert_eq!(hit.title, "Kitchen appliances");
     assert_eq!(hit.headings, vec!["Kitchen appliances", "Espresso setup"]);
     assert_eq!(hit.line, 9, "the chunk starts at its first paragraph, under the heading");
@@ -160,8 +161,8 @@ fn a_hit_is_one_document_at_its_best_chunk() {
 fn a_heading_inside_a_code_fence_is_not_a_heading() {
     let fixture = Fixture::new();
     let library = fixture.indexed();
-    let hits = library.search("retry", 10).unwrap();
-    assert_eq!(hits[0].headings, vec!["Release notes draft"]);
+    let hits = library.search("retry", 10).unwrap().hits;
+    assert_eq!(hits[0].hit.headings, vec!["Release notes draft"]);
 }
 
 #[test]
@@ -335,10 +336,10 @@ fn a_second_writer_is_told_the_library_is_busy() {
 #[test]
 fn an_empty_query_or_library_finds_nothing_without_failing() {
     let fixture = Fixture::new();
-    assert!(fixture.library().search("anything", 10).unwrap().is_empty());
+    assert!(fixture.library().search("anything", 10).unwrap().hits.is_empty());
     let library = fixture.indexed();
-    assert!(library.search("   ", 10).unwrap().is_empty());
-    assert!(library.search("greenhouse", 0).unwrap().is_empty());
+    assert!(library.search("   ", 10).unwrap().hits.is_empty());
+    assert!(library.search("greenhouse", 0).unwrap().hits.is_empty());
     // Syntax a person types by accident is not an error.
     assert!(library.search("\"unclosed (", 10).is_ok());
 }
@@ -366,8 +367,8 @@ fn a_new_namesake_takes_a_backlink_away() {
     assert!(found(&library, "receipts").contains(&"moving-checklist.md".to_string()));
     std::fs::write(fixture.path("work/moving-checklist.md"), "# Office move\n").unwrap();
     library.update().unwrap();
-    let hits = library.search("receipts", 10).unwrap();
-    assert!(!hits.iter().any(|hit| hit.path.ends_with("home/moving-checklist.md")), "{hits:?}");
+    let hits = library.search("receipts", 10).unwrap().hits;
+    assert!(!hits.iter().any(|found| found.hit.path.ends_with("home/moving-checklist.md")), "{hits:?}");
 }
 
 /// A finder is kept open between searches; an update, by this library object
@@ -377,14 +378,14 @@ fn a_kept_finder_sees_later_updates() {
     let fixture = Fixture::new();
     let library = fixture.indexed();
     let finder = library.finder().unwrap().expect("indexed");
-    assert!(finder.search("zucchini", 10).unwrap().is_empty());
+    assert!(finder.search("zucchini", 10).unwrap().hits.is_empty());
     rewrite(
         &fixture.path("home/garden.txt"),
         "Plant the zucchini in May.
 ",
     );
     fixture.library().update().unwrap();
-    assert_eq!(finder.search("zucchini", 10).unwrap().len(), 1);
+    assert_eq!(finder.search("zucchini", 10).unwrap().hits.len(), 1);
 }
 
 /// Starting over - a new chunker, say - must work while a window holds the
@@ -405,7 +406,7 @@ fn starting_over_works_while_a_finder_holds_the_index() {
     let report = library.update().unwrap();
     assert!(report.rebuilt.is_some());
     assert_eq!(report.documents, 8);
-    assert!(finder.search("vents", 10).unwrap().is_empty());
+    assert!(finder.search("vents", 10).unwrap().hits.is_empty());
     let index = tantivy::Index::open_in_dir(fixture.store.join(format!("fulltext-{}", nooma_core::library::FULLTEXT_FORMAT_VERSION))).unwrap();
     let held = index.reader().unwrap().searcher().num_docs() as usize;
     assert_eq!(held, library.status().unwrap().chunks, "the rebuilt index holds each chunk once");
@@ -420,4 +421,72 @@ fn a_missing_index_with_a_manifest_is_rebuilt_not_trusted() {
     assert!(report.rebuilt.is_some());
     assert_eq!(report.indexed, 9, "a manifest without its index describes nothing");
     assert_eq!(found(&library, "vents"), vec!["garden.txt"]);
+}
+
+/// A library over a few notes written here, for what the shared corpus is
+/// too small or too varied to show.
+fn library_of(notes: &[(&str, &str)]) -> (tempfile::TempDir, Library) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("notes");
+    std::fs::create_dir_all(&root).unwrap();
+    for (name, text) in notes {
+        std::fs::write(root.join(name), text).unwrap();
+    }
+    let mut library = Library::open_at(dir.path().join("store")).unwrap();
+    library.add_source(&root, Vec::new()).unwrap();
+    library.update().unwrap();
+    (dir, library)
+}
+
+/// When no document holds every word, the answer is the documents holding
+/// some - and it says so, with how much of the question each one holds.
+#[test]
+fn an_answer_says_whether_its_hits_hold_every_word() {
+    let fixture = Fixture::new();
+    let library = fixture.indexed();
+    let all = library.search("greenhouse vents", 10).unwrap();
+    assert!(all.all_words);
+    assert_eq!(all.hits[0].share, 1.0);
+
+    let some = library.search("greenhouse zeppelin", 10).unwrap();
+    assert!(!some.all_words);
+    let garden = some.hits.iter().find(|found| found.hit.path.ends_with("garden.txt")).unwrap();
+    assert_eq!(garden.share, 0.5, "one word of two");
+}
+
+/// A word every note holds matches every note: a question with one word
+/// nobody wrote came back as the notes that share its "the". Such a word is
+/// left out when the words are taken one by one.
+#[test]
+fn a_word_most_chunks_hold_finds_nothing_on_its_own() {
+    let (_dir, library) = library_of(&[
+        ("kettle.md", "The kettle needs descaling.\n"),
+        ("bicycle.md", "The bicycle chain needs oil.\n"),
+        ("garden.md", "The garden needs water.\n"),
+        ("receipt.md", "The warranty for the espresso machine.\n"),
+    ]);
+    let found = library.search("the espresso zeppelin", 10).unwrap();
+    assert!(!found.all_words);
+    let names: Vec<String> = found
+        .hits
+        .iter()
+        .map(|found| found.hit.path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["receipt.md"]);
+    assert_eq!(found.hits[0].share, 0.5, "\"the\" is not counted: espresso of espresso and zeppelin");
+}
+
+#[test]
+fn a_hit_carries_when_its_file_was_modified() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("notes");
+    std::fs::create_dir_all(&root).unwrap();
+    let note = root.join("note.md");
+    std::fs::write(&note, "# Note\n\nA greenhouse.\n").unwrap();
+    let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    std::fs::File::options().write(true).open(&note).unwrap().set_modified(when).unwrap();
+    let mut library = Library::open_at(dir.path().join("store")).unwrap();
+    library.add_source(&root, Vec::new()).unwrap();
+    library.update().unwrap();
+    assert_eq!(library.search("greenhouse", 1).unwrap().hits[0].hit.modified, 1_700_000_000);
 }

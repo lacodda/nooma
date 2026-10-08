@@ -73,9 +73,10 @@ fn the_model_finds_a_document_by_meaning_in_either_language() {
     let evaluation = Evaluation::new(&library, set).unwrap();
     let words = evaluation.fulltext().unwrap();
     let meaning = evaluation.semantic(&mut model).unwrap();
+    let hybrid = evaluation.hybrid(&mut model).unwrap();
 
     // Printed for the record: `cargo test --test meaning -- --nocapture`.
-    for engine in [&words, &meaning] {
+    for engine in [&words, &meaning, &hybrid] {
         println!(
             "{:<24} hit@1 {:.2}  hit@3 {:.2}  hit@10 {:.2}  MRR {:.2}",
             engine.engine, engine.overall.hit_at_1, engine.overall.hit_at_3, engine.overall.hit_at_10, engine.overall.mrr
@@ -115,6 +116,20 @@ fn the_model_finds_a_document_by_meaning_in_either_language() {
             meaning.groups[group].mrr,
             words.groups[group].mrr
         );
+    }
+
+    // The one list `find` shows. Every question in this set is built so that
+    // its words mislead - the decoys share them - and the words still must
+    // not push the answer the meaning found out of the first ten: that is
+    // what weighing them by how much of the question they hold is for (it
+    // measured hit@10 0.94 with it, 0.66 without). Within a language and for
+    // keywords it answers first, as either half alone does.
+    assert!(hybrid.overall.mrr >= 0.55, "hybrid MRR {:.2}", hybrid.overall.mrr);
+    assert!(hybrid.overall.mrr > words.overall.mrr);
+    assert!(hybrid.overall.hit_at_10 >= 0.9, "hybrid hit@10 {:.2}", hybrid.overall.hit_at_10);
+    for group in ["ru→ru", "en→en", "keywords"] {
+        let m = hybrid.groups[group];
+        assert!(m.mrr >= 0.95, "hybrid, {group}: MRR {:.2}", m.mrr);
     }
 }
 

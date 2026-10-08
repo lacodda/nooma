@@ -17,6 +17,7 @@ pub mod error;
 pub mod eval;
 pub mod fulltext;
 pub mod history;
+pub mod hybrid;
 pub mod incremental;
 pub mod index;
 pub mod lang;
@@ -45,10 +46,11 @@ pub fn data_dir() -> Result<std::path::PathBuf> {
 }
 pub use embed::{Embedder, Model, Role};
 pub use history::{CommitDoc, History};
+pub use hybrid::{Answer, Place, Ranked};
 pub use incremental::Update;
 pub use index::{FileIndex, Import, RepoIndex, Revision, Symbol, SymbolKind};
 pub use lang::Language;
-pub use library::{Finder, Hit, Library, Progress, Skipped, Source, Status, UpdateReport};
+pub use library::{Finder, Hit, Library, Matched, Progress, Skipped, Source, Status, UpdateReport, WordHit};
 pub use model::{ModelSpec, Pooling};
 pub use repo::Repo;
 pub use store::Store;

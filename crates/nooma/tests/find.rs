@@ -90,9 +90,14 @@ fn find_refreshes_first_and_prints_json() {
     let json = json_of(&output);
     assert_eq!(json["refreshed"], true);
     assert!(json["indexed_at"].is_i64());
+    assert_eq!(json["all_words"], true);
     let hits = json["hits"].as_array().unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0]["title"], "Appliance receipts");
+    assert_eq!(hits[0]["words"]["rank"], 1);
+    assert_eq!(hits[0]["words"]["share"], 1.0);
+    assert_eq!(hits[0]["meaning"], serde_json::Value::Null, "no model, so the words alone");
+    assert!(hits[0]["modified"].is_i64());
     assert_eq!(hits[0]["headings"], serde_json::json!(["Appliance receipts", "March"]));
     let fragment = hits[0]["fragment"].as_str().unwrap();
     let [start, end] = [&hits[0]["highlights"][0][0], &hits[0]["highlights"][0][1]].map(|v| v.as_u64().unwrap() as usize);
@@ -136,14 +141,27 @@ fn without_the_model_find_answers_exactly_and_says_how_to_get_meaning() {
     assert_eq!(json["hits"].as_array().unwrap().len(), 1);
     assert_eq!(json["meaning"]["state"], "no-model");
     assert_eq!(json["meaning"]["model"], "multilingual-e5-small");
-    assert!(json["meaning"]["hits"].as_array().unwrap().is_empty());
 
     let report = fixture.run(&["find", "warranty"]);
     assert!(report.status.success());
     let text = stdout(&report);
-    assert!(text.starts_with("exact"), "{text}");
+    assert!(text.starts_with("Appliance receipts · March (words)"), "{text}");
     assert!(text.contains("nooma model fetch"), "{text}");
-    assert!(!text.contains("by meaning ·"), "no list by meaning without a model: {text}");
+    assert!(!text.contains("meaning 0."), "nothing by meaning without a model: {text}");
+}
+
+/// When no document holds every word, the list is the documents holding
+/// some, and both the report and the JSON say so rather than passing them
+/// off as matches.
+#[test]
+fn find_says_when_its_hits_hold_only_some_of_the_words() {
+    let fixture = Fixture::new().added();
+    let json = json_of(&fixture.run(&["find", "warranty zeppelin", "--json"]));
+    assert_eq!(json["all_words"], false);
+    assert_eq!(json["hits"][0]["words"]["share"], 0.5);
+    let text = stdout(&fixture.run(&["find", "warranty zeppelin"]));
+    assert!(text.starts_with("no document holds every word of \"warranty zeppelin\""), "{text}");
+    assert!(text.contains("(some words)"), "{text}");
 }
 
 #[test]

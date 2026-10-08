@@ -1,9 +1,9 @@
 ---
 title: eval
-description: Measure search against questions whose answers you know - by words and by meaning, side by side, on your own folders.
+description: Measure search against questions whose answers you know - by words, by meaning and by both as find ranks them, on your own folders.
 ---
 
-A search that feels better after a change has not been shown to be better. `nooma eval` asks every question in a query set of the full-text index and of one or more models, and counts where the known answer landed. It is how nooma's model was chosen, and how a change to chunking or ranking is judged - on your folders, with questions you wrote.
+A search that feels better after a change has not been shown to be better. `nooma eval` asks every question in a query set of the full-text index, of one or more models, and of the two together as `find` asks them, and counts where the known answer landed. It is how nooma's model was chosen, and how a change to chunking or ranking is judged - on your folders, with questions you wrote.
 
 ```
 nooma eval <QUERIES> [--model <ID>]... [--json] [--no-refresh]
@@ -45,7 +45,7 @@ Questions worth writing are the ones search finds hard: a description of a note 
 
 Each question is asked of each engine, and the rank of the first expected document among the first ten results is recorded.
 
-Every model is measured twice. `<model>` searches the way `find` does, through the vector index - a graph that finds the closest vectors without reading them all, and is approximate by construction. `<model> exact` compares the question with every vector instead. The two rows side by side are what the approximation costs on your questions: nothing, when they agree. See [Search by meaning](/nooma/concepts/meaning/#finding-the-closest-without-reading-all).
+Every model is measured three times. `<model>` asks its vector index alone - a graph that finds the closest vectors without reading them all, and is approximate by construction. `<model> exact` compares the question with every vector instead; the two rows side by side are what the approximation costs on your questions - nothing, when they agree. See [Search by meaning](/nooma/concepts/meaning/#finding-the-closest-without-reading-all). `<model> hybrid` asks the way `find` does: the words and the model's vector index, ranked as one list - see [One list from two halves](/nooma/concepts/hybrid/). It is the row that says how well `find` answers.
 
 | Measure | Meaning |
 | --- | --- |
@@ -55,18 +55,17 @@ Every model is measured twice. `<model>` searches the way `find` does, through t
 | MRR | The mean of one over the rank of the first answer, zero when it is not in the first ten. It rewards putting the answer first, not just near. |
 
 ```
-$ nooma eval queries.json --model multilingual-e5-small --model paraphrase-multilingual-minilm-l12-v2
+$ nooma eval queries.json
 32 questions · 24 documents · 64 chunks
 
-                                       hit@1  hit@3  hit@10    MRR  ms/question
-fulltext                                     0.47   0.50    0.53   0.48          1.5
-multilingual-e5-small                        0.50   0.69    0.94   0.63         24.8
-multilingual-e5-small exact                  0.50   0.69    0.94   0.63         24.9
-paraphrase-multilingual-minilm-l12-v2        0.72   0.97    1.00   0.84         22.6
-paraphrase-multilingual-minilm-l12-v2 exact  0.72   0.97    1.00   0.84         22.7
+                              hit@1  hit@3  hit@10    MRR  ms/question
+fulltext                       0.47   0.50    0.53   0.48          1.5
+multilingual-e5-small          0.50   0.69    0.94   0.63         24.8
+multilingual-e5-small exact    0.50   0.69    0.94   0.63         24.9
+multilingual-e5-small hybrid   0.50   0.66    0.94   0.59         26.0
 ```
 
-That is the bilingual test corpus in nooma's repository, `crates/nooma-core/tests/meaning`, measured on a laptop.
+That is the bilingual test corpus in nooma's repository, `crates/nooma-core/tests/meaning`, measured on a laptop. It is built against the words - every answer has a decoy that shares them - so there the list from both halves trails the meaning alone; on a real archive it leads both, see [One list from two halves](/nooma/concepts/hybrid/#how-it-was-measured).
 
 Then the same table per group, how long each model took to compute its vectors, and the questions each engine missed with what it found instead.
 
@@ -78,7 +77,7 @@ Then the same table per group, how long each model took to compute its vectors, 
 | `documents` | Documents in the library. |
 | `chunks` | Chunks in the library. |
 | `engines` | One entry per engine, full-text first, with the fields below. |
-| `engine` | `fulltext`; a model's id, searched through its vector index; or the id followed by ` exact`, the same vectors compared one by one. |
+| `engine` | `fulltext`; a model's id, searched through its vector index; the id followed by ` exact`, the same vectors compared one by one; or by ` hybrid`, the words and the vector index ranked as one list, as `find` ranks them. |
 | `overall` | The measures over every question: `queries`, `hit_at_1`, `hit_at_3`, `hit_at_10`, `mrr`. |
 | `groups` | The same measures per group, by group name. |
 | `outcomes` | One entry per question: `query`, `group`, `rank` (from 1, or `null` when not in the first ten) and `top`, the first three documents found. |

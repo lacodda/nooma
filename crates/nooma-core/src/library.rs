@@ -37,9 +37,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use tantivy::collector::TopDocs;
-use tantivy::query::{Query, QueryParser};
-use tantivy::schema::{OwnedValue, Value};
+use tantivy::collector::{DocSetCollector, TopDocs};
+use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, TermQuery};
+use tantivy::schema::{IndexRecordOption, OwnedValue, Value};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{DocAddress, DocId, Index, IndexWriter, Score, SegmentReader, TantivyDocument, Term};
 
@@ -56,7 +56,10 @@ pub const SOURCES_FORMAT_VERSION: u32 = 1;
 /// library of another format is not read: the next update throws the index
 /// away and builds it again, and says so. Words stemmed by other rules would
 /// otherwise be looked up by these ones and quietly not match.
-pub const FULLTEXT_FORMAT_VERSION: u32 = 1;
+///
+/// 2: every chunk carries its file's modification time, and keeps every field
+/// it is searched by - both of which ranking reads.
+pub const FULLTEXT_FORMAT_VERSION: u32 = 2;
 
 /// How documents are cut into chunks.
 ///
@@ -197,8 +200,33 @@ pub struct Hit {
     pub highlights: Vec<Range<usize>>,
     /// The document's tags.
     pub tags: Vec<String>,
+    /// When the file was last modified, in seconds since the epoch.
+    pub modified: i64,
     /// How well it matched. Comparable within one search, not across two.
     pub score: f32,
+}
+
+/// What the words of a query found.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Matched {
+    /// The documents, best first, one per document.
+    pub hits: Vec<WordHit>,
+    /// Whether every hit holds every word of the query. `false` when no
+    /// document held them all and these hold some: a weaker answer, and one
+    /// that has to be said as such.
+    pub all_words: bool,
+}
+
+/// A document found by the words of a query.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WordHit {
+    /// Its best chunk; the score is the full-text one.
+    pub hit: Hit,
+    /// The share of the query's distinctive words the chunk holds, from 0
+    /// to 1: one when it holds every one, as it does whenever
+    /// [`Matched::all_words`] is true. One word of six is a chunk that shares
+    /// a word with the question, not one that answers it.
+    pub share: f32,
 }
 
 fn ranges_as_pairs<S: serde::Serializer>(ranges: &[Range<usize>], serializer: S) -> std::result::Result<S::Ok, S::Error> {
@@ -605,15 +633,15 @@ impl Library {
     ///
     /// Every word has to occur, in the text or the title, tags, headings or
     /// links; when no document holds them all, documents holding any of them
-    /// are returned instead, ranked by how many and how rare. An empty result
-    /// for a four-word query where three words match is the answer a person
-    /// takes for "search is broken".
+    /// are returned instead, ranked by how many and how rare, and the answer
+    /// says it is that weaker one. An empty result for a four-word query where
+    /// three words match is the answer a person takes for "search is broken".
     ///
     /// One hit per document, at its best chunk.
-    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
+    pub fn search(&self, query: &str, limit: usize) -> Result<Matched> {
         match self.finder()? {
             Some(finder) => finder.search(query, limit),
-            None => Ok(Vec::new()),
+            None => Ok(Matched::default()),
         }
     }
 
@@ -688,11 +716,7 @@ impl Library {
                 title: first_text(&doc, fields.title),
                 headings: all_text(&doc, fields.headings),
                 body: first_text(&doc, fields.body),
-                line: doc
-                    .get_first(fields.line)
-                    .and_then(|v| v.as_u64())
-                    .and_then(|n| u32::try_from(n).ok())
-                    .unwrap_or(1),
+                line: line_of(&doc, &fields),
             });
         }
         chunks.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
@@ -741,9 +765,9 @@ impl std::fmt::Debug for Finder {
 
 impl Finder {
     /// See [`Library::search`].
-    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
+    pub fn search(&self, query: &str, limit: usize) -> Result<Matched> {
         if query.trim().is_empty() || limit == 0 {
-            return Ok(Vec::new());
+            return Ok(Matched::default());
         }
         // A commit by another process is picked up now rather than when the
         // reader's own watcher gets round to it: a search right after an
@@ -756,18 +780,32 @@ impl Finder {
         for (field, boost) in fields.searched() {
             parser.set_field_boost(field, boost);
         }
-        let any = parser.parse_query_lenient(query).0;
+        let distinctive = Distinctive::of(&searcher, fields.body, query);
+        let any = parser.parse_query_lenient(&distinctive.query).0;
         parser.set_conjunction_by_default();
         let all = parser.parse_query_lenient(query).0;
 
-        let mut hits = self.collect(&searcher, fields, &*all, limit)?;
-        if hits.is_empty() {
-            hits = self.collect(&searcher, fields, &*any, limit)?;
+        let hits = self.collect(&searcher, fields, &*all, limit, None)?;
+        if !hits.is_empty() {
+            return Ok(Matched { hits, all_words: true });
         }
-        Ok(hits)
+        Ok(Matched {
+            hits: self.collect(&searcher, fields, &*any, limit, Some(&distinctive.terms))?,
+            all_words: false,
+        })
     }
 
-    fn collect(&self, searcher: &tantivy::Searcher, fields: &Fields, query: &dyn Query, limit: usize) -> Result<Vec<Hit>> {
+    /// The best chunk of each of the first `limit` documents. `terms`, when
+    /// given, are the words a chunk is measured against for its share; without
+    /// them every hit holds all the words, as the query demanded.
+    fn collect(
+        &self,
+        searcher: &tantivy::Searcher,
+        fields: &Fields,
+        query: &dyn Query,
+        limit: usize,
+        terms: Option<&BTreeSet<String>>,
+    ) -> Result<Vec<WordHit>> {
         // Several chunks of one document can outrank every chunk of the next,
         // so more are fetched than will be shown.
         let fetch = limit.saturating_mul(8).saturating_add(32);
@@ -801,20 +839,21 @@ impl Finder {
             } else {
                 (snippet.fragment().to_string(), snippet.highlighted().to_vec())
             };
-            hits.push(Hit {
-                path: PathBuf::from(path),
-                kind: first_text(&doc, fields.kind),
-                title: first_text(&doc, fields.title),
-                headings: all_text(&doc, fields.headings),
-                line: doc
-                    .get_first(fields.line)
-                    .and_then(|v| v.as_u64())
-                    .and_then(|n| u32::try_from(n).ok())
-                    .unwrap_or(1),
-                fragment,
-                highlights,
-                tags: all_text(&doc, fields.tags),
-                score,
+            let share = terms.map_or(1.0, |terms| share_held(&doc, fields, terms));
+            hits.push(WordHit {
+                hit: Hit {
+                    path: PathBuf::from(path),
+                    kind: first_text(&doc, fields.kind),
+                    title: first_text(&doc, fields.title),
+                    headings: all_text(&doc, fields.headings),
+                    line: line_of(&doc, fields),
+                    fragment,
+                    highlights,
+                    tags: all_text(&doc, fields.tags),
+                    modified: modified_of(&doc, fields),
+                    score,
+                },
+                share,
             });
             if hits.len() == limit {
                 break;
@@ -839,17 +878,27 @@ impl Finder {
         let mut out = Vec::with_capacity(at.len());
         for (path, line) in at {
             let key = path.to_string_lossy();
-            let query = tantivy::query::TermQuery::new(Term::from_field_text(fields.path, &key), tantivy::schema::IndexRecordOption::Basic);
-            let addresses = searcher.search(&query, &tantivy::collector::DocSetCollector).map_err(Error::fulltext)?;
+            let in_file = || TermQuery::new(Term::from_field_text(fields.path, &key), IndexRecordOption::Basic);
+            // The chunk that starts at the line, read alone: a long journal
+            // has hundreds of chunks, and reading them all to pick one cost
+            // more than the search that found it.
+            let at_line = BooleanQuery::new(vec![
+                (Occur::Must, Box::new(in_file()) as Box<dyn Query>),
+                (
+                    Occur::Must,
+                    Box::new(TermQuery::new(Term::from_field_u64(fields.line, u64::from(*line)), IndexRecordOption::Basic)),
+                ),
+            ]);
+            let mut addresses = searcher.search(&at_line, &DocSetCollector).map_err(Error::fulltext)?;
+            if addresses.is_empty() {
+                // Changed since the line was recorded: every chunk, to find
+                // the one at or before it.
+                addresses = searcher.search(&in_file(), &DocSetCollector).map_err(Error::fulltext)?;
+            }
             let mut chunks = Vec::with_capacity(addresses.len());
             for address in addresses {
                 let doc: TantivyDocument = searcher.doc(address).map_err(Error::fulltext)?;
-                let starts = doc
-                    .get_first(fields.line)
-                    .and_then(|v| v.as_u64())
-                    .and_then(|n| u32::try_from(n).ok())
-                    .unwrap_or(1);
-                chunks.push((starts, doc));
+                chunks.push((line_of(&doc, fields), doc));
             }
             chunks.sort_by_key(|(starts, _)| *starts);
             let chosen = chunks.iter().rev().find(|(starts, _)| starts <= line).or_else(|| chunks.first());
@@ -862,11 +911,90 @@ impl Finder {
                 fragment: opening(&first_text(doc, fields.body)),
                 highlights: Vec::new(),
                 tags: all_text(doc, fields.tags),
+                modified: modified_of(doc, fields),
                 score: 0.0,
             }));
         }
         Ok(out)
     }
+}
+
+/// A chunk's lines and times are kept as numbers.
+fn first_u64(doc: &TantivyDocument, field: tantivy::schema::Field) -> Option<u64> {
+    doc.get_first(field).and_then(|v| v.as_u64())
+}
+
+fn line_of(doc: &TantivyDocument, fields: &Fields) -> u32 {
+    first_u64(doc, fields.line).and_then(|n| u32::try_from(n).ok()).unwrap_or(1)
+}
+
+fn modified_of(doc: &TantivyDocument, fields: &Fields) -> i64 {
+    first_u64(doc, fields.modified).and_then(|n| i64::try_from(n).ok()).unwrap_or(0)
+}
+
+/// Every term the analyzer makes of a text.
+fn terms_of(analyzer: &mut tantivy::tokenizer::TextAnalyzer, text: &str, into: &mut BTreeSet<String>) {
+    let mut stream = analyzer.token_stream(text);
+    while stream.advance() {
+        into.insert(stream.token().text.clone());
+    }
+}
+
+/// The words of a query that say something about it.
+///
+/// When no document holds every word, the search takes any word - and a word
+/// nearly every chunk holds, *the*, *for*, *и*, then matches nearly every
+/// document: a question of eight words where one is missing everywhere came
+/// back as the notes that share its *the*. Such words are left out of that
+/// search, and out of the count of how much of the question a chunk holds.
+/// It is a judgement the library makes of itself, by counting, rather than a
+/// list of stop words per language. A query made of nothing else is kept
+/// whole; a word with syntax in it - a code, a quote - is never left out.
+struct Distinctive {
+    /// The query without its common words.
+    query: String,
+    /// The terms of what is left, as the index holds them.
+    terms: BTreeSet<String>,
+}
+
+impl Distinctive {
+    fn of(searcher: &tantivy::Searcher, body: tantivy::schema::Field, query: &str) -> Self {
+        let chunks = searcher.num_docs();
+        let mut analyzer = fulltext::analyzer();
+        let mut common = |word: &str| {
+            let word = word.trim_end_matches([',', '.', ';', '!', '?', '…']);
+            if word.is_empty() || !word.chars().all(char::is_alphanumeric) {
+                return false;
+            }
+            let mut terms = BTreeSet::new();
+            terms_of(&mut analyzer, word, &mut terms);
+            !terms.is_empty()
+                && terms.iter().all(|term| {
+                    let held = searcher.doc_freq(&Term::from_field_text(body, term)).unwrap_or(0);
+                    held * 2 > chunks
+                })
+        };
+        let kept: Vec<&str> = query.split_whitespace().filter(|word| !common(word)).collect();
+        let query = if kept.is_empty() { query.to_string() } else { kept.join(" ") };
+        let mut terms = BTreeSet::new();
+        terms_of(&mut fulltext::analyzer(), &query, &mut terms);
+        Self { query, terms }
+    }
+}
+
+/// The share of these terms a chunk holds, in any field a query searches.
+fn share_held(doc: &TantivyDocument, fields: &Fields, terms: &BTreeSet<String>) -> f32 {
+    if terms.is_empty() {
+        return 1.0;
+    }
+    let mut analyzer = fulltext::analyzer();
+    let mut held = BTreeSet::new();
+    for (field, _) in fields.searched() {
+        for value in doc.get_all(field).filter_map(|v| v.as_str()) {
+            terms_of(&mut analyzer, value, &mut held);
+        }
+    }
+    terms.iter().filter(|term| held.contains(*term)).count() as f32 / terms.len() as f32
 }
 
 fn first_text(doc: &TantivyDocument, field: tantivy::schema::Field) -> String {
@@ -911,6 +1039,7 @@ fn add_document(writer: &IndexWriter, fields: &Fields, key: &str, entry: &FileEn
         }
         out.add_field_value(fields.backlink_count, &OwnedValue::U64(entry.backlinks.len() as u64));
         out.add_u64(fields.line, u64::from(chunk.line));
+        out.add_u64(fields.modified, entry.modified / 1_000_000_000);
         writer.add_document(out).map_err(Error::fulltext)?;
     }
     Ok(doc.chunks.len())
@@ -924,7 +1053,8 @@ pub fn indexing_threads() -> usize {
     (cores / 2).clamp(1, 4)
 }
 
-fn unix_now() -> i64 {
+/// The time now, in seconds since the epoch.
+pub(crate) fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))

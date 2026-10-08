@@ -1,5 +1,5 @@
-//! Search by meaning on the command line: loading the model, computing the
-//! vectors with a progress line, and asking the vector index.
+//! Search on the command line: loading the model, computing the vectors with
+//! a progress line, and asking both halves.
 //!
 //! Every command that searches by meaning answers from the stored index and
 //! says how much of the library it covers. Computing vectors is indexing -
@@ -14,7 +14,7 @@ use anyhow::Result;
 use nooma_core::embed::OnnxEmbedder;
 use nooma_core::library::indexing_threads;
 use nooma_core::model::ModelSpec;
-use nooma_core::{Embedder as _, Finder, Hit, Library, Progress, Role};
+use nooma_core::{Answer, Embedder as _, Finder, Library, Progress, Role, SemanticIndex, hybrid};
 
 use crate::model::size;
 
@@ -40,7 +40,7 @@ impl State {
     }
 }
 
-/// What search by meaning found.
+/// What the half by meaning could do for a search.
 #[derive(Debug)]
 pub struct Meaning {
     /// The model that would answer.
@@ -49,8 +49,6 @@ pub struct Meaning {
     pub state: State,
     /// Documents its index does not cover yet.
     pub behind: usize,
-    /// The documents found, closest first; the score is a cosine.
-    pub hits: Vec<Hit>,
 }
 
 impl Meaning {
@@ -60,7 +58,6 @@ impl Meaning {
             "model": self.model,
             "state": self.state.name(),
             "behind": self.behind,
-            "hits": self.hits,
         })
     }
 
@@ -69,7 +66,6 @@ impl Meaning {
             model: ModelSpec::default_model().id,
             state,
             behind: 0,
-            hits: Vec::new(),
         }
     }
 }
@@ -83,30 +79,55 @@ pub fn load(models: &Path) -> Result<Option<OnnxEmbedder>> {
     Ok(Some(OnnxEmbedder::load(spec, models, indexing_threads())?))
 }
 
-/// Search the vector index for a text: a question, or a passage to find
-/// more like.
+/// The vector index, and a text as the model read it.
+type Read = (SemanticIndex, Vec<f32>);
+
+/// The vector index and a text read by the model, when both can be had.
 ///
 /// The model is loaded only when there is an index to search - loading it
 /// costs two seconds, and a library with no vectors would pay them for
 /// nothing.
-pub fn search(library: &Library, finder: Option<&Finder>, models: &Path, text: &str, role: Role, limit: usize, skip: Option<&Path>) -> Result<Meaning> {
+fn read(library: &Library, models: &Path, text: &str, role: Role) -> Result<(Meaning, Option<Read>)> {
     let spec = ModelSpec::default_model();
     if !spec.missing(models).is_empty() {
-        return Ok(Meaning::not(State::NoModel));
+        return Ok((Meaning::not(State::NoModel), None));
     }
-    let (Some(finder), Some(index)) = (finder, library.semantic(spec)?) else {
-        return Ok(Meaning::not(State::NoVectors));
+    let Some(index) = library.semantic(spec)? else {
+        return Ok((Meaning::not(State::NoVectors), None));
     };
     let Some(mut embedder) = load(models)? else {
-        return Ok(Meaning::not(State::NoModel));
+        return Ok((Meaning::not(State::NoModel), None));
     };
     let vector = embedder.embed(&[text], role)?.pop().unwrap_or_default();
-    Ok(Meaning {
+    let meaning = Meaning {
         model: spec.id,
         state: State::Ready,
         behind: index.behind(),
-        hits: index.hits(finder, &vector, limit, skip)?,
-    })
+    };
+    Ok((meaning, Some((index, vector))))
+}
+
+/// Ask a query of both halves, ranked as one list; the words alone when the
+/// meaning cannot answer, and the second value says why.
+pub fn search(library: &Library, finder: Option<&Finder>, models: &Path, query: &str, limit: usize) -> Result<(Answer, Meaning)> {
+    let Some(finder) = finder else {
+        return Ok((Answer::default(), read(library, models, query, Role::Query)?.0));
+    };
+    let (meaning, read) = read(library, models, query, Role::Query)?;
+    let answer = hybrid::search(finder, read.as_ref().map(|(index, vector)| (index, vector.as_slice())), query, limit)?;
+    Ok((answer, meaning))
+}
+
+/// The documents that say what a passage says: only the meaning answers.
+pub fn similar(library: &Library, finder: Option<&Finder>, models: &Path, passage: &str, limit: usize, skip: Option<&Path>) -> Result<(Answer, Meaning)> {
+    // A passage is compared with passages: it is read as one, not as a
+    // question.
+    let (meaning, read) = read(library, models, passage, Role::Passage)?;
+    let answer = match (finder, read) {
+        (Some(finder), Some((index, vector))) => hybrid::similar(finder, &index, &vector, limit, skip)?,
+        _ => Answer::default(),
+    };
+    Ok((answer, meaning))
 }
 
 /// The line a person reads when search by meaning could not answer, or

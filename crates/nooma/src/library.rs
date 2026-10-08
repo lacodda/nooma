@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand};
 use nooma_core::model::ModelSpec;
-use nooma_core::{Error, Hit, Library, Role, UpdateReport, VectorReport};
+use nooma_core::{Error, Library, Ranked, UpdateReport, VectorReport};
 
-use crate::meaning::{self, Meaning, State};
+use crate::meaning::{self, State};
 use crate::model::ModelsArgs;
 
 /// Where the library lives, for every command that opens it.
@@ -82,7 +82,7 @@ pub struct IndexArgs {
 pub struct FindArgs {
     /// What to look for; stemmed, so any form of a word finds the others
     query: String,
-    /// Show at most this many documents in each list
+    /// Show at most this many documents
     #[arg(long, default_value_t = 10)]
     limit: usize,
     /// Print machine-readable JSON instead of a report
@@ -270,11 +270,7 @@ pub fn find(args: FindArgs) -> Result<()> {
     let library = args.store.open()?;
     let refreshed = !args.no_refresh && refresh(&library)?;
     let finder = library.finder()?;
-    let hits = match &finder {
-        Some(finder) => finder.search(&args.query, args.limit)?,
-        None => Vec::new(),
-    };
-    let meaning = meaning::search(&library, finder.as_ref(), &args.models.dir()?, &args.query, Role::Query, args.limit, None)?;
+    let (answer, meaning) = meaning::search(&library, finder.as_ref(), &args.models.dir()?, &args.query, args.limit)?;
     let status = library.status()?;
 
     if args.json {
@@ -282,7 +278,8 @@ pub fn find(args: FindArgs) -> Result<()> {
             "query": args.query,
             "refreshed": refreshed,
             "indexed_at": status.indexed_at,
-            "hits": hits,
+            "all_words": answer.all_words,
+            "hits": answer.hits,
             "meaning": meaning.to_json(),
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
@@ -293,16 +290,21 @@ pub fn find(args: FindArgs) -> Result<()> {
         println!("no sources yet: `nooma source add <folder>`, then search");
         return Ok(());
     }
-    println!("exact");
-    println!();
-    if hits.is_empty() {
-        println!("  nothing contains the words of {:?}", args.query);
+    if answer.hits.is_empty() {
+        println!("nothing found for {:?}", args.query);
+        println!();
+    } else if !answer.all_words && answer.hits.iter().any(|ranked| ranked.words.is_some()) {
+        // Said once, above the list: a row marked by its words holds some of
+        // them, not every one.
+        println!("no document holds every word of {:?}; these hold some", args.query);
         println!();
     }
-    for hit in &hits {
-        print_hit(hit, false);
+    for ranked in &answer.hits {
+        print_ranked(ranked, answer.all_words);
     }
-    print_meaning(&meaning, &format!("nothing found by meaning for {:?}", args.query));
+    if let Some(caveat) = meaning::caveat(&meaning) {
+        println!("{caveat}");
+    }
     Ok(())
 }
 
@@ -326,17 +328,7 @@ pub fn similar(args: SimilarArgs) -> Result<()> {
         refresh(&library)?;
     }
     let finder = library.finder()?;
-    // A passage is compared with passages: it is read as one, not as a
-    // question.
-    let meaning = meaning::search(
-        &library,
-        finder.as_ref(),
-        &args.models.dir()?,
-        &text,
-        Role::Passage,
-        args.limit,
-        example.as_deref(),
-    )?;
+    let (answer, meaning) = meaning::similar(&library, finder.as_ref(), &args.models.dir()?, &text, args.limit, example.as_deref())?;
     match meaning.state {
         State::Ready => {}
         State::NoModel => bail!(
@@ -347,34 +339,31 @@ pub fn similar(args: SimilarArgs) -> Result<()> {
     }
 
     if args.json {
-        let mut out = meaning.to_json();
-        out["example"] = serde_json::json!(args.example);
+        let out = serde_json::json!({
+            "example": args.example,
+            "hits": answer.hits,
+            "meaning": meaning.to_json(),
+        });
         println!("{}", serde_json::to_string_pretty(&out)?);
         return Ok(());
     }
-    print_meaning(&meaning, "nothing in the library is close to this passage");
+    if answer.hits.is_empty() {
+        println!("nothing in the library is close to this passage");
+        println!();
+    }
+    for ranked in &answer.hits {
+        print_ranked(ranked, answer.all_words);
+    }
+    if let Some(caveat) = meaning::caveat(&meaning) {
+        println!("{caveat}");
+    }
     Ok(())
 }
 
-/// The by-meaning half of a report: its hits, and what it could not cover.
-fn print_meaning(meaning: &Meaning, nothing: &str) {
-    if meaning.state == State::Ready {
-        println!("by meaning · {}", meaning.model);
-        println!();
-        if meaning.hits.is_empty() {
-            println!("  {nothing}");
-            println!();
-        }
-        for hit in &meaning.hits {
-            print_hit(hit, true);
-        }
-    }
-    if let Some(caveat) = meaning::caveat(meaning) {
-        println!("{caveat}");
-    }
-}
-
-fn print_hit(hit: &Hit, scored: bool) {
+/// One row of the list: what it is, which halves found it, where, and the
+/// passage that answered.
+fn print_ranked(ranked: &Ranked, all_words: bool) {
+    let hit = &ranked.hit;
     let mut heading = hit.title.clone();
     // A note's top heading is usually its title; saying it twice is noise.
     let headings = match hit.headings.split_first() {
@@ -385,17 +374,20 @@ fn print_hit(hit: &Hit, scored: bool) {
         heading.push_str(" · ");
         heading.push_str(&headings.join(" › "));
     }
-    if scored {
-        // A cosine, comparable across searches: how close, not just which
-        // is closer.
-        println!("{heading} ({:.2})", hit.score);
-    } else {
-        println!("{heading}");
-    }
+    println!("{heading} ({})", found_by(ranked, all_words));
     println!("  {}:{}", hit.path.display(), hit.line);
     let fragment = hit.fragment.split_whitespace().collect::<Vec<_>>().join(" ");
     if !fragment.is_empty() {
         println!("  {fragment}");
     }
     println!();
+}
+
+/// Which halves found a document: `words`, `some words`, `meaning 0.84`, or
+/// both. The cosine is printed because it means the same from one search to
+/// the next - how close, not just which is closer.
+fn found_by(ranked: &Ranked, all_words: bool) -> String {
+    let words = ranked.words.map(|_| if all_words { "words" } else { "some words" }.to_string());
+    let meaning = ranked.meaning.map(|place| format!("meaning {:.2}", place.score));
+    [words, meaning].into_iter().flatten().collect::<Vec<_>>().join(" + ")
 }

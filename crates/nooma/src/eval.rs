@@ -78,6 +78,7 @@ pub fn run(args: EvalArgs) -> Result<()> {
         let report = library.update_vectors(&mut embedder, &progress_for(spec.id))?;
         engines.push(evaluation.semantic(&mut embedder)?);
         engines.push(evaluation.semantic_exact(&mut embedder)?);
+        engines.push(evaluation.hybrid(&mut embedder)?);
         vectors.push((report, load_ms));
     }
 

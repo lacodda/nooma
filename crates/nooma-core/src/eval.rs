@@ -191,10 +191,10 @@ impl<'a> Evaluation<'a> {
         let finder = self.library.finder()?;
         self.run("fulltext", |query| {
             let hits = match &finder {
-                Some(finder) => finder.search(query, DEPTH)?,
+                Some(finder) => finder.search(query, DEPTH)?.hits,
                 None => Vec::new(),
             };
-            Ok(hits.into_iter().map(|hit| hit.path.to_string_lossy().into_owned()).collect())
+            Ok(hits.into_iter().map(|found| found.hit.path.to_string_lossy().into_owned()).collect())
         })
     }
 
@@ -214,24 +214,43 @@ impl<'a> Evaluation<'a> {
         self.semantic_by(embedder, true)
     }
 
+    /// Ask every question as `find` asks it: of the words and of one model's
+    /// vector index, ranked as one list. Reported as `<model> hybrid`.
+    #[cfg(feature = "semantic")]
+    pub fn hybrid(&self, embedder: &mut dyn Embedder) -> Result<EngineReport> {
+        let model = embedder.model_id().to_string();
+        let index = self.covering(&*embedder)?;
+        let finder = self.library.finder()?;
+        self.run(&format!("{model} hybrid"), |query| {
+            let Some(finder) = &finder else { return Ok(Vec::new()) };
+            let vector = embedder.embed(&[query], Role::Query)?.pop().unwrap_or_default();
+            let answer = crate::hybrid::search(finder, Some((&index, &vector)), query, DEPTH)?;
+            Ok(answer.hits.into_iter().map(|ranked| ranked.hit.path.to_string_lossy().into_owned()).collect())
+        })
+    }
+
+    /// The model's vector index, which must cover the whole library: a
+    /// measurement over part of it would read as the model missing the rest.
+    #[cfg(feature = "semantic")]
+    fn covering(&self, model: &dyn crate::Model) -> Result<crate::SemanticIndex> {
+        let id = model.model_id().to_string();
+        match self.library.semantic(model)? {
+            Some(index) if index.behind() == 0 => Ok(index),
+            Some(index) => Err(Error::VectorsBehind {
+                model: id,
+                documents: index.behind(),
+            }),
+            None => Err(Error::VectorsBehind {
+                model: id,
+                documents: self.library.status()?.documents,
+            }),
+        }
+    }
+
     #[cfg(feature = "semantic")]
     fn semantic_by(&self, embedder: &mut dyn Embedder, exact: bool) -> Result<EngineReport> {
         let model = embedder.model_id().to_string();
-        let index = match self.library.semantic(&*embedder)? {
-            Some(index) if index.behind() == 0 => index,
-            Some(index) => {
-                return Err(Error::VectorsBehind {
-                    model,
-                    documents: index.behind(),
-                });
-            }
-            None => {
-                return Err(Error::VectorsBehind {
-                    model,
-                    documents: self.library.status()?.documents,
-                });
-            }
-        };
+        let index = self.covering(&*embedder)?;
         let engine = if exact { format!("{model} exact") } else { model };
         self.run(&engine, |query| {
             let vector = embedder.embed(&[query], Role::Query)?.pop().unwrap_or_default();
