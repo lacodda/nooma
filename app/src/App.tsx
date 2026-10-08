@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useLocale } from 'dowel-ui'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as chooseFolder } from '@tauri-apps/plugin-dialog'
-import { api, type Found, type Hit, type MeaningFound, type MeaningStatus, type Source, type Status } from '@/lib/api'
+import { api, type Found, type MeaningStatus, type Ranked, type Source, type Status } from '@/lib/api'
 import { splitHighlights } from '@/lib/highlight'
 import { flatten, isPassage } from '@/lib/passage'
 import { folderOf } from '@/lib/paths'
@@ -27,11 +27,13 @@ import { ResizeEdges, WindowButtons, useTitleBarGestures } from '@/components/ui
  * index is brought up to date in the background while the field already
  * answers from what is stored.
  *
- * Results come in two lists, each from its own half: the documents that hold
- * the words, and the documents close in meaning. The exact list answers in
- * milliseconds and is drawn at once; the meaning list follows when the model
- * has read the query. Merging them into one ranking is the next step, made
- * against measurements rather than by eye.
+ * Results are one list, ranked from both halves: the documents that hold the
+ * words and the documents close in meaning, each once. The words answer in
+ * milliseconds; the whole answer waits for the model to read the query - tens
+ * of milliseconds, or a batch of the background reading when that is running.
+ * The words' answer is held back a moment, so that a whole answer arriving
+ * soon is drawn alone rather than reordering the list under the eye, and
+ * stands in when it does not.
  */
 
 type Indexing =
@@ -50,12 +52,6 @@ type Vectors =
 
 type Fetching = { kind: 'idle' } | { kind: 'running'; done: number; total: number } | { kind: 'failed'; message: string }
 
-/** A result, and which half found it. */
-interface Row {
-  hit: Hit
-  by: 'exact' | 'meaning'
-}
-
 const inTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 /** How long typing has to pause before the query is sent. Short: the exact
@@ -65,13 +61,8 @@ const DEBOUNCE_MS = 60
 /** The time left is not told before a run has this long a pace behind it. */
 const PACE_MS = 20_000
 
-/** Rows each list shows until asked for the rest. Two lists one under the
- * other share one screen: a long first list would push the second out of
- * sight, and a person would never learn it was there. */
-const LIST_ROWS = 5
-
-type Expanded = Record<Row['by'], boolean>
-const COLLAPSED: Expanded = { exact: false, meaning: false }
+/** How long the words' answer waits for the whole one before it is shown. */
+const GRACE_MS = 120
 
 export function App() {
   const { t } = useTranslation()
@@ -80,8 +71,10 @@ export function App() {
   const [query, setQuery] = useState('')
   /** The pasted passage being searched for, when the field holds one. */
   const [example, setExample] = useState<string | null>(null)
+  /** The answer the list shows: the words' alone, or the whole one. */
   const [found, setFound] = useState<Found | null>(null)
-  const [meaning, setMeaning] = useState<MeaningFound | null>(null)
+  /** The whole answer is still coming. */
+  const [pending, setPending] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [meaningFailure, setMeaningFailure] = useState<string | null>(null)
   const [meaningStatus, setMeaningStatus] = useState<MeaningStatus | null>(null)
@@ -90,51 +83,90 @@ export function App() {
   /** Bumped when the vectors change, so the shown results follow them. */
   const [vectorsVersion, setVectorsVersion] = useState(0)
   const [selected, setSelected] = useState(0)
-  const [expanded, setExpanded] = useState<Expanded>(COLLAPSED)
+  /** The document selected, so the selection stays on it when the whole
+   * answer replaces the words'. */
+  const selectedPath = useRef<string | null>(null)
   const asked = useRef(0)
 
-  const runSearch = useCallback((text: string, passage: string | null) => {
-    const ticket = ++asked.current
-    // An older query answering after a newer one must not overwrite it.
-    const current = () => ticket === asked.current
-    setExpanded(COLLAPSED)
-    if (passage === null && text.trim() === '') {
-      setFound(null)
-      setMeaning(null)
-      setFailure(null)
-      setMeaningFailure(null)
-      return
-    }
-    const byMeaning = passage === null ? api.searchMeaning(text) : api.similar(passage)
-    byMeaning
-      .then((result) => {
-        if (!current()) return
-        setMeaning(result ?? null)
-        setMeaningFailure(null)
-      })
-      .catch((error: unknown) => {
-        if (current()) setMeaningFailure(String(error))
-      })
-    if (passage !== null) {
-      // A paragraph's words are not a query: every one of them would have to
-      // occur, and the full-text half would answer with noise.
-      setFound(null)
-      setFailure(null)
-      setSelected(0)
-      return
-    }
-    api
-      .search(text)
-      .then((result) => {
-        if (!current()) return
-        setFound(result)
-        setFailure(null)
-        setSelected(0)
-      })
-      .catch((error: unknown) => {
-        if (current()) setFailure(String(error))
-      })
+  const select = useCallback((index: number, hits: readonly Ranked[]) => {
+    setSelected(index)
+    selectedPath.current = hits[index]?.path ?? null
   }, [])
+
+  const runSearch = useCallback(
+    (text: string, passage: string | null) => {
+      const ticket = ++asked.current
+      // An older query answering after a newer one must not overwrite it.
+      const current = () => ticket === asked.current
+      if (passage === null && text.trim() === '') {
+        setFound(null)
+        setPending(false)
+        setFailure(null)
+        setMeaningFailure(null)
+        return
+      }
+      let shownOnce = false
+      const show = (next: Found) => {
+        setFound(next)
+        setFailure(null)
+        // A new query starts at the top; the whole answer to the same query
+        // keeps the document that was selected, wherever it moved.
+        const kept = shownOnce ? next.hits.findIndex((hit) => hit.path === selectedPath.current) : -1
+        select(Math.max(kept, 0), next.hits)
+        shownOnce = true
+      }
+      let whole: 'coming' | 'none' | 'shown' = 'coming'
+      let words: Found | null = null
+      const started = Date.now()
+      setPending(true)
+      if (passage !== null) {
+        // A paragraph's words are not a query: every one of them would have
+        // to occur, and the words would answer with noise.
+        setFound(null)
+        setFailure(null)
+      }
+      const both = passage === null ? api.searchHybrid(text) : api.similar(passage)
+      both
+        .then((result) => {
+          if (!current()) return
+          setPending(false)
+          setMeaningFailure(null)
+          if (result !== null) {
+            whole = 'shown'
+            show(result)
+          } else {
+            whole = 'none'
+            if (words !== null) show(words)
+          }
+        })
+        .catch((error: unknown) => {
+          if (!current()) return
+          whole = 'none'
+          setPending(false)
+          setMeaningFailure(String(error))
+          if (words !== null) show(words)
+        })
+      if (passage !== null) return
+      api
+        .search(text)
+        .then((result) => {
+          if (!current() || whole === 'shown') return
+          words = result
+          if (whole === 'none') {
+            show(result)
+            return
+          }
+          const wait = Math.max(0, GRACE_MS - (Date.now() - started))
+          setTimeout(() => {
+            if (current() && whole === 'coming') show(result)
+          }, wait)
+        })
+        .catch((error: unknown) => {
+          if (current()) setFailure(String(error))
+        })
+    },
+    [select],
+  )
 
   const readMeaningStatus = useCallback(async () => {
     const current = await api.meaningStatus()
@@ -247,32 +279,19 @@ export function App() {
     setQuery(flatten(pasted))
   }
 
-  // A passage has one list, and it is shown whole.
-  const shown = (hits: readonly Hit[], by: Row['by']) =>
-    example !== null || expanded[by] ? hits : hits.slice(0, LIST_ROWS)
-  const exactHits = example === null ? (found?.hits ?? []) : []
-  const meaningHits = meaning?.hits ?? []
-  const rows: Row[] = [
-    ...shown(exactHits, 'exact').map((hit) => ({ hit, by: 'exact' as const })),
-    ...shown(meaningHits, 'meaning').map((hit) => ({ hit, by: 'meaning' as const })),
-  ]
-  const hidden: Record<Row['by'], number> = {
-    exact: exactHits.length - shown(exactHits, 'exact').length,
-    meaning: meaningHits.length - shown(meaningHits, 'meaning').length,
-  }
-  const expand = (by: Row['by']) => setExpanded((previous) => ({ ...previous, [by]: true }))
+  const rows = found?.hits ?? []
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setSelected((index) => Math.min(index + 1, Math.max(rows.length - 1, 0)))
+      select(Math.min(selected + 1, Math.max(rows.length - 1, 0)), rows)
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
-      setSelected((index) => Math.max(index - 1, 0))
+      select(Math.max(selected - 1, 0), rows)
     } else if (event.key === 'Enter') {
       const row = rows[selected]
       if (!row) return
       event.preventDefault()
-      void (event.ctrlKey || event.metaKey ? api.reveal(row.hit.path) : api.open(row.hit.path))
+      void (event.ctrlKey || event.metaKey ? api.reveal(row.path) : api.open(row.path))
     }
   }
 
@@ -286,17 +305,14 @@ export function App() {
           query={query}
           example={example}
           found={found}
-          meaning={meaning}
+          pending={pending}
           failure={failure}
           meaningFailure={meaningFailure}
           meaningStatus={meaningStatus}
           vectors={vectors}
           fetching={fetching}
-          rows={rows}
-          hidden={hidden}
-          onExpand={expand}
           selected={selected}
-          onSelect={setSelected}
+          onSelect={(index) => select(index, rows)}
           onAddFolder={addFolder}
           onFetchModel={fetchModel}
         />
@@ -305,7 +321,6 @@ export function App() {
         status={status}
         indexing={indexing}
         found={found}
-        meaning={meaning}
         meaningStatus={meaningStatus}
         vectors={vectors}
         fetching={fetching}
@@ -392,15 +407,12 @@ function Body({
   query,
   example,
   found,
-  meaning,
+  pending,
   failure,
   meaningFailure,
   meaningStatus,
   vectors,
   fetching,
-  rows,
-  hidden,
-  onExpand,
   selected,
   onSelect,
   onAddFolder,
@@ -410,15 +422,12 @@ function Body({
   query: string
   example: string | null
   found: Found | null
-  meaning: MeaningFound | null
+  pending: boolean
   failure: string | null
   meaningFailure: string | null
   meaningStatus: MeaningStatus | null
   vectors: Vectors
   fetching: Fetching
-  rows: Row[]
-  hidden: Record<Row['by'], number>
-  onExpand: (by: Row['by']) => void
   selected: number
   onSelect: (index: number) => void
   onAddFolder: () => void
@@ -443,76 +452,60 @@ function Body({
   if (failure !== null) {
     return <EmptyState className="h-full" variant="error" title={t('results.failed')} body={failure} />
   }
-  if (example === null && (query.trim() === '' || found === null)) {
+  if (example === null && query.trim() === '') {
     return <EmptyState className="h-full" title={t('results.type')} body={t('results.typeBody')} />
   }
+  // The words' answer is held back a moment for the whole one: nothing to
+  // draw yet, and an empty frame for a few milliseconds reads as nothing.
+  if (example === null && found === null) return null
 
-  const notice = (
-    <MeaningNotice
-      meaning={meaning}
-      failure={meaningFailure}
-      meaningStatus={meaningStatus}
-      vectors={vectors}
-      fetching={fetching}
-      onFetchModel={onFetchModel}
-    />
-  )
-  const list = (by: Row['by']) => {
-    const shown = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.by === by)
-    const best = shown[0]?.row.hit.score ?? 1
-    return (
-      <>
-        <ul aria-label={by === 'exact' ? t('results.exactSection') : t('results.meaningSection')} className="pb-1.5">
-          {shown.map(({ row, index }) => (
-            <ResultRow
-              key={`${by}:${row.hit.path}`}
-              row={row}
-              sources={status.sources}
-              relevance={best > 0 ? row.hit.score / best : 0}
-              selected={index === selected}
-              onSelect={() => onSelect(index)}
-            />
-          ))}
-        </ul>
-        {hidden[by] > 0 && (
-          <div className="px-4 pb-2">
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onExpand(by)}>
-              {t('results.more', { count: shown.length + hidden[by] })}
-            </Button>
-          </div>
-        )}
-      </>
-    )
-  }
-
-  if (example !== null) {
-    return (
-      <div className="py-1.5">
-        <SectionHeading title={t('results.similarSection')} note={behindNote(meaning, t)} />
-        {meaning !== null && meaning.hits.length === 0 && <Quiet>{t('results.nothingSimilar')}</Quiet>}
-        {meaning !== null ? list('meaning') : notice}
-      </div>
-    )
-  }
-
-  const exactHits = found?.hits ?? []
+  const hits = found?.hits ?? []
+  const byMeaning = found?.by_meaning ?? false
   // Nothing from either half: the whole window says so, with what to try.
-  if (exactHits.length === 0 && meaning !== null && meaning.hits.length === 0) {
+  if (example === null && byMeaning && hits.length === 0) {
     return <EmptyState className="h-full" variant="filtered" title={t('results.nothing')} body={t('results.nothingBody')} />
   }
+  // What the half by meaning could not do, once it is known that it could
+  // not: an offer of the model above the list, or what is still missing.
+  const notice =
+    !byMeaning && !pending ? (
+      <MeaningNotice
+        failure={meaningFailure}
+        meaningStatus={meaningStatus}
+        vectors={vectors}
+        fetching={fetching}
+        actionOnly={hits.length > 0}
+        onFetchModel={onFetchModel}
+      />
+    ) : null
+  const notes = [
+    ...(found !== null && !found.all_words && hits.some((hit) => hit.words !== null) ? [t('results.partial')] : []),
+    ...(found !== null && found.behind > 0 ? [t('results.behind', { count: found.behind })] : []),
+  ]
+  const best = hits[0]?.score ?? 1
   return (
     <div className="py-1.5">
-      <SectionHeading title={t('results.exactSection')} />
-      {exactHits.length === 0 ? <Quiet>{t('results.nothingExact')}</Quiet> : list('exact')}
-      <SectionHeading title={t('results.meaningSection')} note={behindNote(meaning, t)} />
-      {meaning !== null && meaning.hits.length === 0 && <Quiet>{t('results.nothingMeaning')}</Quiet>}
-      {meaning !== null ? list('meaning') : notice}
+      {notice}
+      <SectionHeading
+        title={example !== null ? t('results.similarSection') : t('results.found', { count: hits.length })}
+        note={notes.length > 0 ? notes.join(' · ') : undefined}
+      />
+      {found !== null && hits.length === 0 && <Quiet>{example !== null ? t('results.nothingSimilar') : t('results.nothingWords')}</Quiet>}
+      <ul aria-label={t('results.label')} className="pb-1.5">
+        {hits.map((hit, index) => (
+          <ResultRow
+            key={hit.path}
+            hit={hit}
+            allWords={found?.all_words ?? true}
+            sources={status.sources}
+            relevance={best > 0 ? hit.score / best : 0}
+            selected={index === selected}
+            onSelect={() => onSelect(index)}
+          />
+        ))}
+      </ul>
     </div>
   )
-}
-
-function behindNote(meaning: MeaningFound | null, t: (key: string, options?: Record<string, unknown>) => string): string | undefined {
-  return meaning !== null && meaning.behind > 0 ? t('results.behind', { count: meaning.behind }) : undefined
 }
 
 function SectionHeading({ title, note }: { title: string; note?: string }) {
@@ -528,26 +521,27 @@ function Quiet({ children }: { children: ReactNode }) {
   return <p className="px-4 pb-2.5 text-xs text-dim">{children}</p>
 }
 
-/** What the meaning half says when it has no results to give: why, and what
- * would change that. */
+/** What the half by meaning says when it did not answer: why, and what would
+ * change that. Above a list, only what asks for an action - the model to
+ * fetch, a failure - is said: the status line tells the rest. */
 function MeaningNotice({
-  meaning,
   failure,
   meaningStatus,
   vectors,
   fetching,
+  actionOnly,
   onFetchModel,
 }: {
-  meaning: MeaningFound | null
   failure: string | null
   meaningStatus: MeaningStatus | null
   vectors: Vectors
   fetching: Fetching
+  actionOnly: boolean
   onFetchModel: () => void
 }) {
   const { t, i18n } = useTranslation()
   const locale = useLocale(i18n.language)
-  if (meaning !== null || meaningStatus === null) return null
+  if (meaningStatus === null) return null
   if (failure !== null) return <Quiet>{t('meaning.failed', { message: failure })}</Quiet>
 
   const box = (children: ReactNode) => <div className="mx-4 mb-2.5 rounded-md border border-line bg-raise p-3">{children}</div>
@@ -573,6 +567,7 @@ function MeaningNotice({
       </div>,
     )
   }
+  if (actionOnly) return null
   if (vectors.kind === 'running') {
     return box(
       <Progress label={t('meaning.reading')} value={vectors.total > 0 ? vectors.done : null} max={Math.max(vectors.total, 1)} size="sm">
@@ -584,13 +579,15 @@ function MeaningNotice({
 }
 
 function ResultRow({
-  row,
+  hit,
+  allWords,
   sources,
   relevance,
   selected,
   onSelect,
 }: {
-  row: Row
+  hit: Ranked
+  allWords: boolean
   sources: readonly Source[]
   relevance: number
   selected: boolean
@@ -602,10 +599,10 @@ function ResultRow({
     if (selected) element.current?.scrollIntoView?.({ block: 'nearest' })
   }, [selected])
 
-  const { hit, by } = row
   // A note's top heading is usually its title; saying it twice is noise.
   const headings = hit.headings[0] === hit.title ? hit.headings.slice(1) : hit.headings
   const where = [folderOf(hit.path, sources), ...(headings.length > 0 ? [headings.join(' › ')] : []), t('results.line', { line: hit.line })]
+  const badge = 'shrink-0 rounded-xs px-1.5 py-0 font-mono text-2xs font-normal'
   return (
     <li
       ref={element}
@@ -622,20 +619,22 @@ function ResultRow({
           {hit.kind === 'markdown' ? 'MD' : 'TXT'}
         </span>
         <span className="truncate text-sm font-semibold">{hit.title}</span>
-        <Badge
-          variant={by === 'exact' ? 'info' : 'accent'}
-          title={by === 'exact' ? t('results.exactHint') : t('results.meaningHint')}
-          className="shrink-0 rounded-xs px-1.5 py-0 font-mono text-2xs font-normal"
-        >
-          {by === 'exact' ? t('results.exact') : t('results.meaning')}
-        </Badge>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5" aria-hidden>
+        {/* Which halves found it. The cosine is in the meaning's hint: it
+          * means the same from one search to the next, the bar does not. */}
+        {hit.words !== null && (
+          <Badge variant="info" title={allWords ? t('results.wordsHint') : t('results.someWordsHint')} className={badge}>
+            {allWords ? t('results.words') : t('results.someWords')}
+          </Badge>
+        )}
+        {hit.meaning !== null && (
+          <Badge variant="accent" title={t('results.meaningHint', { score: hit.meaning.score.toFixed(2) })} className={badge}>
+            {t('results.meaning')}
+          </Badge>
+        )}
+        <span className="ml-auto flex shrink-0 items-center" aria-hidden>
           <span className="h-0.5 w-11 overflow-hidden rounded-full bg-line">
             <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.round(relevance * 100)}%` }} />
           </span>
-          {/* A cosine means the same from one search to the next, so it is
-            * shown; a full-text score does not, so it is not. */}
-          {by === 'meaning' && <span className="w-7 text-right font-mono text-2xs text-faint tabular-nums">{hit.score.toFixed(2)}</span>}
         </span>
       </div>
       <div className="mt-0.5 truncate font-mono text-2xs text-faint" title={hit.path}>
@@ -691,7 +690,6 @@ function StatusBar({
   status,
   indexing,
   found,
-  meaning,
   meaningStatus,
   vectors,
   fetching,
@@ -700,7 +698,6 @@ function StatusBar({
   status: Status | null
   indexing: Indexing
   found: Found | null
-  meaning: MeaningFound | null
   meaningStatus: MeaningStatus | null
   vectors: Vectors
   fetching: Fetching
@@ -724,10 +721,6 @@ function StatusBar({
             ? { tone: 'warn' as const, label: t('status.stale') }
             : { tone: 'good' as const, label: t('status.current') }
   const half = status.sources.length > 0 ? meaningState(meaningStatus, vectors, fetching, t, locale) : null
-  const timings = [
-    ...(found !== null ? [t('status.took', { ms: found.took_ms })] : []),
-    ...(meaning !== null ? [t('status.tookMeaning', { ms: meaning.took_ms })] : []),
-  ]
 
   return (
     <footer
@@ -752,7 +745,7 @@ function StatusBar({
           + {t('sources.addShort')}
         </Button>
       )}
-      <span className="ml-auto shrink-0">{timings.length > 0 ? timings.join(' · ') : t('status.offline')}</span>
+      <span className="ml-auto shrink-0">{found !== null ? t('status.took', { ms: found.took_ms }) : t('status.offline')}</span>
     </footer>
   )
 }

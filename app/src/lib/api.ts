@@ -30,11 +30,36 @@ export interface Hit {
   /** Byte offsets into the UTF-8 fragment, `[start, end]`. */
   highlights: [number, number][]
   tags: string[]
+  /** When the file was last modified, in seconds since the epoch. */
+  modified: number
   score: number
 }
 
+/** Where a document stood in one half's list. */
+export interface Place {
+  /** From 1. */
+  rank: number
+  /** The half's own score: full-text, or a cosine. */
+  score: number
+  /** For the words: how much of the query the chunk holds, from 0 to 1. */
+  share?: number
+}
+
+/** A document in the one list: the chunk shown, the fused score, and where
+ * each half put it. */
+export interface Ranked extends Hit {
+  words: Place | null
+  meaning: Place | null
+}
+
 export interface Found {
-  hits: Hit[]
+  hits: Ranked[]
+  /** Whether the hits the words found hold every word of the query. */
+  all_words: boolean
+  /** Whether the meaning answered too; `false` when the words answered alone. */
+  by_meaning: boolean
+  /** Documents the vector index does not cover yet. */
+  behind: number
   took_ms: number
 }
 
@@ -52,14 +77,6 @@ export interface UpdateReport {
 export interface Progress {
   done: number
   total: number
-}
-
-/** What a search by meaning returns; the score of a hit is a cosine. */
-export interface MeaningFound {
-  hits: Hit[]
-  took_ms: number
-  /** Documents the vector index does not cover yet. */
-  behind: number
 }
 
 export interface MeaningStatus {
@@ -99,11 +116,13 @@ export interface FetchProgress {
 
 export const api = {
   status: () => invoke<Status>('status'),
+  /** The words alone, ranked as the whole answer ranks them: fast. */
   search: (query: string) => invoke<Found>('search', { query }),
-  /** `null` when there is no model or no vectors to search yet. */
-  searchMeaning: (query: string) => invoke<MeaningFound | null>('search_meaning', { query }),
+  /** The whole answer, words and meaning together; `null` when there is no
+   * model or no vectors yet, and the words' answer is the whole one. */
+  searchHybrid: (query: string) => invoke<Found | null>('search_hybrid', { query }),
   /** Documents that say what a pasted passage says. */
-  similar: (text: string) => invoke<MeaningFound | null>('similar', { text }),
+  similar: (text: string) => invoke<Found | null>('similar', { text }),
   /** `null` when an update is already running in this window. */
   update: () => invoke<UpdateReport | null>('update'),
   meaningStatus: () => invoke<MeaningStatus>('meaning_status'),

@@ -35,7 +35,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::status,
             commands::search,
-            commands::search_meaning,
+            commands::search_hybrid,
             commands::similar,
             commands::update,
             commands::update_vectors,

@@ -6,10 +6,12 @@
 //! nothing else, so a compromised page cannot use nooma to launch an
 //! arbitrary path.
 //!
-//! The window answers in two halves. The exact half is a command that returns
-//! in milliseconds. The meaning half needs the model, which the window also
-//! uses to compute vectors in the background: that work borrows the model one
-//! small batch at a time, so a search waits at most a batch for it.
+//! The window shows one list, and asks for it twice. The words alone answer
+//! in milliseconds. The whole answer - the words and the meaning, ranked
+//! together - needs the model, which the window also uses to compute vectors
+//! in the background: that work borrows the model one small batch at a time,
+//! so a search waits at most a batch for it, and the words' answer stands in
+//! until it comes.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -19,7 +21,7 @@ use std::time::{Duration, Instant};
 use nooma_core::embed::OnnxEmbedder;
 use nooma_core::library::indexing_threads;
 use nooma_core::model::ModelSpec;
-use nooma_core::{Embedder, Finder, Hit, Library, Model, Progress, Role, SemanticIndex, Status, UpdateReport, VectorReport};
+use nooma_core::{Answer, Embedder, Finder, Library, Model, Progress, Ranked, Role, SemanticIndex, Status, UpdateReport, VectorReport, hybrid};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager as _, State};
 use tauri_plugin_opener::OpenerExt;
@@ -224,7 +226,8 @@ pub fn status_of(state: &AppState) -> Result<Status, String> {
     state.library()?.status().map_err(|e| e.to_string())
 }
 
-/// The results for a query, best first.
+/// The documents that hold the words of a query, ranked as the whole answer
+/// ranks them: what the window shows until the meaning has answered too.
 ///
 /// Answers from the stored index: the window keeps it current by updating
 /// when it opens, and a search on every keystroke must not walk the disk.
@@ -233,13 +236,32 @@ pub async fn search(state: State<'_, AppState>, query: String, limit: Option<usi
     search_in(&state, &query, limit)
 }
 
-/// What a search returns: the hits, and how long finding them took.
+/// What a search returns.
 #[derive(Debug, Serialize)]
 pub struct Found {
-    /// The documents, best first.
-    pub hits: Vec<Hit>,
-    /// Milliseconds spent in the index.
+    /// The documents, best first, one per document.
+    pub hits: Vec<Ranked>,
+    /// Whether the hits the words found hold every word of the query.
+    pub all_words: bool,
+    /// Whether the meaning answered too; `false` when the words answered
+    /// alone.
+    pub by_meaning: bool,
+    /// Documents the vector index does not cover yet.
+    pub behind: usize,
+    /// Milliseconds from the question to the answer, the model included.
     pub took_ms: u64,
+}
+
+impl Found {
+    fn of(answer: Answer, by_meaning: bool, behind: usize, started: Instant) -> Self {
+        Self {
+            hits: answer.hits,
+            all_words: answer.all_words,
+            by_meaning,
+            behind,
+            took_ms: millis(started),
+        }
+    }
 }
 
 fn millis(since: Instant) -> u64 {
@@ -260,43 +282,30 @@ pub fn search_in(state: &AppState, query: &str, limit: Option<usize>) -> Result<
     let started = Instant::now();
     let limit = limit.unwrap_or(MAX_RESULTS).min(MAX_RESULTS);
     let kept = finder_of(state)?;
-    let hits = match kept.as_ref() {
-        Some(finder) => finder.search(query, limit).map_err(|e| e.to_string())?,
+    let answer = match kept.as_ref() {
+        Some(finder) => hybrid::search(finder, None, query, limit).map_err(|e| e.to_string())?,
         // Nothing has been indexed yet; the next search tries again.
-        None => Vec::new(),
+        None => Answer::default(),
     };
-    Ok(Found {
-        hits,
-        took_ms: millis(started),
-    })
+    Ok(Found::of(answer, false, 0, started))
 }
 
-/// What a search by meaning returns.
-#[derive(Debug, Serialize)]
-pub struct MeaningFound {
-    /// The documents, closest first; the score is a cosine.
-    pub hits: Vec<Hit>,
-    /// Milliseconds from the question to the answer, the model included.
-    pub took_ms: u64,
-    /// Documents the vector index does not cover yet.
-    pub behind: usize,
-}
-
-/// The documents closest in meaning to a query; `None` when there is no
-/// model or no vectors yet to search.
+/// The whole answer to a query: the words and the meaning, ranked as one
+/// list; `None` when there is no model or no vectors yet, and the words'
+/// answer is the whole one.
 #[tauri::command]
-pub async fn search_meaning(state: State<'_, AppState>, query: String, limit: Option<usize>) -> Result<Option<MeaningFound>, String> {
+pub async fn search_hybrid(state: State<'_, AppState>, query: String, limit: Option<usize>) -> Result<Option<Found>, String> {
     meaning_in(&state, &query, Role::Query, limit)
 }
 
 /// The documents that say what a pasted passage says.
 #[tauri::command]
-pub async fn similar(state: State<'_, AppState>, text: String, limit: Option<usize>) -> Result<Option<MeaningFound>, String> {
+pub async fn similar(state: State<'_, AppState>, text: String, limit: Option<usize>) -> Result<Option<Found>, String> {
     // A passage is compared with passages: read as one, not as a question.
     meaning_in(&state, &text, Role::Passage, limit)
 }
 
-pub fn meaning_in(state: &AppState, text: &str, role: Role, limit: Option<usize>) -> Result<Option<MeaningFound>, String> {
+pub fn meaning_in(state: &AppState, text: &str, role: Role, limit: Option<usize>) -> Result<Option<Found>, String> {
     let started = Instant::now();
     let limit = limit.unwrap_or(MAX_RESULTS).min(MAX_RESULTS);
     if text.trim().is_empty() || !state.has_model() {
@@ -319,12 +328,12 @@ pub fn meaning_in(state: &AppState, text: &str, role: Role, limit: Option<usize>
     let Some(index) = kept.as_ref() else { return Ok(None) };
     let finder = finder_of(state)?;
     let Some(finder) = finder.as_ref() else { return Ok(None) };
-    let hits = index.hits(finder, &vector, limit, None).map_err(|e| e.to_string())?;
-    Ok(Some(MeaningFound {
-        hits,
-        took_ms: millis(started),
-        behind: index.behind(),
-    }))
+    let answer = match role {
+        Role::Query => hybrid::search(finder, Some((index, &vector)), text, limit),
+        Role::Passage => hybrid::similar(finder, index, &vector, limit, None),
+    }
+    .map_err(|e| e.to_string())?;
+    Ok(Some(Found::of(answer, true, index.behind(), started)))
 }
 
 /// Progress of an update, as the `index-progress` and `vectors-progress`
@@ -651,7 +660,7 @@ mod tests {
         let report = update_in(&state, &|p| seen.lock().unwrap().push((p.done, p.total))).unwrap();
         assert_eq!(report.documents, 1);
         assert_eq!(seen.lock().unwrap().last(), Some(&(1, 1)), "the last progress is the whole");
-        assert_eq!(search_in(&state, "vent", None).unwrap().hits[0].title, "Greenhouse");
+        assert_eq!(search_in(&state, "vent", None).unwrap().hits[0].hit.title, "Greenhouse");
     }
 
     #[test]
@@ -745,17 +754,42 @@ mod tests {
         let report = vectors_in(&state, &|_| {}).unwrap();
         assert_eq!(report.embedded, 2);
         let found = meaning_in(&state, "descale kettle", Role::Query, None).unwrap().unwrap();
-        assert_eq!(found.hits[0].title, "Kettle");
+        assert_eq!(found.hits[0].hit.title, "Kettle");
         assert_eq!(found.behind, 0);
+        assert!(found.by_meaning && found.all_words);
         let similar = meaning_in(&state, "Oil the chain after a ride in the rain", Role::Passage, Some(1))
             .unwrap()
             .unwrap();
         assert_eq!(similar.hits.len(), 1);
-        assert_eq!(similar.hits[0].title, "Bicycle");
+        assert_eq!(similar.hits[0].hit.title, "Bicycle");
+        assert!(similar.hits[0].words.is_none(), "a passage is not asked of the words");
 
         let status = meaning_status_of(&state).unwrap();
         assert_eq!((status.passages, status.behind), (Some(2), 0));
         assert!(status.computing.is_none());
+    }
+
+    /// The words answer first and alone; the whole answer is the same
+    /// documents and more, one row each, and says which half found what.
+    #[test]
+    fn the_whole_answer_is_one_list_from_both_halves() {
+        let notes = tempfile::tempdir().unwrap();
+        std::fs::write(notes.path().join("kettle.md"), "# Kettle\n\nDescale the kettle with citric acid.\n").unwrap();
+        std::fs::write(notes.path().join("bike.md"), "# Bicycle\n\nOil the chain after rain.\n").unwrap();
+        let (_store, state) = library_with_model(notes.path(), Duration::ZERO);
+        vectors_in(&state, &|_| {}).unwrap();
+
+        let words = search_in(&state, "descale kettle", None).unwrap();
+        assert!(!words.by_meaning);
+        assert_eq!(words.hits.len(), 1, "only the kettle holds the words");
+        assert!(words.hits[0].meaning.is_none());
+
+        let whole = meaning_in(&state, "descale kettle", Role::Query, None).unwrap().unwrap();
+        let titles: Vec<&str> = whole.hits.iter().map(|ranked| ranked.hit.title.as_str()).collect();
+        assert_eq!(titles, ["Kettle", "Bicycle"], "each document once, the one both halves found first");
+        let kettle = &whole.hits[0];
+        assert_eq!((kettle.words.map(|p| p.rank), kettle.meaning.map(|p| p.rank)), (Some(1), Some(1)));
+        assert!(whole.hits[1].words.is_none());
     }
 
     /// The background update holds the model one batch at a time, so a
@@ -794,7 +828,7 @@ mod tests {
             // the whole update would make it the seconds left of it.
             assert!(waited < Duration::from_millis(1500), "the search waited {waited:?}");
             assert!(!background.is_finished(), "the update was still running when the search answered");
-            assert_eq!(found.hits[0].title, "Kettle");
+            assert_eq!(found.hits[0].hit.title, "Kettle");
             background.join().unwrap();
         });
     }

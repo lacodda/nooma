@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/i18n'
 import { App } from '@/App'
-import type { Found, MeaningFound, MeaningStatus, Status } from '@/lib/api'
+import type { Found, MeaningStatus, Ranked, Status } from '@/lib/api'
 
 // The webview talks to Rust through `invoke`; in jsdom there is no Rust, so
 // the boundary is stubbed with the shapes `nooma-core` serializes.
@@ -12,50 +12,61 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() =
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn().mockResolvedValue(null) }))
 
 const noSources: Status = { sources: [], documents: 0, chunks: 0, indexed_at: null, stale: null }
-const oneSource: Status = { sources: [{ path: '/notes' }], documents: 2, chunks: 3, indexed_at: 1, stale: null }
-const found: Found = {
-  took_ms: 3,
-  hits: [
-    {
-      path: '/notes/договоры.md',
-      kind: 'markdown',
-      title: 'Договоры',
-      headings: ['Договоры', 'Сроки'],
-      line: 5,
-      fragment: 'Договор поставки продлевается',
-      highlights: [[0, 14]],
-      tags: [],
-      score: 2,
-    },
-    {
-      path: '/notes/other.txt',
-      kind: 'text',
-      title: 'other',
-      headings: [],
-      line: 1,
-      fragment: 'another договор',
-      highlights: [],
-      tags: [],
-      score: 1,
-    },
-  ],
+const oneSource: Status = { sources: [{ path: '/notes' }], documents: 3, chunks: 4, indexed_at: 1, stale: null }
+
+const contracts: Ranked = {
+  path: '/notes/договоры.md',
+  kind: 'markdown',
+  title: 'Договоры',
+  headings: ['Договоры', 'Сроки'],
+  line: 5,
+  fragment: 'Договор поставки продлевается',
+  highlights: [[0, 14]],
+  tags: [],
+  modified: 1_700_000_000,
+  score: 0.26,
+  words: { rank: 1, score: 2, share: 1 },
+  meaning: null,
 }
-const meaning: MeaningFound = {
-  took_ms: 41,
+const other: Ranked = {
+  path: '/notes/other.txt',
+  kind: 'text',
+  title: 'other',
+  headings: [],
+  line: 1,
+  fragment: 'another договор',
+  highlights: [],
+  tags: [],
+  modified: 1_700_000_000,
+  score: 0.15,
+  words: { rank: 2, score: 1, share: 1 },
+  meaning: null,
+}
+const supply: Ranked = {
+  path: '/notes/supply.md',
+  kind: 'markdown',
+  title: 'Supply terms',
+  headings: [],
+  line: 1,
+  fragment: 'The supply agreement renews each year unless cancelled.',
+  highlights: [],
+  tags: [],
+  modified: 1_700_000_000,
+  score: 0.11,
+  words: null,
+  meaning: { rank: 1, score: 0.87 },
+}
+
+/** What the words alone answer. */
+const byWords: Found = { hits: [contracts, other], all_words: true, by_meaning: false, behind: 0, took_ms: 3 }
+/** The whole answer: the contracts found by both halves, the supply terms by
+ * the meaning alone. */
+const whole: Found = {
+  hits: [{ ...contracts, score: 0.37, meaning: { rank: 2, score: 0.85 } }, other, supply],
+  all_words: true,
+  by_meaning: true,
   behind: 0,
-  hits: [
-    {
-      path: '/notes/supply.md',
-      kind: 'markdown',
-      title: 'Supply terms',
-      headings: [],
-      line: 1,
-      fragment: 'The supply agreement renews each year unless cancelled.',
-      highlights: [],
-      tags: [],
-      score: 0.87,
-    },
-  ],
+  took_ms: 41,
 }
 const ready: MeaningStatus = {
   model: 'multilingual-e5-small',
@@ -68,7 +79,7 @@ const ready: MeaningStatus = {
 }
 const noModel: MeaningStatus = { ...ready, present: false, passages: null }
 
-function answer(status: Status, half: MeaningStatus = ready, byMeaning: MeaningFound | null = meaning, exact: Found = found) {
+function answer(status: Status, half: MeaningStatus = ready, both: Found | null | Promise<Found | null> = whole, words: Found = byWords) {
   invoke.mockImplementation((command: string) => {
     switch (command) {
       case 'status':
@@ -76,12 +87,12 @@ function answer(status: Status, half: MeaningStatus = ready, byMeaning: MeaningF
       case 'update':
         return Promise.resolve(null)
       case 'search':
-        return Promise.resolve(exact)
+        return Promise.resolve(words)
       case 'meaning_status':
         return Promise.resolve(half)
-      case 'search_meaning':
+      case 'search_hybrid':
       case 'similar':
-        return Promise.resolve(half.present ? byMeaning : null)
+        return half.present ? Promise.resolve(both) : Promise.resolve(null)
       case 'update_vectors':
       case 'fetch_model':
         return Promise.resolve(true)
@@ -97,6 +108,12 @@ async function typed(text: string) {
   const field = await screen.findByRole('searchbox', { name: 'Search your files' })
   fireEvent.change(field, { target: { value: text } })
   return field
+}
+
+async function press(field: HTMLElement, key: string) {
+  await act(async () => {
+    fireEvent.keyDown(field, { key })
+  })
 }
 
 describe('App', () => {
@@ -128,92 +145,88 @@ describe('App', () => {
     const mark = await screen.findByText('Договор', { selector: 'mark' })
     expect(mark).toBeTruthy()
     expect(invoke).toHaveBeenCalledWith('search', { query: 'договоров' })
+    expect(invoke).toHaveBeenCalledWith('search_hybrid', { query: 'договоров' })
   })
 
-  it('shows the exact list and the meaning list, each under its heading', async () => {
+  it('shows one list from both halves, each document once, marked by the halves that found it', async () => {
     answer(oneSource)
     render(<App />)
     await typed('договор')
-    const exact = await screen.findByRole('list', { name: 'Exact matches' })
-    const byMeaning = await screen.findByRole('list', { name: 'By meaning' })
-    expect(exact.querySelectorAll('li')).toHaveLength(2)
-    expect(byMeaning.textContent).toContain('Supply terms')
-    // A cosine means something on its own, so the meaning list shows it.
-    expect(byMeaning.textContent).toContain('0.87')
-    expect(exact.textContent).not.toContain('2.00')
-    expect(invoke).toHaveBeenCalledWith('search_meaning', { query: 'договор' })
+    await screen.findByText('Supply terms')
+    const list = screen.getByRole('list', { name: 'Results' })
+    const rows = list.querySelectorAll('li')
+    expect(rows).toHaveLength(3)
+    expect(screen.getByText('3 found')).toBeTruthy()
+    // The contracts were found by both halves, the supply terms by meaning.
+    expect(within(rows[0] as HTMLElement).getByText('words')).toBeTruthy()
+    expect(within(rows[0] as HTMLElement).getByText('meaning')).toBeTruthy()
+    expect(within(rows[2] as HTMLElement).queryByText('words')).toBeNull()
+    // The cosine is in the meaning's hint, not on the row.
+    expect(within(rows[2] as HTMLElement).getByText('meaning').getAttribute('title')).toContain('0.87')
+    expect(list.textContent).not.toContain('0.87')
+  })
+
+  it('shows the words at once while the whole answer is slow, and keeps the selection when it comes', async () => {
+    let arrive: (found: Found) => void = () => undefined
+    const slow = new Promise<Found>((resolve) => {
+      arrive = resolve
+    })
+    answer(oneSource, ready, slow)
+    render(<App />)
+    const field = await typed('договор')
+    // The words stand in once the grace period has passed.
+    await screen.findByText('other')
+    expect(screen.queryByText('Supply terms')).toBeNull()
+    await press(field, 'ArrowDown')
+    await act(async () => {
+      arrive({ ...whole, hits: [supply, { ...contracts, meaning: { rank: 2, score: 0.85 } }, other] })
+    })
+    await screen.findByText('Supply terms')
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(invoke).toHaveBeenCalledWith('open_document', { path: '/notes/other.txt' })
   })
 
   it('opens the selected result on Enter and reveals it on Ctrl+Enter', async () => {
     answer(oneSource)
     render(<App />)
     const field = await typed('договор')
-    await screen.findByText('other')
-    await act(async () => {
-      fireEvent.keyDown(field, { key: 'ArrowDown' })
-    })
-    fireEvent.keyDown(field, { key: 'Enter' })
-    expect(invoke).toHaveBeenCalledWith('open_document', { path: '/notes/other.txt' })
-    fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
-    expect(invoke).toHaveBeenCalledWith('reveal_document', { path: '/notes/other.txt' })
-  })
-
-  it('moves from the last exact match to the first by meaning', async () => {
-    answer(oneSource)
-    render(<App />)
-    const field = await typed('договор')
     await screen.findByText('Supply terms')
-    for (let i = 0; i < 2; i++) {
-      await act(async () => {
-        fireEvent.keyDown(field, { key: 'ArrowDown' })
-      })
-    }
+    await press(field, 'ArrowDown')
+    await press(field, 'ArrowDown')
     fireEvent.keyDown(field, { key: 'Enter' })
     expect(invoke).toHaveBeenCalledWith('open_document', { path: '/notes/supply.md' })
+    fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
+    expect(invoke).toHaveBeenCalledWith('reveal_document', { path: '/notes/supply.md' })
   })
 
-  it('shows five rows of each list until asked for the rest, so both lists fit one screen', async () => {
-    const many: Found = {
-      took_ms: 2,
-      hits: Array.from({ length: 7 }, (_, i) => ({
-        path: `/notes/n${i}.txt`,
-        kind: 'text' as const,
-        title: `note ${i}`,
-        headings: [],
-        line: 1,
-        fragment: 'a note',
-        highlights: [],
-        tags: [],
-        score: 7 - i,
-      })),
-    }
-    answer(oneSource, ready, meaning, many)
+  it('says when no document holds every word, and marks the rows that hold some', async () => {
+    const some: Found = { ...whole, all_words: false, hits: [{ ...supply }, { ...other, words: { rank: 1, score: 1, share: 0.5 } }] }
+    answer(oneSource, ready, some)
     render(<App />)
-    await typed('note')
-    const exact = await screen.findByRole('list', { name: 'Exact matches' })
-    await screen.findByText('Supply terms')
-    expect(exact.querySelectorAll('li')).toHaveLength(5)
-    fireEvent.click(screen.getByRole('button', { name: 'Show all 7' }))
-    await waitFor(() => expect(exact.querySelectorAll('li')).toHaveLength(7))
+    await typed('договор zeppelin')
+    expect(await screen.findByText(/no document has every word - these have some/)).toBeTruthy()
+    expect(screen.getByText('some words')).toBeTruthy()
   })
 
-  it('offers the model when there is none, and fetches it when asked', async () => {
+  it('answers with the words when there is no model, and offers it', async () => {
     answer(oneSource, noModel)
     render(<App />)
     await typed('договор')
     expect(await screen.findByText('Search by meaning needs its model')).toBeTruthy()
+    expect(screen.getByRole('list', { name: 'Results' }).querySelectorAll('li')).toHaveLength(2)
     fireEvent.click(screen.getByRole('button', { name: 'Download the model' }))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('fetch_model'))
   })
 
   it('takes a pasted paragraph as a passage to find more like, not as a query', async () => {
-    answer(oneSource)
+    answer(oneSource, ready, { ...whole, hits: [supply] })
     render(<App />)
     const field = await screen.findByRole('searchbox', { name: 'Search your files' })
     const passage = 'The supply agreement renews each year.\nIt can be cancelled in writing.'
     fireEvent.paste(field, { clipboardData: { getData: () => passage } })
     expect(await screen.findByText('Similar to the pasted passage')).toBeTruthy()
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('similar', { text: passage }))
+    expect(await screen.findByText('Supply terms')).toBeTruthy()
     expect(invoke).not.toHaveBeenCalledWith('search', expect.anything())
     expect((field as HTMLInputElement).value).toBe('The supply agreement renews each year. It can be cancelled in writing.')
   })
