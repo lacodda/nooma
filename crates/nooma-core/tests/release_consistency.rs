@@ -33,24 +33,46 @@ fn changelog_section(changelog: &str, version: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// The commits since the last tag, subjects and bodies.
+/// The last tag reachable from `HEAD`.
 ///
-/// Empty when git cannot be asked — a source tarball with no history, which
+/// `None` when git cannot be asked — a source tarball with no history, which
 /// is a normal way to build and not a reason to fail.
-fn commits_since_last_tag() -> Vec<String> {
-    let root = repo_root();
-    let describe = Command::new("git").args(["describe", "--tags", "--abbrev=0"]).current_dir(&root).output();
-    let Ok(describe) = describe else { return Vec::new() };
-    if !describe.status.success() {
-        return Vec::new();
-    }
-    let tag = String::from_utf8_lossy(&describe.stdout).trim().to_string();
+fn last_tag() -> Option<String> {
+    let describe = Command::new("git")
+        .args(["describe", "--tags", "--abbrev=0"])
+        .current_dir(repo_root())
+        .output()
+        .ok()?;
+    describe.status.success().then(|| String::from_utf8_lossy(&describe.stdout).trim().to_string())
+}
+
+/// The commits since a tag, subjects and bodies.
+fn commits_since(tag: &str) -> Vec<String> {
     let log = Command::new("git")
         .args(["log", &format!("{tag}..HEAD"), "--format=%s%n%b%n---"])
-        .current_dir(&root)
+        .current_dir(repo_root())
         .output();
     let Ok(log) = log else { return Vec::new() };
-    String::from_utf8_lossy(&log.stdout).split("\n---\n").map(str::to_string).collect()
+    String::from_utf8_lossy(&log.stdout)
+        .split("\n---\n")
+        .map(str::trim)
+        .filter(|commit| !commit.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Every file that defines a stored format: an index, a manifest, a store.
+const STORED_FORMATS: [&str; 4] = [
+    "crates/nooma-core/src/index.rs",
+    "crates/nooma-core/src/library.rs",
+    "crates/nooma-core/src/vectors.rs",
+    "crates/nooma-core/src/history.rs",
+];
+
+/// Whether a diff raises a number that invalidates what is stored.
+fn bumps_a_stored_version(diff: &str) -> bool {
+    diff.lines()
+        .any(|line| line.starts_with('+') && line.contains("_VERSION: u32") && line.contains("pub const"))
 }
 
 /// Whether a commit message marks itself as a breaking change.
@@ -99,25 +121,27 @@ fn the_window_frontend_carries_the_workspace_version() {
 /// is a breaking change whatever else the release contains. The release notes
 /// are generated from commits, so the commit trail is where it has to be said
 /// — writing it only in the changelog is what left v0.3.0's notes silent.
+///
+/// Everything since the last tag counts, not the last commit: the bump is
+/// usually a commit or two before the release, and looking only at `HEAD`
+/// saw nothing by the time the release commit was made.
 #[test]
 fn a_version_bump_that_forces_a_rebuild_is_marked_breaking_in_a_commit() {
-    let commits = commits_since_last_tag();
+    let Some(tag) = last_tag() else { return };
+    let commits = commits_since(&tag);
     if commits.is_empty() {
         return;
     }
 
-    // Did anything in this batch change a number that invalidates an index?
-    let root = repo_root();
+    // Did anything in this batch change a number that invalidates what is
+    // stored?
     let diff = Command::new("git")
-        .args(["diff", "--unified=0", "HEAD~1..HEAD", "--", "crates/nooma-core/src/index.rs"])
-        .current_dir(&root)
+        .args(["diff", "--unified=0", &format!("{tag}..HEAD"), "--"])
+        .args(STORED_FORMATS)
+        .current_dir(repo_root())
         .output();
     let Ok(diff) = diff else { return };
-    let changed = String::from_utf8_lossy(&diff.stdout);
-    let bumped = changed
-        .lines()
-        .any(|line| line.starts_with('+') && (line.contains("FORMAT_VERSION: u32") || line.contains("CHUNKER_VERSION: u32")));
-    if !bumped {
+    if !bumps_a_stored_version(&String::from_utf8_lossy(&diff.stdout)) {
         return;
     }
 
@@ -132,7 +156,18 @@ fn a_version_bump_that_forces_a_rebuild_is_marked_breaking_in_a_commit() {
 
 #[cfg(test)]
 mod tests {
-    use super::marks_a_breaking_change;
+    use super::{bumps_a_stored_version, marks_a_breaking_change};
+
+    /// Every stored format is named `…_VERSION: u32`; the check reads them
+    /// all alike, in whichever file defines them.
+    #[test]
+    fn a_bump_of_any_stored_version_is_seen() {
+        assert!(bumps_a_stored_version("+pub const FULLTEXT_FORMAT_VERSION: u32 = 2;"));
+        assert!(bumps_a_stored_version("+pub const DOC_CHUNKER_VERSION: u32 = 2;"));
+        assert!(bumps_a_stored_version("+pub const VECTORS_FORMAT_VERSION: u32 = 2;"));
+        assert!(!bumps_a_stored_version("-pub const FULLTEXT_FORMAT_VERSION: u32 = 1;"));
+        assert!(!bumps_a_stored_version("+/// FULLTEXT_FORMAT_VERSION: u32 = 2 in prose"));
+    }
 
     #[test]
     fn both_spellings_of_a_breaking_change_are_recognized() {
