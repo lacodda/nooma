@@ -9,9 +9,9 @@
 //! The window shows one list, and asks for it twice. The words alone answer
 //! in milliseconds. The whole answer - the words and the meaning, ranked
 //! together - needs the model, which the window also uses to compute vectors
-//! in the background: that work borrows the model one small batch at a time,
-//! so a search waits at most a batch for it, and the words' answer stands in
-//! until it comes.
+//! in the background: that work borrows the model one small batch at a time
+//! and lets a waiting search go first, so a search waits at most a batch for
+//! it, and the words' answer stands in until it comes.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -29,6 +29,10 @@ use tauri_plugin_opener::OpenerExt;
 /// The most results the window asks for; more than a screen is noise.
 const MAX_RESULTS: usize = 50;
 
+/// The longest the background update steps aside for searches before it takes
+/// the model anyway: a guard against a count that never falls, not a pace.
+const YIELD_LIMIT: Duration = Duration::from_secs(5);
+
 /// A model, as the window keeps it: loaded once, shared by the background
 /// update and every search.
 type Kept = Box<dyn Embedder + Send>;
@@ -43,6 +47,11 @@ pub struct AppState {
     updating: AtomicBool,
     /// The model, loaded on first need.
     embedder: Mutex<Option<Kept>>,
+    /// Searches waiting for the model, or using it. The background update
+    /// lets them go first between batches: a mutex need not be fair - on
+    /// macOS it is not - and an update that takes the model straight back
+    /// starved a search for batch after batch.
+    searching: AtomicUsize,
     /// The vector index, kept for searching and read again when an update
     /// has replaced it on disk.
     meaning: Mutex<Option<SemanticIndex>>,
@@ -80,6 +89,7 @@ impl AppState {
             finder: Mutex::new(None),
             updating: AtomicBool::new(false),
             embedder: Mutex::new(embedder),
+            searching: AtomicUsize::new(0),
             meaning: Mutex::new(None),
             computing: Mutex::new(None),
             again: AtomicBool::new(false),
@@ -153,6 +163,23 @@ impl Default for AppState {
     }
 }
 
+/// One search counted in [`AppState::searching`], until it is dropped -
+/// returned or failed.
+struct Searching<'a>(&'a AtomicUsize);
+
+impl<'a> Searching<'a> {
+    fn count(searching: &'a AtomicUsize) -> Self {
+        searching.fetch_add(1, Ordering::AcqRel);
+        Self(searching)
+    }
+}
+
+impl Drop for Searching<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// A model's identity, copied out so the index can be opened while the
 /// model itself is busy computing vectors.
 #[derive(Debug, Clone)]
@@ -209,6 +236,10 @@ impl Model for Shared<'_> {
 
 impl Embedder for Shared<'_> {
     fn embed(&mut self, texts: &[&str], role: Role) -> nooma_core::Result<Vec<Vec<f32>>> {
+        let asked = Instant::now();
+        while self.state.searching.load(Ordering::Acquire) > 0 && asked.elapsed() < YIELD_LIMIT {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         self.state
             .with_embedder(|embedder| embedder.embed(texts, role).map_err(|e| e.to_string()))
             .map_err(nooma_core::Error::Embedding)?
@@ -306,6 +337,9 @@ pub async fn similar(state: State<'_, AppState>, text: String, limit: Option<usi
 }
 
 pub fn meaning_in(state: &AppState, text: &str, role: Role, limit: Option<usize>) -> Result<Option<Found>, String> {
+    // Counted from the first line: asking whether there is a model, and
+    // which, takes the model's lock as much as reading the query does.
+    let _counted = Searching::count(&state.searching);
     let started = Instant::now();
     let limit = limit.unwrap_or(MAX_RESULTS).min(MAX_RESULTS);
     if text.trim().is_empty() || !state.has_model() {
@@ -790,6 +824,55 @@ mod tests {
         let kettle = &whole.hits[0];
         assert_eq!((kettle.words.map(|p| p.rank), kettle.meaning.map(|p| p.rank)), (Some(1), Some(1)));
         assert!(whole.hits[1].words.is_none());
+    }
+
+    /// A search counted as waiting holds the background update off the model
+    /// until it is done: the hand-over does not rest on the mutex being fair.
+    #[test]
+    fn the_background_update_steps_aside_for_a_waiting_search() {
+        let notes = tempfile::tempdir().unwrap();
+        let (_store, state) = library_with_model(notes.path(), Duration::ZERO);
+        let model = Described {
+            id: "hash".to_string(),
+            recipe: "hash".to_string(),
+            dimensions: 64,
+        };
+        state.searching.fetch_add(1, Ordering::AcqRel);
+        let done = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let background = scope.spawn(|| {
+                let mut shared = Shared { state: &state, model };
+                shared.embed(&["a passage"], Role::Passage).unwrap();
+                done.store(true, Ordering::Release);
+            });
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(!done.load(Ordering::Acquire), "the update took the model while a search waited");
+            state.searching.fetch_sub(1, Ordering::AcqRel);
+            background.join().unwrap();
+        });
+        assert!(done.load(Ordering::Acquire));
+    }
+
+    /// And a search is counted from the moment it asks for the model until
+    /// it is done with it - including while it waits.
+    #[test]
+    fn a_search_is_counted_while_it_waits_for_the_model() {
+        let notes = tempfile::tempdir().unwrap();
+        std::fs::write(notes.path().join("kettle.md"), "# Kettle\n\nDescale the kettle with citric acid.\n").unwrap();
+        let (_store, state) = library_with_model(notes.path(), Duration::ZERO);
+        vectors_in(&state, &|_| {}).unwrap();
+        let held = state.embedder.lock().unwrap();
+        std::thread::scope(|scope| {
+            let search = scope.spawn(|| meaning_in(&state, "descale kettle", Role::Query, None).unwrap());
+            let asked = Instant::now();
+            while state.searching.load(Ordering::Acquire) == 0 && asked.elapsed() < Duration::from_secs(2) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert_eq!(state.searching.load(Ordering::Acquire), 1, "a search waiting for the model is not counted");
+            drop(held);
+            assert!(search.join().unwrap().is_some());
+        });
+        assert_eq!(state.searching.load(Ordering::Acquire), 0, "a search done is not counted");
     }
 
     /// The background update holds the model one batch at a time, so a
