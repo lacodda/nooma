@@ -52,4 +52,6 @@ The private archive is the author's own: 1,001 notes and documentation pages, 13
 
 The synthetic set in the repository is built against the words: every answer has a decoy that shares them, and half its questions are asked in the other language. There the list trails the meaning alone, by placing the answer a little lower among the first ten - but keeps it among the first ten as often (hit@10 0.94 both). Without weighing the words by how much of the question they hold, that was 0.66: the decoys pushed the answer off the screen. A test holds the list to its floors on this set, with the real model.
 
+Asking both halves costs little more than asking the meaning: on the private archive a question took 23 ms through the one list against 12 ms through the meaning alone, the model's reading of the question included - a release build on four threads of a laptop CPU.
+
 Freshness was measured last, on the same sets, whose questions were written with no time in mind: the bonus nooma uses moved MRR by less than a hundredth there, and stronger ones - a fifth or more, halving within a week - began to cost a few hundredths. Across languages the list is no better than its halves, because neither half can do it yet: that is [v0.9.0](/nooma/#status).

@@ -3,7 +3,7 @@ title: Search by meaning
 description: How a passage becomes a vector, how the vectors are searched and kept current, what never leaves the machine, and how the model was chosen.
 ---
 
-Full-text search finds a document because the words of the question occur in it. That fails exactly when it matters: you remember what a note was about, not how you phrased it, and half your notes are in the other language. The second half of nooma finds a document by what it means. The model and the vectors it computes arrived in v0.6.0; searching with them - beside the words, as a list of its own, and by a whole passage - in v0.7.0. The two halves become one ranked list in v0.8.0.
+Full-text search finds a document because the words of the question occur in it. That fails exactly when it matters: you remember what a note was about, not how you phrased it, and half your notes are in the other language. The second half of nooma finds a document by what it means. The model and the vectors it computes arrived in v0.6.0; searching with them - beside the words, and by a whole passage - in v0.7.0; one list ranked from both halves in v0.8.0, described on [One list from two halves](/nooma/concepts/hybrid/).
 
 ## A passage becomes a vector
 

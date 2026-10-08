@@ -59,10 +59,10 @@ $ nooma eval queries.json
 32 questions · 24 documents · 64 chunks
 
                               hit@1  hit@3  hit@10    MRR  ms/question
-fulltext                       0.47   0.50    0.53   0.48          1.5
-multilingual-e5-small          0.50   0.69    0.94   0.63         24.8
-multilingual-e5-small exact    0.50   0.69    0.94   0.63         24.9
-multilingual-e5-small hybrid   0.50   0.66    0.94   0.59         26.0
+fulltext                       0.47   0.50    0.53   0.48          3.0
+multilingual-e5-small          0.50   0.69    0.94   0.63         10.2
+multilingual-e5-small exact    0.50   0.69    0.94   0.63         10.2
+multilingual-e5-small hybrid   0.50   0.66    0.94   0.59         15.3
 ```
 
 That is the bilingual test corpus in nooma's repository, `crates/nooma-core/tests/meaning`, measured on a laptop. It is built against the words - every answer has a decoy that shares them - so there the list from both halves trails the meaning alone; on a real archive it leads both, see [One list from two halves](/nooma/concepts/hybrid/#how-it-was-measured).

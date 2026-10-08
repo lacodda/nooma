@@ -17,7 +17,7 @@ The window comes as an installer on the same release page: `nooma_<version>_x64-
 
 ## What works today
 
-nooma searches folders of markdown and text by the words in them and by what they mean, from a window or from the shell, and indexes git repositories for [`rigger`](https://github.com/lacodda/rigger). The two halves answer as two lists for now, and merge into one ranking in a later version; see [Status](/nooma/#status).
+nooma searches folders of markdown and text by the words in them and by what they mean, from a window or from the shell, and indexes git repositories for [`rigger`](https://github.com/lacodda/rigger). Both halves answer as one list, ranked together; see [One list from two halves](/nooma/concepts/hybrid/).
 
 ## Search your folders
 
@@ -48,7 +48,7 @@ $ nooma index
 multilingual-e5-small: 1840 / 4210 passages · 9 min left
 ```
 
-`find` then answers with both lists, and `nooma similar` takes a passage - a file, or `-` for standard input - and finds what else says the same. The window and the shell share one library and one set of vectors: a folder added in one is searched by the other. Everything - the folders, the options, the JSON each command prints - is on the [reference page](/nooma/reference/find/).
+`find` then answers from both halves in one list, and `nooma similar` takes a passage - a file, or `-` for standard input - and finds what else says the same. The window and the shell share one library and one set of vectors: a folder added in one is searched by the other. Everything - the folders, the options, the JSON each command prints - is on the [reference page](/nooma/reference/find/).
 
 ## Index a repository
 
