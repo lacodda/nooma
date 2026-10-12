@@ -25,7 +25,7 @@ A note edited this week is a little more likely to be the one you mean than one 
 
 ## What a row shows
 
-The chunk shown for a document is the one from the half that carried it: the words' chunk with the matching words marked, when the words carried it; the meaning's chunk, from its opening, when the meaning did. The row says which halves found it - the window with a badge for each, `find` in brackets after the title: `words`, `some words` when no document held them all, `meaning 0.84` with the cosine, or both.
+The chunk shown for a document is the one from the half that carried it: the words' chunk with the matching words marked, when the words carried it; the meaning's chunk, from its opening, when the meaning did - or, when the meaning alone found it in the other language, from the sentence that answered, marked: see [Across languages](/nooma/concepts/languages/). The row says which halves found it - the window with a badge for each, `find` in brackets after the title: `words`, `some words` when no document held them all, `meaning 0.84` with the cosine, or both - and `another language` when the meaning found it across languages.
 
 The score of a row is the sum, freshness included. It orders one list; it is not comparable between two searches, and the window draws it as a bar against the first row rather than as a number.
 
@@ -37,21 +37,21 @@ The balance between the words and the meaning is not a setting. A dial would han
 
 With [`nooma eval`](/nooma/reference/eval/), on the two query sets that chose the model. First the halves' answers to every question were taken down, thirty documents each; then every way of ranking them together was scored against the known answers: reciprocal rank fusion with the place it stops counting from 1 to 60, the words weighed from three quarters to twice the meaning, the share of the question counted plainly, squared and cubed, and a weighted sum of scores normalized per search beside it. The settings that scored best form a broad flat region - every neighbour of the chosen point within a couple of hundredths - and nooma uses its middle rather than its single best point, which on seventy questions would be fitting noise.
 
-MRR - the mean of one over the rank of the answer:
+MRR - the mean of one over the rank of the answer - as v0.9.0 measures, with the meaning compared [without the language](/nooma/concepts/languages/):
 
 | | Words | Meaning | One list |
 | --- | --- | --- | --- |
-| Private archive, all 70 questions | 0.27 | 0.38 | **0.43** |
-| - Russian about Russian (25) | 0.49 | 0.55 | **0.64** |
-| - English about English (8) | 0.21 | 0.76 | **0.79** |
-| - carrying an identifier (12) | 0.38 | 0.58 | **0.62** |
-| - across languages (25) | 0.00 | 0.00 | 0.00 |
-| Synthetic set, 32 questions | 0.48 | **0.63** | 0.59 |
+| Private archive, all 70 questions | 0.27 | 0.40 | **0.45** |
+| - Russian about Russian (25) | 0.49 | 0.45 | **0.57** |
+| - English about English (8) | 0.21 | 0.75 | **0.77** |
+| - carrying an identifier (12) | 0.38 | 0.54 | **0.62** |
+| - across languages (25) | 0.01 | **0.18** | 0.15 |
+| Synthetic set, 32 questions | 0.48 | **0.86** | 0.76 |
 
-The private archive is the author's own: 1,001 notes and documentation pages, 13,767 chunks, mostly Russian with English throughout, and questions written the way someone half-remembering a note types them. Nothing of it is in the repository; only these numbers are. On it the one list answers better than either half in every group where either answers at all, and puts the answer first a quarter more often than the meaning alone (hit@1 0.36 against 0.29).
+The private archive is the author's own: 1,001 notes and documentation pages, 13,767 chunks, mostly Russian with English throughout, and questions written the way someone half-remembering a note types them. Nothing of it is in the repository; only these numbers are. On it the one list answers better than either half in every group within a language, and puts the answer first a quarter more often than the meaning alone (hit@1 0.34 against 0.27). Across languages it trails the meaning a little: the words find only decoys there, in the question's language, and a decoy found by both halves stands above the answer.
 
-The synthetic set in the repository is built against the words: every answer has a decoy that shares them, and half its questions are asked in the other language. There the list trails the meaning alone, by placing the answer a little lower among the first ten - but keeps it among the first ten as often (hit@10 0.94 both). Without weighing the words by how much of the question they hold, that was 0.66: the decoys pushed the answer off the screen. A test holds the list to its floors on this set, with the real model.
+The synthetic set in the repository is built against the words: every answer has a decoy that shares them, and half its questions are asked in the other language. There the list trails the meaning alone, by placing the answer a little lower - but keeps it among the first three as often (hit@3 1.00 both). Without weighing the words by how much of the question they hold, the decoys pushed the answer off the screen: measured when the list was built, in v0.8.0, the answer left the first ten for a third of the questions. A test holds the list to its floors on this set, with the real model.
 
 Asking both halves costs little more than asking the meaning: on the private archive a question took 23 ms through the one list against 12 ms through the meaning alone, the model's reading of the question included - a release build on four threads of a laptop CPU.
 
-Freshness was measured last, on the same sets, whose questions were written with no time in mind: the bonus nooma uses moved MRR by less than a hundredth there, and stronger ones - a fifth or more, halving within a week - began to cost a few hundredths. Across languages the list is no better than its halves, because neither half can do it yet: that is [v0.9.0](/nooma/#status).
+Freshness was measured last, on the same sets, whose questions were written with no time in mind: the bonus nooma uses moved MRR by less than a hundredth there, and stronger ones - a fifth or more, halving within a week - began to cost a few hundredths. The constants were measured again in v0.9.0, over the meaning without the language, and stayed: the chosen point is still in the flat region, a few thousandths below its best point.

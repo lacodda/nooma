@@ -3,11 +3,11 @@ title: Search by meaning
 description: How a passage becomes a vector, how the vectors are searched and kept current, what never leaves the machine, and how the model was chosen.
 ---
 
-Full-text search finds a document because the words of the question occur in it. That fails exactly when it matters: you remember what a note was about, not how you phrased it, and half your notes are in the other language. The second half of nooma finds a document by what it means. The model and the vectors it computes arrived in v0.6.0; searching with them - beside the words, and by a whole passage - in v0.7.0; one list ranked from both halves in v0.8.0, described on [One list from two halves](/nooma/concepts/hybrid/).
+Full-text search finds a document because the words of the question occur in it. That fails exactly when it matters: you remember what a note was about, not how you phrased it, and half your notes are in the other language. The second half of nooma finds a document by what it means. The model and the vectors it computes arrived in v0.6.0; searching with them - beside the words, and by a whole passage - in v0.7.0; one list ranked from both halves in v0.8.0, described on [One list from two halves](/nooma/concepts/hybrid/); a question finding the document in the other language in v0.9.0, described on [Across languages](/nooma/concepts/languages/).
 
 ## A passage becomes a vector
 
-An embedding model reads a passage and returns a list of numbers - a vector - placed so that passages about the same thing land near each other, whatever words and whatever language they use. *How to get rid of limescale in the kettle* and *Накипь в чайнике: уксус или лимонная кислота* point the same way.
+An embedding model reads a passage and returns a list of numbers - a vector - placed so that passages about the same thing land near each other, whatever words they use. *How to get rid of limescale in the kettle* and *Накипь в чайнике: уксус или лимонная кислота* point nearly the same way; the language they are in pulls them a little apart, and nooma takes it out before comparing - see [Across languages](/nooma/concepts/languages/).
 
 What the model reads for each chunk of a document is its **passage**: the document's title, the headings above the chunk, and the chunk. A chunk alone is often a paragraph that means something only under its heading - "Returns" under "Kettle" is about the kettle.
 
@@ -70,7 +70,7 @@ Same language is Russian questions about Russian notes, then English about Engli
 What the numbers say:
 
 - **`multilingual-e5-small` is the best of the fast models on the real archive**, and best exactly where the words fail: a question about a note in words the note does not use (Russian, hit@3 0.72 against 0.48 for full-text) and a question carrying an identifier (hit@3 0.75 against 0.42). It is the model nooma uses.
-- **It does not cross languages.** Asked in English about a Russian note, it ranks the near miss in English above the answer - on the synthetic set it still finds the answer among the first ten, on the real archive it does not. Search across languages is its own step, v0.9.0, measured with these same sets; a model choice was not going to deliver it.
+- **It did not cross languages, as it comes.** Asked in English about a Russian note, it ranked the near miss in English above the answer - on the synthetic set it still found the answer among the first ten, on the real archive it did not. v0.9.0 takes the language out of its vectors before comparing them, measured with these same sets: see [Across languages](/nooma/concepts/languages/).
 - **`paraphrase-multilingual-minilm-l12-v2` crosses languages, a little**, and does worse than plain full-text within one. It also reads only the first 128 tokens of a chunk.
 - **`bge-m3` is the strongest on the synthetic set, and twenty times slower.** At 0.6 passages a second a two-thousand-note vault takes most of a day to read. For a tool that runs on your laptop beside your work, that rules it out whatever it scores; it is in the catalogue for measuring with `nooma eval`.
 

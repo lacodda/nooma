@@ -100,7 +100,7 @@ Without the model, `index` updates the exact half and says how to fetch the mode
 nooma find <QUERY> [--limit <N>] [--json] [--no-refresh]
 ```
 
-Prints one list, best first, one entry per document, at the place in it that answered best. `--limit` caps it. Each entry says which halves found it: `words`, `meaning 0.84` - the cosine - or both. How the two are ranked together is on [One list from two halves](/nooma/concepts/hybrid/).
+Prints one list, best first, one entry per document, at the place in it that answered best. `--limit` caps it. Each entry says which halves found it: `words`, `meaning 0.84` - the cosine - or both; `meaning 0.84, another language` when the meaning alone found it in the other language than the query's, and then its fragment starts at the sentence that answered - see [Across languages](/nooma/concepts/languages/). How the two are ranked together is on [One list from two halves](/nooma/concepts/hybrid/).
 
 **Any form of a word finds the others.** Every word is reduced to its stem before it is stored and before it is looked up, in Russian or in English by the alphabet it is written in: `договоров` finds *Договор*, `warranties` finds *warranty*. A word is judged on its own rather than by the language of the document around it, so the English terms in a Russian note are found by their English forms. `ё` and `е` are the same letter. Numbers and codes are kept as written, and `INV-2025-0114` finds that invoice number as a sequence rather than any document containing `2025`.
 
@@ -140,13 +140,15 @@ Each hit carries:
 | `title` | The frontmatter title, the first top-level heading, or the file name. |
 | `headings` | The headings above the chunk shown, outermost first. |
 | `line` | The line the chunk starts on. |
-| `fragment` | A piece of the chunk: around the words that matched when the words carried the document, its opening when the meaning did. |
+| `fragment` | A piece of the chunk: around the words that matched when the words carried the document, its opening when the meaning did - or, for a document found across languages, the sentence that answered and what follows. |
 | `highlights` | Where the matching words are in `fragment`, as `[start, end]` byte offsets; empty when the fragment came from the meaning. |
+| `closest` | Where the sentence closest in meaning to the query is in `fragment`, as `[start, end]` byte offsets; only for a document found across languages. |
 | `tags` | The document's tags. |
 | `modified` | When the file was last modified, in seconds since the epoch. |
 | `score` | How well it answered, both halves together: comparable within one search, not across two. |
 | `words` | Where the words put it, or `null` when they did not find it: `rank` from 1, `score` - the full-text score, comparable only within one search - and `share`, how much of the question its chunk holds, from 0 to 1. |
-| `meaning` | Where the meaning put it, or `null`: `rank` and `score`, the cosine between the question and the chunk - 1 the same direction, 0 unrelated - which means the same from one search to the next. |
+| `meaning` | Where the meaning put it, or `null`: `rank` and `score`, the cosine between the question and the chunk - 1 the same direction, 0 unrelated - which means the same from one search to the next. Both are compared without the language, when the model's was measured. |
+| `across` | Whether the meaning alone found it, written in another language than the query - told by the alphabet of most of its words. |
 
 ## `similar`
 
@@ -159,7 +161,7 @@ Finds the documents that say what a passage says: a paragraph from a letter, a p
 
 Only the half by meaning answers: a paragraph's words are not a query - every one of them would have to occur. The passage is read as a passage, the way the documents were, rather than as a question; the model reads its first 512 tokens, about a page. `similar` needs the model and the vectors, and says which is missing.
 
-`similar --json` prints `example`, the file as given or `-`; `hits`, as `find` prints them, each with only a `meaning` place; and `meaning`, as in `find`. They are ranked as `find` ranks: by closeness, with a recently edited document a little ahead of an old one as close.
+`similar --json` prints `example`, the file as given or `-`; `hits`, as `find` prints them, each with only a `meaning` place - and `across` and `closest` when the document is in another language than the passage; and `meaning`, as in `find`. They are ranked as `find` ranks: by closeness, with a recently edited document a little ahead of an old one as close.
 
 ## Chunks
 

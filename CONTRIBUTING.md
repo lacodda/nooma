@@ -73,6 +73,16 @@ Three ways a query goes wrong while still compiling, all of them found the hard 
 
 Add fixtures to `crates/nooma-core/tests/extraction.rs` for every kind the new language declares. A query that compiles proves the node names exist, not that they are the ones a declaration uses.
 
+## A model's language
+
+Vectors are compared without the language they were written in: two directions per model, measured on the English-Russian pairs in `crates/nooma-core/data/parallel-en-ru.json` and kept in `crates/nooma-core/data/axes/<model>.json` (ADR 0008). When the pairs change, a model's recipe changes, or a model is added whose language should be taken out, measure it again with the model on disk:
+
+```
+cargo run --release -p nooma-core --features semantic --example language_axes -- multilingual-e5-small
+```
+
+and wire a new file into the model's catalogue entry. `cargo test -p nooma-core` fails while an entry was measured on other pairs or another recipe; `cargo test --test meaning` measures the default model's language again and holds the file to it. A model whose language was never measured compares its vectors as they come - measure it with `nooma eval` both ways before taking it out.
+
 ## Testing
 
 Fixtures are written for the test. Nothing in the test corpus comes from a real repository or a real archive: nooma indexes personal files, and no fragment of real content belongs in the code, the tests, the fixtures or the screenshots.

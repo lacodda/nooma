@@ -31,9 +31,9 @@ There is exactly one exception, and it is not in the default build: `--prose` ca
 
 ## What works today
 
-v0.8.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list. Point it at notes, text files or an Obsidian vault, and search from a window with one field or from the shell:
+v0.9.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files or an Obsidian vault, and search from a window with one field or from the shell:
 
-<p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar and one list of results, each marked by the half that found it" width="720"></p>
+<p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar and one list of results, each marked by the half that found it; Russian notes found for an English question are marked another language, with the sentence that answered highlighted" width="720"></p>
 
 ```
 $ nooma source add ~/Notes
@@ -43,16 +43,16 @@ Appliance receipts · March (words + meaning 0.90)
   ~/Notes/home/appliance-receipts.md:5
   Filed the warranty claim for the espresso machine on 14 March…
 
-Kitchen appliances · Espresso setup (meaning 0.84)
+Гарантийный ремонт (meaning 0.88, another language)
+  ~/Notes/home/гарантия.md:3
+  Кофемашину приняли в сервис по гарантии: понадобились чек и серийный номер…
+
+Kitchen appliances · Espresso setup (meaning 0.83)
   ~/Notes/home/kitchen-appliances.md:5
   …the seller promises a replacement part under guarantee.
-
-Home insurance (meaning 0.79)
-  ~/Notes/home/insurance.md:3
-  Household appliances are covered for accidental damage…
 ```
 
-Any form of a word finds the others, in Russian and English alike; the meaning finds the notes in words they do not use - a guarantee, an insurance claim. Each document appears once, ranked from both halves and marked by the ones that found it; on the author's own archive the one list finds the answer more often than either half alone. Paste a paragraph into the window - or give it to `nooma similar` - to find what else says the same.
+Any form of a word finds the others; the meaning finds the notes in words they do not use - a guarantee, a repair - and in the other language, showing the sentence that answered. Each document appears once, marked by the halves that found it; on the author's own archive the one list beats either half alone. Paste a paragraph into the window - or give it to `nooma similar` - to find what else says the same.
 
 The model runs on your CPU and is fetched once, when you ask: a button in the window, `nooma model fetch` in the shell. The first reading of a large library takes an hour or so; it runs in the background, and search answers over what is read meanwhile. `nooma eval` measures each half and the list against questions whose answers you know, on your own folders.
 
@@ -60,7 +60,7 @@ The repository index from earlier versions is still here: `nooma repo` reads a g
 
 ## Status
 
-v0.8.0. Markdown and text are searched by words and by meaning and answered with one list - in a window and on the command line - and a pasted passage finds its kin: the hybrid the name promises. Search across languages is v0.9.0: the model nooma uses does not cross them yet. PDF, DOCX and EPUB come after. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.9.0. Markdown and text are searched by words and by meaning and answered with one list - in a window and on the command line - and a pasted passage finds its kin: the hybrid the name promises. A question in Russian finds the English document and the other way round, and says why. PDF, DOCX and EPUB come next. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 
