@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.0] - 2026-10-12
+
+### Build
+- Update the stack
+
+### Documentation
+- Describe search across languages
+
+### Features
+- Find a document in the other language
+
+### Breaking Changes
+
+the vector index goes to format 2 and is rebuilt
+from the stored vectors on the next update, with nothing read again.
+In nooma-core Model::language is required, hybrid::similar takes the
+passage text, Hit carries closest and Ranked carries across; the JSON
+of find and similar prints both.
+
 ## [0.8.0] - 2026-10-08
 
 ### Bug Fixes

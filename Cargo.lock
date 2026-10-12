@@ -3756,7 +3756,7 @@ checksum = "9737e026353e5cd0736f98eddae28665118eb6f6600902a7f50db585621fecb6"
 
 [[package]]
 name = "nooma"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3770,7 +3770,7 @@ dependencies = [
 
 [[package]]
 name = "nooma-app"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "nooma-core",
  "nooma-fetch",
@@ -3786,7 +3786,7 @@ dependencies = [
 
 [[package]]
 name = "nooma-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3811,7 +3811,7 @@ dependencies = [
 
 [[package]]
 name = "nooma-fetch"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "nooma-core",
  "sha2 0.11.1",
