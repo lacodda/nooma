@@ -354,7 +354,7 @@ function Titlebar({
         aria-label={t('search.label')}
         placeholder={t('search.placeholder')}
         clearLabel={t('search.clear')}
-        shortcut={['Mod', 'K']}
+        shortcut={{ id: 'search', label: t('search.label'), keys: 'Mod+K' }}
         autoFocus
         spellCheck={false}
         className="w-full max-w-2xl"
