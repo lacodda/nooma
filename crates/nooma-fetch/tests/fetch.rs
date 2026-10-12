@@ -135,6 +135,7 @@ fn spec(big: &[u8], small: &[u8]) -> &'static ModelSpec {
         query_prefix: "",
         passage_prefix: "",
         max_tokens: 16,
+        language: None,
     }))
 }
 

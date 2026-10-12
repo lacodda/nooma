@@ -23,12 +23,14 @@ pub mod index;
 pub mod lang;
 pub mod library;
 pub mod model;
+pub mod neutral;
 pub mod repo;
 pub mod store;
 pub mod summary;
 pub mod symbols;
 #[cfg(feature = "semantic")]
 pub mod vectors;
+pub mod why;
 
 pub use error::{Error, Result};
 
@@ -52,6 +54,7 @@ pub use index::{FileIndex, Import, RepoIndex, Revision, Symbol, SymbolKind};
 pub use lang::Language;
 pub use library::{Finder, Hit, Library, Matched, Progress, Skipped, Source, Status, UpdateReport, WordHit};
 pub use model::{ModelSpec, Pooling};
+pub use neutral::LanguageAxes;
 pub use repo::Repo;
 pub use store::Store;
 pub use summary::{ModuleSummary, SummaryEntry};

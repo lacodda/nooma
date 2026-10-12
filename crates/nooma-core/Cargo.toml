@@ -56,3 +56,7 @@ required-features = ["semantic"]
 [[test]]
 name = "vectors"
 required-features = ["semantic"]
+
+[[example]]
+name = "language_axes"
+required-features = ["semantic"]

@@ -41,6 +41,16 @@
 //! cannot be replaced, and a window holding it would hold off every update
 //! made from the command line.
 //!
+//! # Compared without the language
+//!
+//! For a model whose language was measured, the graph holds each vector with
+//! the directions that carry its language taken out, and a query is searched
+//! the same way: the store keeps what the model computed, the index the
+//! meaning alone. See [`crate::neutral`]. The index names the space it was
+//! built in, and one built in another - before the language was measured, or
+//! measured again - is built again from the store, without the model reading
+//! anything.
+//!
 //! A long first update saves the index as it goes, so search by meaning
 //! answers over what has been read before the rest is. Passages are read in
 //! the order of their documents, so what is covered is whole documents, and
@@ -58,13 +68,14 @@ use usearch::{IndexOptions, MetricKind, ScalarKind};
 use crate::embed::{Embedder, Model, Role};
 use crate::error::{Error, Result};
 use crate::library::{Finder, Hit, IndexedFile, Library, Progress, StoredChunk};
+use crate::neutral::LanguageAxes;
 
 /// The format of a vector store: its `meta.json` and the record layout of
 /// `vectors.bin`.
 pub const VECTORS_FORMAT_VERSION: u32 = 1;
 
 /// The format of `index.bin`, the graph and the chunks beside it.
-pub const INDEX_FORMAT_VERSION: u32 = 1;
+pub const INDEX_FORMAT_VERSION: u32 = 2;
 
 /// Passages handed to the model and written to disk together. Small: the
 /// runtime's memory grows with the batch, a long update shares the machine
@@ -94,8 +105,12 @@ const INDEX_MAGIC: &[u8; 8] = b"NOOMAVIX";
 /// default, 64, missed one in ten of the closest ten over random vectors;
 /// 256 missed three in a thousand, for a few milliseconds a search over tens
 /// of thousands of passages - beside the tens of milliseconds the model takes
-/// to read the question. `nooma eval` shows what it costs on real questions.
-const EXPANSION_SEARCH: usize = 256;
+/// to read the question. Without their language the vectors crowd closer -
+/// the tenth and the eleventh of a real question a thousandth apart - and at
+/// 256 and 512 one question of seventy lost its answer at the tenth place;
+/// 1024 found what exact search finds for all of them, for about a
+/// millisecond more. `nooma eval` shows what it costs on real questions.
+const EXPANSION_SEARCH: usize = 1024;
 
 /// A key: the BLAKE3 hash of a passage.
 type Key = [u8; 32];
@@ -363,6 +378,9 @@ struct Head {
     model: String,
     recipe: String,
     dimensions: usize,
+    /// The space the graph's vectors are in: see [`LanguageAxes::space`];
+    /// empty when they are as the model made them.
+    space: String,
     documents: Vec<IndexedDoc>,
 }
 
@@ -372,6 +390,14 @@ struct Head {
 struct Entry {
     key: Key,
     chunks: Vec<(u32, u32)>,
+}
+
+/// What a model's vectors are compared without, and the name of the space
+/// that leaves.
+fn space_of(model: &dyn Model) -> (Option<LanguageAxes>, String) {
+    let axes = model.language().cloned();
+    let space = axes.as_ref().map(LanguageAxes::space).unwrap_or_default();
+    (axes, space)
 }
 
 fn graph_error(error: impl std::fmt::Display) -> Error {
@@ -551,6 +577,9 @@ impl Passages {
 /// The index while an update changes it.
 struct Building {
     graph: Graph,
+    /// Taken out of every vector before it joins the graph.
+    axes: Option<LanguageAxes>,
+    space: String,
     /// Per passage in the graph, its id there.
     ids: HashMap<Key, u64>,
     next_id: u64,
@@ -560,9 +589,11 @@ struct Building {
 }
 
 impl Building {
-    fn fresh(dimensions: usize) -> Result<Self> {
+    fn fresh(dimensions: usize, axes: Option<LanguageAxes>, space: String) -> Result<Self> {
         Ok(Self {
             graph: new_graph(dimensions)?,
+            axes,
+            space,
             ids: HashMap::new(),
             next_id: 0,
             saved: None,
@@ -571,24 +602,29 @@ impl Building {
 
     /// The index on disk, if it was built by these vectors; why not, if it
     /// was there and was not.
-    fn open(path: &Path, meta: &Meta) -> Result<(Self, Option<String>)> {
+    fn open(path: &Path, meta: &Meta, axes: Option<LanguageAxes>, space: String) -> Result<(Self, Option<String>)> {
         let bytes = match std::fs::read(path) {
             Ok(bytes) => bytes,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Self::fresh(meta.dimensions)?, None)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Self::fresh(meta.dimensions, axes, space)?, None)),
             Err(e) => return Err(Error::io(path, e)),
         };
         let snapshot = match Snapshot::decode(&bytes) {
             Ok(snapshot) => snapshot,
-            Err(reason) => return Ok((Self::fresh(meta.dimensions)?, Some(reason))),
+            Err(reason) => return Ok((Self::fresh(meta.dimensions, axes, space)?, Some(reason))),
         };
         if snapshot.head.model != meta.model || snapshot.head.recipe != meta.recipe || snapshot.head.dimensions != meta.dimensions {
-            return Ok((Self::fresh(meta.dimensions)?, Some("it was built from other vectors".to_string())));
+            return Ok((Self::fresh(meta.dimensions, axes, space)?, Some("it was built from other vectors".to_string())));
+        }
+        if snapshot.head.space != space {
+            return Ok((Self::fresh(meta.dimensions, axes, space)?, Some("it was built in another space".to_string())));
         }
         let ids = snapshot.entries.iter().map(|(id, entry)| (entry.key, *id)).collect();
         let next_id = snapshot.entries.keys().next_back().map_or(0, |id| id + 1);
         Ok((
             Self {
                 graph: snapshot.graph,
+                axes,
+                space,
                 ids,
                 next_id,
                 saved: Some((snapshot.head, snapshot.entries)),
@@ -608,7 +644,15 @@ impl Building {
             self.graph.reserve(wanted).map_err(graph_error)?;
         }
         let id = self.next_id;
-        self.graph.add(id, vector).map_err(graph_error)?;
+        match &self.axes {
+            Some(axes) => {
+                let mut neutral = vector.to_vec();
+                axes.remove(&mut neutral);
+                self.graph.add(id, &neutral)
+            }
+            None => self.graph.add(id, vector),
+        }
+        .map_err(graph_error)?;
         self.ids.insert(key, id);
         self.next_id += 1;
         Ok(())
@@ -657,6 +701,7 @@ impl Building {
             model: meta.model.clone(),
             recipe: meta.recipe.clone(),
             dimensions: meta.dimensions,
+            space: self.space.clone(),
             documents,
         };
         (head, entries)
@@ -714,12 +759,13 @@ impl Library {
         // The index follows the store: passages no chunk has leave it, and
         // passages the store has and it does not - computed by an update
         // that stopped before saving it - join it.
-        let (mut building, _) = Building::open(&index_path, &meta)?;
+        let (axes, space) = space_of(&*embedder);
+        let (mut building, _) = Building::open(&index_path, &meta, axes.clone(), space.clone())?;
         let gone: Vec<Key> = building.ids.keys().filter(|key| !live.contains(*key)).copied().collect();
         if gone.len() > building.ids.len() / 4 {
             // A graph with many holes searches worse than one built again,
             // and building one over the store takes seconds.
-            building = Building::fresh(meta.dimensions)?;
+            building = Building::fresh(meta.dimensions, axes, space)?;
         } else {
             for key in &gone {
                 building.remove(key)?;
@@ -807,7 +853,12 @@ impl Library {
         let Ok(snapshot) = Snapshot::decode(&bytes) else {
             return Ok(None);
         };
-        if snapshot.head.model != meta.model || snapshot.head.recipe != meta.recipe || snapshot.head.dimensions != meta.dimensions {
+        let (axes, space) = space_of(model);
+        if snapshot.head.model != meta.model
+            || snapshot.head.recipe != meta.recipe
+            || snapshot.head.dimensions != meta.dimensions
+            || snapshot.head.space != space
+        {
             return Ok(None);
         }
 
@@ -822,6 +873,7 @@ impl Library {
         Ok(Some(SemanticIndex {
             model: meta.model,
             dimensions: meta.dimensions,
+            axes,
             graph: snapshot.graph,
             chunks: snapshot.entries.into_iter().map(|(id, entry)| (id, entry.chunks)).collect(),
             documents: snapshot.head.documents.into_iter().map(|doc| PathBuf::from(doc.path)).collect(),
@@ -879,6 +931,9 @@ pub struct SemanticHit {
 pub struct SemanticIndex {
     model: String,
     dimensions: usize,
+    /// Taken out of a query before it is compared, as they were out of the
+    /// vectors in the graph.
+    axes: Option<LanguageAxes>,
     graph: Graph,
     /// Per passage id, its chunks: a document and a line.
     chunks: HashMap<u64, Vec<(u32, u32)>>,
@@ -930,6 +985,26 @@ impl SemanticIndex {
         self.stamp.is_some() && stamp_of(&self.file) == self.stamp
     }
 
+    /// How close a query is to each of some passages, compared as the index
+    /// compares them - without the language, when the model's was measured.
+    /// The vectors are as the model made them.
+    pub fn closeness(&self, query: &[f32], passages: &[Vec<f32>]) -> Vec<f32> {
+        let query = self.neutral(query);
+        passages
+            .iter()
+            .map(|passage| self.neutral(passage).iter().zip(&query).map(|(a, b)| a * b).sum())
+            .collect()
+    }
+
+    /// A vector as the index compares it.
+    fn neutral(&self, vector: &[f32]) -> Vec<f32> {
+        let mut out = vector.to_vec();
+        if let Some(axes) = &self.axes {
+            axes.remove(&mut out);
+        }
+        out
+    }
+
     /// The chunks closest to a query vector, at most one per document,
     /// closest first.
     pub fn search(&self, query: &[f32], limit: usize) -> Result<Vec<SemanticHit>> {
@@ -956,6 +1031,8 @@ impl SemanticIndex {
                 self.dimensions
             )));
         }
+        let query = self.neutral(query);
+        let query = query.as_slice();
         // Several chunks of one document can be closer than any chunk of the
         // next, so more chunks are asked for than documents wanted, and more
         // again when they fall on too few documents.
@@ -1177,6 +1254,51 @@ mod tests {
         assert!(recall >= 0.95, "recall at ten: {recall:.3}");
     }
 
+    /// A vector joins the graph without its language, and a query is compared
+    /// without it too: the passage itself, asked as a query, is found at a
+    /// cosine of one.
+    #[test]
+    fn a_passage_and_a_query_lose_the_same_language() {
+        let axes = LanguageAxes {
+            set: String::new(),
+            recipe: String::new(),
+            axes: vec![vec![1.0, 0.0, 0.0, 0.0]],
+        };
+        let mut vector = vec![0.8, 0.3, 0.2, 0.1];
+        crate::embed::normalize(&mut vector);
+        let mut building = Building::fresh(4, Some(axes.clone()), axes.space()).unwrap();
+        building.add([1; 32], &vector).unwrap();
+
+        let mut neutral = vector.clone();
+        axes.remove(&mut neutral);
+        let held = building.graph.search(&neutral, 1).unwrap();
+        assert!(
+            held.distances[0].abs() < 1e-5,
+            "the graph holds the vector without its language: {}",
+            held.distances[0]
+        );
+
+        let index = SemanticIndex {
+            model: "m".to_string(),
+            dimensions: 4,
+            axes: Some(axes),
+            graph: building.graph,
+            chunks: HashMap::from([(0, vec![(0, 1)])]),
+            documents: vec![PathBuf::from("/notes/a.md")],
+            present: vec![true],
+            behind: 0,
+            passages: 1,
+            file: PathBuf::new(),
+            stamp: None,
+        };
+        let found = index.search(&vector, 1).unwrap();
+        assert!(
+            (found[0].score - 1.0).abs() < 1e-5,
+            "a query is compared without its language: {}",
+            found[0].score
+        );
+    }
+
     #[test]
     fn an_index_file_reads_back_as_it_was_written_and_a_damaged_one_does_not() {
         let graph = new_graph(4).unwrap();
@@ -1187,6 +1309,7 @@ mod tests {
             model: "m".to_string(),
             recipe: "m".to_string(),
             dimensions: 4,
+            space: String::new(),
             documents: vec![IndexedDoc {
                 path: "/notes/a.md".to_string(),
                 hash: "h".to_string(),

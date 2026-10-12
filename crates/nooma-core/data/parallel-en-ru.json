@@ -1,0 +1,2405 @@
+{
+ "about": "Pairs of texts that say the same thing in English and in Russian, written for nooma (none is taken from anywhere). The difference between the two vectors of a pair is the language and nothing else, so the directions those differences share are the ones along which a model tells the languages apart; nooma removes them before comparing meanings. See docs/adr/0008-meaning-without-the-language.md.",
+ "pairs": [
+  {
+   "kind": "query",
+   "en": "how to undo last commit",
+   "ru": "как отменить последний коммит"
+  },
+  {
+   "kind": "query",
+   "en": "why do tests fail only in ci",
+   "ru": "почему тесты падают только в ci"
+  },
+  {
+   "kind": "query",
+   "en": "git stash apply specific stash",
+   "ru": "как применить конкретный stash в git"
+  },
+  {
+   "kind": "query",
+   "en": "postgres slow query explain analyze",
+   "ru": "медленный запрос postgres explain analyze"
+  },
+  {
+   "kind": "query",
+   "en": "chmod 600 ssh key permissions",
+   "ru": "права 600 на ssh-ключ"
+  },
+  {
+   "kind": "query",
+   "en": "curl post json header",
+   "ru": "curl post запрос с json и заголовком"
+  },
+  {
+   "kind": "query",
+   "en": "docker container keeps restarting",
+   "ru": "docker контейнер постоянно перезапускается"
+  },
+  {
+   "kind": "query",
+   "en": "vim save and quit",
+   "ru": "как сохранить и выйти из vim"
+  },
+  {
+   "kind": "query",
+   "en": "http 429 too many requests retry",
+   "ru": "ошибка 429 слишком много запросов что делать"
+  },
+  {
+   "kind": "query",
+   "en": "cron job not running",
+   "ru": "cron задача не запускается"
+  },
+  {
+   "kind": "query",
+   "en": "sql left join vs inner join",
+   "ru": "чем left join отличается от inner join"
+  },
+  {
+   "kind": "query",
+   "en": "rotate log files linux",
+   "ru": "ротация лог-файлов в linux"
+  },
+  {
+   "kind": "query",
+   "en": "rebase vs merge when to use",
+   "ru": "rebase или merge что выбрать"
+  },
+  {
+   "kind": "query",
+   "en": "how to restore database from dump",
+   "ru": "восстановить базу из дампа"
+  },
+  {
+   "kind": "query",
+   "en": "change default shell windows terminal",
+   "ru": "сменить оболочку по умолчанию в терминале windows"
+  },
+  {
+   "kind": "query",
+   "en": "env variable not found in container",
+   "ru": "переменная окружения не видна в контейнере"
+  },
+  {
+   "kind": "query",
+   "en": "git delete remote branch",
+   "ru": "удалить удалённую ветку в git"
+  },
+  {
+   "kind": "query",
+   "en": "how to write good pr description",
+   "ru": "как писать хорошее описание pull request"
+  },
+  {
+   "kind": "query",
+   "en": "ssl certificate expired nginx",
+   "ru": "истёк ssl-сертификат nginx"
+  },
+  {
+   "kind": "query",
+   "en": "unique constraint violation insert",
+   "ru": "ошибка unique constraint при insert"
+  },
+  {
+   "kind": "query",
+   "en": "flaky test retry strategy",
+   "ru": "нестабильный тест как перезапускать"
+  },
+  {
+   "kind": "query",
+   "en": "vscode shortcut multi cursor",
+   "ru": "multi-cursor горячие клавиши в vscode"
+  },
+  {
+   "kind": "query",
+   "en": "set timezone on server",
+   "ru": "как поменять часовой пояс на сервере"
+  },
+  {
+   "kind": "query",
+   "en": "index not used where clause",
+   "ru": "индекс не используется в where"
+  },
+  {
+   "kind": "query",
+   "en": "sprint planning too many tasks",
+   "ru": "в спринт набирается слишком много задач"
+  },
+  {
+   "kind": "query",
+   "en": "bcrypt cost factor choose",
+   "ru": "bcrypt какой cost выбрать"
+  },
+  {
+   "kind": "query",
+   "en": "rsync exclude folder dry run",
+   "ru": "rsync исключить папку пробный запуск"
+  },
+  {
+   "kind": "query",
+   "en": "memory leak node process",
+   "ru": "утечка памяти в процессе node"
+  },
+  {
+   "kind": "query",
+   "en": "generate docs from openapi spec",
+   "ru": "сгенерировать документацию из openapi"
+  },
+  {
+   "kind": "query",
+   "en": "grep recursive ignore case",
+   "ru": "grep рекурсивный поиск без учёта регистра"
+  },
+  {
+   "kind": "sentence",
+   "en": "I forgot to run `git pull --rebase` before pushing, so the remote rejected my branch.",
+   "ru": "Я забыл сделать `git pull --rebase` перед пушем, и сервер отклонил мою ветку."
+  },
+  {
+   "kind": "sentence",
+   "en": "The migration script needs a `--dry-run` flag so it can show what it intends to change first.",
+   "ru": "Нужно добавить флаг `--dry-run`, чтобы скрипт миграции сначала показывал, что он собирается изменить."
+  },
+  {
+   "kind": "sentence",
+   "en": "The pipeline takes 14 minutes, and most of that is reinstalling dependencies that never change.",
+   "ru": "Пайплайн идёт 14 минут, и большую часть времени занимает установка зависимостей, которые не меняются."
+  },
+  {
+   "kind": "sentence",
+   "en": "The database password lives in `.env`, and the file itself is listed in `.gitignore`.",
+   "ru": "Пароль от базы лежит в `.env`, а сам файл добавлен в `.gitignore`."
+  },
+  {
+   "kind": "sentence",
+   "en": "A 502 from the gateway usually means the upstream process crashed rather than the gateway being broken.",
+   "ru": "502 от шлюза обычно значит, что упал сам сервис за ним, а не шлюз."
+  },
+  {
+   "kind": "sentence",
+   "en": "Ctrl+Shift+P opens the command palette, which is faster than hunting through menus.",
+   "ru": "Ctrl+Shift+P открывает палитру команд - так быстрее, чем искать пункт в меню."
+  },
+  {
+   "kind": "sentence",
+   "en": "The reviewer asked me to split the pull request in three because it touched over 900 lines.",
+   "ru": "Ревьюер попросил разбить пулл-реквест на три части, потому что в одном было больше 900 изменённых строк."
+  },
+  {
+   "kind": "sentence",
+   "en": "Every query on the `orders` table that filters by `customer_id` should hit an index.",
+   "ru": "Каждый запрос к таблице `orders` с фильтром по `customer_id` должен попадать в индекс."
+  },
+  {
+   "kind": "sentence",
+   "en": "The logs got too noisy, so the default level was switched from DEBUG to INFO.",
+   "ru": "В логах стало слишком много шума, поэтому уровень по умолчанию сменили с DEBUG на INFO."
+  },
+  {
+   "kind": "sentence",
+   "en": "Our nightly backup of the staging server finished with exit code 0, but nobody has tried restoring it yet.",
+   "ru": "Ночной бэкап тестового сервера завершился с кодом 0, но восстанавливать из него пока никто не пробовал."
+  },
+  {
+   "kind": "sentence",
+   "en": "The `/var/www` directory was set to 755 and handed over to the deploy user.",
+   "ru": "Права на каталог `/var/www` выставили на 755, а владельцем сделали пользователя деплоя."
+  },
+  {
+   "kind": "sentence",
+   "en": "Add a short docstring to every public function, even if the name seems obvious.",
+   "ru": "Добавляйте короткий docstring к каждой публичной функции, даже если название кажется очевидным."
+  },
+  {
+   "kind": "sentence",
+   "en": "The payment test depends on the current date, so it breaks at the end of the month.",
+   "ru": "Тест на оплату зависит от текущей даты, поэтому в конце месяца он ломается."
+  },
+  {
+   "kind": "sentence",
+   "en": "The API returns `HTTP 404` for a missing user but `HTTP 403` for one you are not allowed to see.",
+   "ru": "API отдаёт `HTTP 404`, если пользователя нет, и `HTTP 403`, если его нельзя смотреть."
+  },
+  {
+   "kind": "sentence",
+   "en": "A broken build on main blocks everyone, so fixing it comes before any new work.",
+   "ru": "Сломанная сборка на main блокирует всех, так что чинить её нужно раньше любых новых задач."
+  },
+  {
+   "kind": "sentence",
+   "en": "I set the editor to use spaces instead of tabs, with an indent width of four.",
+   "ru": "Я настроил редактор на пробелы вместо табуляции, ширина отступа - четыре."
+  },
+  {
+   "kind": "sentence",
+   "en": "Before upgrading the server kernel, take a disk snapshot.",
+   "ru": "Перед обновлением ядра на сервере стоит сделать снимок диска."
+  },
+  {
+   "kind": "sentence",
+   "en": "The standup should take ten minutes; anything longer belongs in a separate thread.",
+   "ru": "Дейли должно занимать десять минут, а всё, что дольше, уходит в отдельное обсуждение."
+  },
+  {
+   "kind": "sentence",
+   "en": "We moved the request timeout into `config.toml` so we do not rebuild the app for a single number.",
+   "ru": "Мы вынесли таймаут запроса в `config.toml`, чтобы не пересобирать приложение ради одной цифры."
+  },
+  {
+   "kind": "sentence",
+   "en": "A transaction that holds a lock for several seconds will make every other writer wait.",
+   "ru": "Транзакция, которая держит блокировку несколько секунд, заставит ждать всех остальных, кто пишет."
+  },
+  {
+   "kind": "sentence",
+   "en": "An SSH key without a passphrase is a bad idea if the machine can be stolen.",
+   "ru": "SSH-ключи без парольной фразы - плохая идея, если машину могут украсть."
+  },
+  {
+   "kind": "sentence",
+   "en": "Run `git bisect` when a bug was not there last month and you do not know which commit brought it in.",
+   "ru": "`git bisect` пригодится, когда месяц назад бага не было, а какой коммит его принёс - неизвестно."
+  },
+  {
+   "kind": "sentence",
+   "en": "The release notes list only user-visible changes and leave out internal ones.",
+   "ru": "В описании релиза указаны только изменения, заметные пользователю, а внутренние правки опущены."
+  },
+  {
+   "kind": "sentence",
+   "en": "The cache hit rate dropped from 92% to 40% after we changed the key format.",
+   "ru": "Доля попаданий в кэш упала с 92% до 40% после смены формата ключа."
+  },
+  {
+   "kind": "sentence",
+   "en": "If `npm test` passes locally but fails in CI, compare the Node versions first.",
+   "ru": "Если `npm test` проходит локально, но падает в CI, сначала сравните версии Node."
+  },
+  {
+   "kind": "sentence",
+   "en": "We rotate the API tokens every 90 days and revoke the old ones immediately.",
+   "ru": "Токены API мы меняем каждые 90 дней, а старые отзываем сразу."
+  },
+  {
+   "kind": "sentence",
+   "en": "The rollback took two minutes because the previous image was still on the server.",
+   "ru": "Откат релиза занял две минуты, потому что предыдущий образ ещё лежал на сервере."
+  },
+  {
+   "kind": "sentence",
+   "en": "Don't catch an exception just to log it and carry on as if nothing happened.",
+   "ru": "Не ловите исключение лишь затем, чтобы записать его в лог и идти дальше, будто ничего не было."
+  },
+  {
+   "kind": "sentence",
+   "en": "We scheduled the 'update dependencies' task for Friday morning, when releases are rare.",
+   "ru": "Задачу 'обновить зависимости' мы поставили на утро пятницы, когда релизы бывают редко."
+  },
+  {
+   "kind": "sentence",
+   "en": "In the system settings I turned off the sticky keys prompt that popped up whenever I pressed Shift five times.",
+   "ru": "В настройках системы я отключил запрос липких клавиш, который выскакивал после пяти нажатий Shift."
+  },
+  {
+   "kind": "sentence",
+   "en": "The migration adds an `archived_at` column that defaults to NULL.",
+   "ru": "Миграция добавляет столбец `archived_at` со значением NULL по умолчанию."
+  },
+  {
+   "kind": "sentence",
+   "en": "A good commit message says why the change was made, not just what changed.",
+   "ru": "Хорошее сообщение коммита объясняет, зачем сделано изменение, а не только что изменилось."
+  },
+  {
+   "kind": "sentence",
+   "en": "A typical response takes 80 ms, but the first request after idle takes almost two seconds.",
+   "ru": "Обычный ответ приходит за 80 мс, но первый запрос после простоя занимает почти две секунды."
+  },
+  {
+   "kind": "sentence",
+   "en": "The staging server has a single core, so parallel test jobs run slower than sequential ones.",
+   "ru": "Тестовый сервер одноядерный, поэтому параллельные прогоны там медленнее последовательных."
+  },
+  {
+   "kind": "sentence",
+   "en": "Dependencies are pinned by a lock file, so everyone gets the same versions.",
+   "ru": "Зависимости зафиксированы lock-файлом, так что у всех одни и те же версии."
+  },
+  {
+   "kind": "sentence",
+   "en": "Use `tail -f app.log` to watch new lines as they appear.",
+   "ru": "`tail -f app.log` показывает новые строки по мере их появления."
+  },
+  {
+   "kind": "sentence",
+   "en": "Every public endpoint has a request example in the docs.",
+   "ru": "Для каждого публичного эндпоинта в документации есть пример запроса."
+  },
+  {
+   "kind": "sentence",
+   "en": "Our team limits work in progress to three tickets per person.",
+   "ru": "В нашей команде не больше трёх задач в работе на человека."
+  },
+  {
+   "kind": "sentence",
+   "en": "'Connection refused' most often means nothing is listening on that port.",
+   "ru": "Ошибка 'connection refused' чаще всего означает, что на этом порту никто не слушает."
+  },
+  {
+   "kind": "sentence",
+   "en": "The new hire spent her first day just getting the project to build locally.",
+   "ru": "Новая сотрудница потратила первый день просто на то, чтобы собрать проект у себя."
+  },
+  {
+   "kind": "sentence",
+   "en": "A separate read-only database user for reports prevents them from accidentally changing data.",
+   "ru": "Отдельный пользователь базы с правом только на чтение нужен для отчётов, чтобы они не могли случайно изменить данные."
+  },
+  {
+   "kind": "sentence",
+   "en": "I mapped Caps Lock to Escape because I press it constantly in the editor.",
+   "ru": "Я переназначил Caps Lock на Escape, потому что в редакторе нажимаю его постоянно."
+  },
+  {
+   "kind": "sentence",
+   "en": "Deploying on a Friday evening is unofficially banned here.",
+   "ru": "Деплой по вечерам в пятницу у нас негласно запрещён."
+  },
+  {
+   "kind": "sentence",
+   "en": "The query went from 12 seconds to 40 ms after we added a composite index.",
+   "ru": "Запрос ускорился с 12 секунд до 40 мс после добавления составного индекса."
+  },
+  {
+   "kind": "sentence",
+   "en": "Tab completes names in the terminal, and `Ctrl+R` searches the command history.",
+   "ru": "Tab дополняет имена в терминале, а `Ctrl+R` ищет по истории команд."
+  },
+  {
+   "kind": "passage",
+   "en": "The deploy script builds the image, pushes it to the registry and restarts the service. If the health check fails twice in a row, it stops and leaves the old version running.",
+   "ru": "Скрипт деплоя собирает образ, отправляет его в реестр и перезапускает сервис. Если проверка состояния дважды подряд не проходит, он останавливается и оставляет работать старую версию."
+  },
+  {
+   "kind": "passage",
+   "en": "First we turned on verbose logs for just one module. That was enough to see that the cache requests were being repeated in a loop. After the fix, the load on the database dropped by half.",
+   "ru": "Сначала мы включили подробные логи только для одного модуля. Этого хватило, чтобы увидеть, что запросы к кэшу повторяются в цикле. После исправления нагрузка на базу упала вдвое."
+  },
+  {
+   "kind": "passage",
+   "en": "Our integration tests start a real database in a container. They are slower than unit tests, so they run only on pull requests and not on every push.",
+   "ru": "Наши интеграционные тесты поднимают настоящую базу в контейнере. Они медленнее модульных, поэтому запускаются только на пулл-реквестах, а не при каждом пуше."
+  },
+  {
+   "kind": "passage",
+   "en": "The access token lives for one hour. When it expires, the client gets `HTTP 401` and must request a new one with the refresh token. Repeating the same request without refreshing is pointless.",
+   "ru": "Токен доступа живёт один час. Когда он истекает, клиент получает `HTTP 401` и должен запросить новый по refresh-токену. Повторять тот же запрос без обновления бессмысленно."
+  },
+  {
+   "kind": "passage",
+   "en": "We keep three kinds of backups: a nightly full copy, hourly incrementals, and a weekly copy stored on another machine. Once a month someone restores one at random to prove it works.",
+   "ru": "Мы храним три вида резервных копий: ночную полную, почасовые инкрементальные и недельную на другой машине. Раз в месяц кто-нибудь восстанавливает случайную из них, чтобы убедиться, что она работает."
+  },
+  {
+   "kind": "passage",
+   "en": "The `config.toml` file is read at startup. Values from environment variables override it, so in production there is no need to put the password into the file.",
+   "ru": "Файл `config.toml` читается при старте. Значения из переменных окружения перекрывают его, поэтому на продакшене пароль в файл класть не нужно."
+  },
+  {
+   "kind": "passage",
+   "en": "When two people edit the same lines, git cannot choose for you. Open the file, look for the `<<<<<<<` markers, decide what the final text should be and commit the result.",
+   "ru": "Когда двое правят одни и те же строки, git не может выбрать за вас. Откройте файл, найдите маркеры `<<<<<<<`, решите, каким должен быть итоговый текст, и закоммитьте результат."
+  },
+  {
+   "kind": "passage",
+   "en": "The release is set for Tuesday. On Monday we freeze the branch: only bug fixes go in, and new features wait for the next cycle.",
+   "ru": "Релиз назначен на вторник. В понедельник мы замораживаем ветку: туда попадают только исправления ошибок, новые функции ждут следующего цикла."
+  },
+  {
+   "kind": "passage",
+   "en": "Pagination by offset gets slower on large tables, because the database still has to skip all earlier rows. Keyset pagination, which remembers the last seen id, stays fast no matter how deep you go.",
+   "ru": "Постраничная выборка со смещением тормозит на больших таблицах, потому что база всё равно пропускает все предыдущие строки. Выборка по ключу, которая помнит последний увиденный id, остаётся быстрой на любой глубине."
+  },
+  {
+   "kind": "passage",
+   "en": "In the morning the server stopped responding. `dmesg` had an out-of-memory entry, and the reporting process turned out to be the hungriest. We capped its usage and added an alert.",
+   "ru": "Утром сервер перестал отвечать. В `dmesg` нашлась запись о нехватке памяти, а процесс отчётов оказался самым жадным. Мы ограничили его потребление и добавили оповещение."
+  },
+  {
+   "kind": "passage",
+   "en": "A good bug report has steps to reproduce, the expected result and the actual result. Without them, the first hour of work is spent just guessing what happened.",
+   "ru": "В хорошем отчёте об ошибке есть шаги воспроизведения, ожидаемый и фактический результат. Без них первый час работы уходит на то, чтобы просто угадать, что произошло."
+  },
+  {
+   "kind": "passage",
+   "en": "We agreed that a review should take no more than one working day. If the author has no answer after a day, they remind the team in the group chat instead of messaging someone directly.",
+   "ru": "Мы договорились, что ревью должно занимать не больше одного рабочего дня. Если автор не получил ответа за сутки, он напоминает в чате команды, а не пишет лично."
+  },
+  {
+   "kind": "passage",
+   "en": "The `--verbose` flag prints every file the tool touches, while `--quiet` prints only errors. When both are given, the last one on the command line wins.",
+   "ru": "Флаг `--verbose` выводит каждый файл, которого касается утилита, а `--quiet` - только ошибки. Если указаны оба, побеждает тот, что стоит в командной строке последним."
+  },
+  {
+   "kind": "passage",
+   "en": "We used to store passwords in plain text, and it became the top item of the audit. Now only salted hashes are stored, and old records are converted at the user's next login.",
+   "ru": "Раньше мы хранили пароли в открытом виде, и это стало главным пунктом аудита. Теперь хранятся только хэши с солью, а старые записи конвертируются при следующем входе пользователя."
+  },
+  {
+   "kind": "passage",
+   "en": "A request that returns `HTTP 200` with an error message in the body is hard to monitor. Use real status codes, so dashboards and retries can rely on them.",
+   "ru": "Запрос, который возвращает `HTTP 200` с сообщением об ошибке в теле, трудно мониторить. Используйте настоящие коды статуса, чтобы на них могли полагаться дашборды и повторные попытки."
+  },
+  {
+   "kind": "passage",
+   "en": "The `events` table grew to 300 million rows, and queries by date slowed down. We split it into monthly partitions and move old partitions to the archive.",
+   "ru": "Таблица `events` выросла до 300 миллионов строк, и запросы по дате стали тормозить. Мы разбили её на секции по месяцам, а старые секции выгружаем в архив."
+  },
+  {
+   "kind": "passage",
+   "en": "Documentation rots quickly if it lives far from the code. Keep the README next to the module it describes and update it in the same commit as the change.",
+   "ru": "Документация быстро устаревает, если лежит далеко от кода. Держите README рядом с модулем, который он описывает, и обновляйте его в том же коммите, что и изменение."
+  },
+  {
+   "kind": "passage",
+   "en": "To avoid losing work, set the editor to autosave every 30 seconds. It does not replace commits, but it saves you from unexpected crashes.",
+   "ru": "Чтобы не потерять работу, настройте автосохранение в редакторе каждые 30 секунд. Это не заменяет коммиты, но спасает от неожиданных вылетов."
+  },
+  {
+   "kind": "passage",
+   "en": "Our sprint is two weeks long. The first morning is for planning, the last afternoon for a demo and a retrospective, and everything between is focused work.",
+   "ru": "Наш спринт длится две недели. Первое утро отведено на планирование, последняя половина дня - на демо и ретроспективу, а всё между ними - сосредоточенная работа."
+  },
+  {
+   "kind": "passage",
+   "en": "A `permission denied` error when running a script often means the file lacks the execute bit. Run `chmod +x deploy.sh` and try again.",
+   "ru": "Ошибка `permission denied` при запуске скрипта часто значит, что у файла нет бита исполнения. Выполните `chmod +x deploy.sh` и попробуйте ещё раз."
+  },
+  {
+   "kind": "passage",
+   "en": "We added a rate limit of 100 requests per minute per key. Clients that go over it get `HTTP 429` and a `Retry-After` header telling them when to try again.",
+   "ru": "Мы ввели лимит 100 запросов в минуту на ключ. Клиенты, превысившие его, получают `HTTP 429` и заголовок `Retry-After`, который говорит, когда пробовать снова."
+  },
+  {
+   "kind": "passage",
+   "en": "A week after moving to the new server we found out the cron jobs had not been carried over. Reports simply stopped arriving, and there were no errors anywhere. Now the job list lives in the repository.",
+   "ru": "Через неделю после переезда на новый сервер выяснилось, что cron-задачи не перенесли. Отчёты просто перестали приходить, а ошибок нигде не было. Теперь список задач лежит в репозитории."
+  },
+  {
+   "kind": "passage",
+   "en": "Squashing commits makes the history shorter but hides how the work actually went. We squash small fixes and keep the logical steps of larger features as separate commits.",
+   "ru": "Объединение коммитов делает историю короче, но прячет реальный ход работы. Мелкие правки мы сливаем в один коммит, а логические шаги крупных функций оставляем отдельными."
+  },
+  {
+   "kind": "passage",
+   "en": "The profiler showed that 70% of the time went into parsing JSON in a hot loop. We now parse the data once at startup and keep it in memory.",
+   "ru": "Профилировщик показал, что 70% времени уходит на разбор JSON в горячем цикле. Мы стали разбирать данные один раз при старте и держать их в памяти."
+  },
+  {
+   "kind": "passage",
+   "en": "Never paste a secret into a ticket or a chat. If it already happened, treat the secret as leaked: revoke it, issue a new one and only then clean up the message.",
+   "ru": "Никогда не вставляйте секрет в тикет или чат. Если это уже случилось, считайте секрет утёкшим: отзовите его, выпустите новый и только потом чистите сообщение."
+  },
+  {
+   "kind": "passage",
+   "en": "In `crontab` the time is given in the server's time zone, not yours. It is easy to forget when the server sits in another zone, and the job ends up running in the middle of the night.",
+   "ru": "В `crontab` время указывается в часовом поясе сервера, а не вашем. Это легко забыть, когда сервер стоит в другом часовом поясе, и задача запускается среди ночи."
+  },
+  {
+   "kind": "passage",
+   "en": "Feature flags let us merge unfinished code without showing it to users. Once a feature is stable, delete its flag, otherwise the code fills up with dead branches.",
+   "ru": "Флаги функций позволяют вливать незаконченный код, не показывая его пользователям. Когда функция стабилизировалась, удалите её флаг, иначе код зарастёт мёртвыми ветками."
+  },
+  {
+   "kind": "passage",
+   "en": "If a database migration takes more than a minute, it is better to stop the app beforehand. Otherwise some requests will fail because of the table lock.",
+   "ru": "Если миграция базы занимает больше минуты, приложение лучше остановить заранее. Иначе часть запросов получит ошибку из-за блокировки таблицы."
+  },
+  {
+   "kind": "passage",
+   "en": "The estimate for this task was three days; it took eight. In the retro we found that nobody had checked the third-party API limits before starting.",
+   "ru": "Оценка задачи была три дня, а ушло восемь. На ретро выяснилось, что до начала работы никто не проверил лимиты стороннего API."
+  },
+  {
+   "kind": "passage",
+   "en": "For a quick search across the project, use `grep -rn \"TODO\" src/`. The output shows the file and line number, so you can jump straight to the spot.",
+   "ru": "Для быстрого поиска по проекту используйте `grep -rn \"TODO\" src/`. Результат покажет файл и номер строки, и вы сразу перейдёте к нужному месту."
+  },
+  {
+   "kind": "note",
+   "en": "## Rolling back\nIf the new version fails health checks, the previous image is started again.",
+   "ru": "## Откат\nЕсли новая версия не проходит проверки состояния, снова запускается предыдущий образ."
+  },
+  {
+   "kind": "note",
+   "en": "## Running locally\nCopy `.env.example` to `.env` and run `make dev`. The app will be available on port 8080.",
+   "ru": "## Локальный запуск\nСкопируйте `.env.example` в `.env` и выполните `make dev`. Приложение будет доступно на порту 8080."
+  },
+  {
+   "kind": "note",
+   "en": "## Pre-commit checks\nThe hook runs the formatter and the linter. If either fails, the commit is aborted.",
+   "ru": "## Проверки перед коммитом\nХук запускает форматтер и линтер. Если любой из них падает, коммит отменяется."
+  },
+  {
+   "kind": "note",
+   "en": "## Timeouts\nExternal calls are limited to five seconds. After that the request is cancelled and `HTTP 504` is returned.",
+   "ru": "## Тайм-ауты\nВнешние вызовы ограничены пятью секундами. После этого запрос отменяется и возвращается `HTTP 504`."
+  },
+  {
+   "kind": "note",
+   "en": "## Indexes\nAdd an index only for columns that appear in filters or joins. Every extra index slows down writes.",
+   "ru": "## Индексы\nДобавляйте индекс только для столбцов, которые встречаются в фильтрах или соединениях. Каждый лишний индекс замедляет запись."
+  },
+  {
+   "kind": "note",
+   "en": "## Branch naming\nUse the prefixes `feature/`, `fix/` and `chore/`. For example, `fix/login-redirect`.",
+   "ru": "## Именование веток\nИспользуйте префиксы `feature/`, `fix/` и `chore/`. Например, `fix/login-redirect`."
+  },
+  {
+   "kind": "note",
+   "en": "## Log levels\nUse ERROR for failures that need a human, WARN for recoverable problems and INFO for normal milestones.",
+   "ru": "## Уровни логов\nERROR - для сбоев, которым нужен человек, WARN - для поправимых проблем, INFO - для обычных вех."
+  },
+  {
+   "kind": "note",
+   "en": "## Key rotation\nAccess keys are replaced once a quarter. The old key stays valid for 24 hours so clients have time to switch.",
+   "ru": "## Ротация ключей\nКлючи доступа заменяются раз в квартал. Старый ключ остаётся действительным 24 часа, чтобы клиенты успели перейти."
+  },
+  {
+   "kind": "note",
+   "en": "## Definition of done\nCode is reviewed, tests pass in CI, and the change is documented. Only then is the ticket closed.",
+   "ru": "## Критерии готовности\nКод прошёл ревью, тесты зелёные в CI, изменение описано в документации. Только после этого задача закрывается."
+  },
+  {
+   "kind": "note",
+   "en": "## Editor shortcuts\n`Ctrl+D` selects the next occurrence of a word, `Alt+Up` moves the line up. Use them instead of the mouse.",
+   "ru": "## Шорткаты редактора\n`Ctrl+D` выделяет следующее вхождение слова, `Alt+Up` двигает строку вверх. Пользуйтесь ими вместо мыши."
+  },
+  {
+   "kind": "note",
+   "en": "## Restoring a dump\nCreate an empty database first, then run `psql -f dump.sql`. Check the row counts before switching traffic.",
+   "ru": "## Восстановление из дампа\nСначала создайте пустую базу, затем выполните `psql -f dump.sql`. Сверьте число строк, прежде чем переключать трафик."
+  },
+  {
+   "kind": "note",
+   "en": "## Known issues\nOn a slow connection, uploading a file larger than 50 MB breaks off. For now we work around it by splitting the file into parts.",
+   "ru": "## Известные проблемы\nНа медленном соединении загрузка файла больше 50 МБ обрывается. Пока обходим это разбиением на части."
+  },
+  {
+   "kind": "note",
+   "en": "## Firewall\nOnly ports 22, 80 and 443 are open. Everything else is closed by default and must be requested in a ticket.",
+   "ru": "## Файрвол\nОткрыты только порты 22, 80 и 443. Всё остальное закрыто по умолчанию, и открыть его можно по заявке."
+  },
+  {
+   "kind": "note",
+   "en": "## Planning\nWe commit to 80% of the team's capacity per sprint. The rest is a reserve for urgent work and vacations.",
+   "ru": "## Планирование\nВ спринт берём задач на 80% ёмкости команды. Остальное - резерв на срочное и на отпуска."
+  },
+  {
+   "kind": "note",
+   "en": "## Environment variables\nSettings that differ between environments go into variables, not into code. The defaults live in `config.toml`.",
+   "ru": "## Переменные окружения\nНастройки, различающиеся между средами, задаются переменными, а не кодом. Значения по умолчанию лежат в `config.toml`."
+  },
+  {
+   "kind": "query",
+   "en": "how long to boil buckwheat",
+   "ru": "сколько варить гречку"
+  },
+  {
+   "kind": "query",
+   "en": "cheapest way to send a parcel abroad",
+   "ru": "как дешевле отправить посылку за границу"
+  },
+  {
+   "kind": "query",
+   "en": "remove red wine stain from carpet",
+   "ru": "вывести пятно от вина с ковра"
+  },
+  {
+   "kind": "query",
+   "en": "winter tyre pressure",
+   "ru": "давление в зимних шинах"
+  },
+  {
+   "kind": "query",
+   "en": "cancel subscription and get refund",
+   "ru": "отменить подписку и вернуть деньги"
+  },
+  {
+   "kind": "query",
+   "en": "rent deposit return deadline",
+   "ru": "срок возврата залога за квартиру"
+  },
+  {
+   "kind": "query",
+   "en": "how often to change engine oil",
+   "ru": "как часто менять масло в двигателе"
+  },
+  {
+   "kind": "query",
+   "en": "washing machine smells musty",
+   "ru": "стиральная машина пахнет сыростью"
+  },
+  {
+   "kind": "query",
+   "en": "tax refund for medical expenses",
+   "ru": "налоговый вычет за лечение"
+  },
+  {
+   "kind": "query",
+   "en": "split rent with flatmates app",
+   "ru": "как делить расходы с соседями по квартире"
+  },
+  {
+   "kind": "query",
+   "en": "air conditioner not cooling enough",
+   "ru": "кондиционер плохо охлаждает"
+  },
+  {
+   "kind": "query",
+   "en": "return an item within 14 days",
+   "ru": "вернуть товар в течение 14 дней"
+  },
+  {
+   "kind": "query",
+   "en": "how to read an electricity meter",
+   "ru": "как снять показания электросчётчика"
+  },
+  {
+   "kind": "query",
+   "en": "complaint about noisy neighbours at night",
+   "ru": "жалоба на шумных соседей ночью"
+  },
+  {
+   "kind": "query",
+   "en": "monthly travel pass or single tickets",
+   "ru": "проездной или разовые билеты"
+  },
+  {
+   "kind": "query",
+   "en": "how much to keep in an emergency fund",
+   "ru": "сколько откладывать на чёрный день"
+  },
+  {
+   "kind": "query",
+   "en": "meatless lentil soup recipe",
+   "ru": "постный чечевичный суп рецепт"
+  },
+  {
+   "kind": "query",
+   "en": "fix a wobbly chair leg",
+   "ru": "как укрепить расшатанную ножку стула"
+  },
+  {
+   "kind": "query",
+   "en": "bank card blocked abroad",
+   "ru": "заблокировали карту за границей"
+  },
+  {
+   "kind": "query",
+   "en": "what does home insurance cover",
+   "ru": "что покрывает страховка квартиры"
+  },
+  {
+   "kind": "query",
+   "en": "compare olive oil price per litre",
+   "ru": "сравнить цену оливкового масла за литр"
+  },
+  {
+   "kind": "query",
+   "en": "parcel tracking number not updating",
+   "ru": "трек-номер посылки не обновляется"
+  },
+  {
+   "kind": "query",
+   "en": "radiator cold at the top",
+   "ru": "радиатор холодный сверху"
+  },
+  {
+   "kind": "query",
+   "en": "documents needed for car inspection",
+   "ru": "какие документы нужны для техосмотра"
+  },
+  {
+   "kind": "query",
+   "en": "can you freeze cooked rice",
+   "ru": "можно ли замораживать варёный рис"
+  },
+  {
+   "kind": "query",
+   "en": "ice building up in freezer",
+   "ru": "в морозилке нарастает лёд"
+  },
+  {
+   "kind": "query",
+   "en": "moving to a new flat checklist",
+   "ru": "чек-лист переезда на новую квартиру"
+  },
+  {
+   "kind": "query",
+   "en": "why is my utility bill so high",
+   "ru": "почему такой большой счёт за коммуналку"
+  },
+  {
+   "kind": "query",
+   "en": "wash a wool sweater temperature",
+   "ru": "при какой температуре стирать шерстяной свитер"
+  },
+  {
+   "kind": "query",
+   "en": "save money on weekly groceries",
+   "ru": "как экономить на продуктах в неделю"
+  },
+  {
+   "kind": "sentence",
+   "en": "I always check the price per kilo, not the price on the big yellow sticker.",
+   "ru": "Я всегда смотрю на цену за килограмм, а не на крупный жёлтый ценник."
+  },
+  {
+   "kind": "sentence",
+   "en": "The oven runs about fifteen degrees hotter than the dial says, so I bake everything at a lower setting.",
+   "ru": "Духовка греет градусов на пятнадцать сильнее, чем показывает ручка, поэтому всё запекаю на меньшей температуре."
+  },
+  {
+   "kind": "sentence",
+   "en": "Our landlord wants the rent on the fifth of every month, not the first.",
+   "ru": "Хозяин квартиры просит платить аренду пятого числа, а не первого."
+  },
+  {
+   "kind": "sentence",
+   "en": "I keep every receipt for big purchases in one envelope until the warranty runs out.",
+   "ru": "Чеки на крупные покупки я храню в одном конверте, пока не закончится гарантия."
+  },
+  {
+   "kind": "sentence",
+   "en": "The tyre shop said the tread on the rear wheels is down to two millimetres.",
+   "ru": "В шиномонтаже сказали, что протектор на задних колёсах стёрт до двух миллиметров."
+  },
+  {
+   "kind": "sentence",
+   "en": "Soaking the beans overnight cuts the cooking time almost in half.",
+   "ru": "Если замочить фасоль на ночь, варить её придётся почти вдвое меньше."
+  },
+  {
+   "kind": "sentence",
+   "en": "The courier left the parcel with the neighbour in flat 12 and didn't even leave a note.",
+   "ru": "Курьер оставил посылку соседям из двенадцатой квартиры и даже записки не положил."
+  },
+  {
+   "kind": "sentence",
+   "en": "This month we spent 40 euros more on food than planned, mostly on takeaway.",
+   "ru": "В этом месяце мы потратили на еду на 40 евро больше запланированного, в основном на доставку."
+  },
+  {
+   "kind": "sentence",
+   "en": "I moved the sofa away from the wall so the radiator can actually warm the room.",
+   "ru": "Я отодвинул диван от стены, чтобы батарея наконец нагревала комнату."
+  },
+  {
+   "kind": "sentence",
+   "en": "The bank charges 2 euros for every cash withdrawal at another bank's machine.",
+   "ru": "Банк берёт 2 евро за каждое снятие наличных в чужом банкомате."
+  },
+  {
+   "kind": "sentence",
+   "en": "Towels come out stiff when I use too much washing powder.",
+   "ru": "Полотенца выходят жёсткими, если насыпать слишком много стирального порошка."
+  },
+  {
+   "kind": "sentence",
+   "en": "The shop refused to take the blender back because I had thrown away the box.",
+   "ru": "В магазине отказались принять блендер обратно, потому что я выбросил коробку."
+  },
+  {
+   "kind": "sentence",
+   "en": "Our building's heating goes on only when the outside temperature stays below ten degrees for three days.",
+   "ru": "Отопление в нашем доме включают только тогда, когда на улице три дня подряд держится меньше десяти градусов."
+  },
+  {
+   "kind": "sentence",
+   "en": "I set a reminder to renew the car insurance two weeks before it expires.",
+   "ru": "Я поставил напоминание продлить автостраховку за две недели до окончания."
+  },
+  {
+   "kind": "sentence",
+   "en": "A lighter bulb with the same brightness uses about a sixth of the power.",
+   "ru": "Современная лампа той же яркости потребляет примерно в шесть раз меньше энергии."
+  },
+  {
+   "kind": "sentence",
+   "en": "Mum's pancake batter needs to rest for twenty minutes, otherwise they tear in the pan.",
+   "ru": "Тесту для маминых блинов нужно постоять минут двадцать, иначе они рвутся на сковороде."
+  },
+  {
+   "kind": "sentence",
+   "en": "We cancelled three streaming subscriptions and kept only the one we actually watch.",
+   "ru": "Мы отменили три подписки на кино и оставили только ту, которой действительно пользуемся."
+  },
+  {
+   "kind": "sentence",
+   "en": "The bus stop moved two blocks north, and nobody updated the timetable app.",
+   "ru": "Остановку автобуса перенесли на два квартала севернее, а в приложении с расписанием ничего не поменяли."
+  },
+  {
+   "kind": "sentence",
+   "en": "I can deduct the cost of the course on my tax return if I keep the payment confirmation.",
+   "ru": "Стоимость курсов можно вернуть через налоговую, если сохранить подтверждение оплаты."
+  },
+  {
+   "kind": "sentence",
+   "en": "The wardrobe door sags because one of the hinges has a stripped screw.",
+   "ru": "Дверца шкафа провисает, потому что в одной из петель сорвана резьба под винт."
+  },
+  {
+   "kind": "sentence",
+   "en": "We agreed with the neighbours upstairs to stop drilling after eight in the evening.",
+   "ru": "С соседями сверху мы договорились не сверлить после восьми вечера."
+  },
+  {
+   "kind": "sentence",
+   "en": "Frozen spinach is cheaper than fresh and works just as well in a pie.",
+   "ru": "Замороженный шпинат дешевле свежего и в пироге ничуть не хуже."
+  },
+  {
+   "kind": "sentence",
+   "en": "The meter reading has to be sent between the 20th and the 25th, or the bill is estimated.",
+   "ru": "Показания счётчика нужно передать с 20 по 25 число, иначе счёт посчитают по среднему."
+  },
+  {
+   "kind": "sentence",
+   "en": "I paid off the smaller card first because the interest on it was higher.",
+   "ru": "Сначала я закрыл карту с меньшим долгом, потому что проценты по ней были выше."
+  },
+  {
+   "kind": "sentence",
+   "en": "Black shirts stay black longer if you wash them inside out in cold water.",
+   "ru": "Чёрные рубашки дольше остаются чёрными, если стирать их навыворот в холодной воде."
+  },
+  {
+   "kind": "sentence",
+   "en": "The mechanic said the brake pads will last another few thousand kilometres, but not more.",
+   "ru": "Механик сказал, что тормозных колодок хватит ещё на пару тысяч километров, не больше."
+  },
+  {
+   "kind": "sentence",
+   "en": "Before signing the lease, take photos of every scratch and stain in the flat.",
+   "ru": "Перед подписанием договора аренды сфотографируйте каждую царапину и пятно в квартире."
+  },
+  {
+   "kind": "sentence",
+   "en": "The delivery window was four hours long, and the driver arrived in the last ten minutes.",
+   "ru": "Курьер должен был приехать в четырёхчасовой интервал, а появился за десять минут до его конца."
+  },
+  {
+   "kind": "sentence",
+   "en": "A pinch of sugar takes the sharpness out of a tomato sauce.",
+   "ru": "Щепотка сахара убирает излишнюю кислинку из томатного соуса."
+  },
+  {
+   "kind": "sentence",
+   "en": "The extension cord was warm to the touch, so I unplugged the heater at once.",
+   "ru": "Удлинитель был тёплым на ощупь, и я сразу выдернул обогреватель из розетки."
+  },
+  {
+   "kind": "sentence",
+   "en": "My salary arrives on the 10th, so I schedule the rent payment for the 11th.",
+   "ru": "Зарплата приходит десятого, поэтому аренду я оплачиваю одиннадцатого."
+  },
+  {
+   "kind": "sentence",
+   "en": "The dishwasher manual says to run an empty hot cycle once a month.",
+   "ru": "В инструкции к посудомойке написано раз в месяц запускать пустой горячий цикл."
+  },
+  {
+   "kind": "sentence",
+   "en": "I bought a year pass for the metro, and it paid for itself by the seventh month.",
+   "ru": "Я купил годовой проездной на метро, и он окупился к седьмому месяцу."
+  },
+  {
+   "kind": "sentence",
+   "en": "The insurer will not pay if the claim is filed more than 30 days after the incident.",
+   "ru": "Страховая не выплатит, если заявление подано позже чем через 30 дней после случая."
+  },
+  {
+   "kind": "sentence",
+   "en": "Do not stack heavy boxes on the left shelf, it already bends in the middle.",
+   "ru": "Не ставьте тяжёлые коробки на левую полку, она и так прогибается посередине."
+  },
+  {
+   "kind": "sentence",
+   "en": "Ten minutes with a squeegee after each shower keeps the glass free of limescale.",
+   "ru": "Если после каждого душа проходиться стеклоочистителем, на стекле не появится налёт."
+  },
+  {
+   "kind": "sentence",
+   "en": "The market sells cheaper vegetables on Thursday afternoons, when the stalls start packing up.",
+   "ru": "На рынке овощи дешевле по четвергам после обеда, когда ларьки начинают собираться."
+  },
+  {
+   "kind": "sentence",
+   "en": "We put a small rug by the door so the dirt stays in the hallway.",
+   "ru": "Мы положили у двери небольшой коврик, чтобы грязь оставалась в прихожей."
+  },
+  {
+   "kind": "sentence",
+   "en": "The online shop promised a refund within five working days, and the money came on the fourth.",
+   "ru": "Интернет-магазин обещал вернуть деньги за пять рабочих дней, и они пришли на четвёртый."
+  },
+  {
+   "kind": "sentence",
+   "en": "I wrote down the paint colour code on the inside of the cupboard door for next time.",
+   "ru": "Код цвета краски я записал на внутренней стороне дверцы шкафа - на будущее."
+  },
+  {
+   "kind": "sentence",
+   "en": "Only half of the monthly budget is gone, but we are already out of the grocery envelope.",
+   "ru": "Бюджет израсходован только наполовину, а конверт на продукты уже пуст."
+  },
+  {
+   "kind": "sentence",
+   "en": "The parking meter takes only coins, and I never have any.",
+   "ru": "Паркомат принимает только монеты, а у меня их никогда нет."
+  },
+  {
+   "kind": "sentence",
+   "en": "Pour a spoonful of oil into the pan before the pasta water boils over, and it won't foam.",
+   "ru": "Капни ложку масла в кастрюлю с макаронами, и вода не будет убегать пеной."
+  },
+  {
+   "kind": "sentence",
+   "en": "When the old fridge finally died, we decided to buy one with a longer warranty rather than a cheaper one.",
+   "ru": "Когда старый холодильник наконец сломался, мы решили взять тот, у которого гарантия дольше, а не тот, что дешевле."
+  },
+  {
+   "kind": "passage",
+   "en": "We compared three supermarkets for a basket of twenty regular items. The cheapest was only 6 percent lower than the most expensive, so the long trip across town was not worth it. Now we shop at the one around the corner and buy rice and oil in bulk.",
+   "ru": "Мы сравнили три супермаркета по корзине из двадцати привычных товаров. Самый дешёвый оказался всего на 6 процентов дешевле самого дорогого, так что ехать через весь город не имело смысла. Теперь мы ходим в магазин за углом, а рис и масло берём большими упаковками."
+  },
+  {
+   "kind": "passage",
+   "en": "Our new flat has underfloor heating, which responds slowly. If you turn it up in the evening, the room is warm only by morning. It is better to set a schedule and leave it alone.",
+   "ru": "В нашей новой квартире тёплый пол, и он прогревается медленно. Если прибавить его вечером, комната нагреется только к утру. Лучше один раз настроить расписание и больше не трогать."
+  },
+  {
+   "kind": "passage",
+   "en": "Before returning a coat, check the label on the shop's website. Some stores accept returns for 30 days, others only for 14. The tags must still be attached, and you need the receipt or the order email.",
+   "ru": "Прежде чем возвращать пальто, посмотрите условия на сайте магазина. Одни принимают вещи в течение 30 дней, другие только 14. Бирки должны быть на месте, и понадобится чек или письмо с заказом."
+  },
+  {
+   "kind": "passage",
+   "en": "A spare tyre is easy to forget about. Mine had been flat for two years before I noticed. Now I check its pressure each spring, when I swap the winter set for the summer one.",
+   "ru": "О запаске легко забыть. Моя два года простояла спущенной, пока я это не заметил. Теперь я проверяю в ней давление каждую весну, когда меняю зимние шины на летние."
+  },
+  {
+   "kind": "passage",
+   "en": "When we moved, we booked the van for Saturday morning and started packing the kitchen first. The books went last. Boxes labelled by room saved us about two hours of arguments.",
+   "ru": "Когда мы переезжали, фургон заказали на субботнее утро, а упаковывать начали с кухни. Книги оставили напоследок. Коробки, подписанные по комнатам, сэкономили нам часа два споров."
+  },
+  {
+   "kind": "passage",
+   "en": "The first month of a new bank card often comes with a cashback offer. Read the small print: usually the limit is 20 euros, and only shops from a short list count. It is not much, but it covers a few coffees.",
+   "ru": "В первый месяц по новой банковской карте часто действует кешбэк. Прочитайте условия мелким шрифтом: обычно лимит составляет 20 евро, и учитываются только магазины из короткого списка. Немного, но на несколько чашек кофе хватит."
+  },
+  {
+   "kind": "passage",
+   "en": "Buckwheat needs two parts of water to one part of grain. Bring it to the boil, lower the heat and cover. After twelve minutes, switch off and leave it under a towel for another ten.",
+   "ru": "На стакан гречки нужно два стакана воды. Доведите до кипения, убавьте огонь и накройте крышкой. Через двенадцать минут выключите и оставьте под полотенцем ещё на десять."
+  },
+  {
+   "kind": "passage",
+   "en": "The warranty on our washing machine is two years, but the shop's extended plan adds three more for 60 euros. The repair of the drum bearing alone would cost about 150. We took the plan.",
+   "ru": "Гарантия на нашу стиральную машину два года, но магазин предлагает продление ещё на три за 60 евро. Одна замена подшипника барабана обошлась бы примерно в 150. Мы взяли продление."
+  },
+  {
+   "kind": "passage",
+   "en": "Our neighbours started a shared group chat for the stairwell. At first it was only about the broken lift and the bins. Lately people also swap ladders, drills and spare keys.",
+   "ru": "Соседи завели общий чат подъезда. Сначала там обсуждали только сломанный лифт и мусорные баки. А недавно жильцы стали обмениваться стремянками, дрелями и запасными ключами."
+  },
+  {
+   "kind": "passage",
+   "en": "If the pasta sauce tastes flat, add salt in small pinches and a drop of vinegar. Fresh basil goes in at the very end. Overcooking it makes it bitter.",
+   "ru": "Если соус для пасты кажется пресным, подсаливайте его по щепотке и добавьте каплю уксуса. Свежий базилик кладите в самом конце. Если его переварить, он станет горьким."
+  },
+  {
+   "kind": "passage",
+   "en": "A monthly budget does not have to be complicated. Split your income into three parts: fixed costs, everyday spending and savings. Check the figures once a week, and don't worry about every coin.",
+   "ru": "Месячный бюджет не обязан быть сложным. Разделите доход на три части: обязательные платежи, повседневные траты и накопления. Сверяйте цифры раз в неделю и не переживайте из-за каждой монеты."
+  },
+  {
+   "kind": "passage",
+   "en": "The tram line near our house is being repaired until the end of November. Buses replace it, but they run every 15 minutes instead of every 6. I now leave home ten minutes earlier.",
+   "ru": "Трамвайную линию возле нашего дома ремонтируют до конца ноября. Вместо неё ходят автобусы, но раз в 15 минут вместо шести. Теперь я выхожу из дома на десять минут раньше."
+  },
+  {
+   "kind": "passage",
+   "en": "To get a tax deduction for dental treatment you need the contract, the payment receipt and a certificate from the clinic. Submit them before the end of April. The money usually arrives within two months.",
+   "ru": "Чтобы получить налоговый вычет за лечение зубов, нужны договор, чек об оплате и справка из клиники. Подайте документы до конца апреля. Деньги обычно приходят в течение двух месяцев."
+  },
+  {
+   "kind": "passage",
+   "en": "The ceiling lamp in the hallway flickered for weeks. It turned out the bulb was fine and the old switch was the problem. A new one cost four euros and took ten minutes to swap with the fuse turned off.",
+   "ru": "Лампа в прихожей мигала несколько недель. Оказалось, что дело не в лампочке, а в старом выключателе. Новый стоил четыре евро, и поменять его с отключённым автоматом удалось за десять минут."
+  },
+  {
+   "kind": "passage",
+   "en": "Our landlord raised the rent by 8 percent. We asked him to show the market prices for similar flats nearby. After some talk, we agreed on 4 percent and a one-year lease.",
+   "ru": "Хозяин поднял аренду на 8 процентов. Мы попросили показать цены на похожие квартиры поблизости. После разговора сошлись на 4 процентах и договоре на год."
+  },
+  {
+   "kind": "passage",
+   "en": "Leftover soup keeps for three days in the fridge. For longer storage, pour it into flat bags and freeze them lying down. They thaw faster and take up less room.",
+   "ru": "Остатки супа в холодильнике хранятся три дня. Чтобы хранить дольше, разлейте его по плоским пакетам и заморозьте лёжа. Так он быстрее размораживается и занимает меньше места."
+  },
+  {
+   "kind": "passage",
+   "en": "Most subscriptions renew automatically, often with a price increase buried in an email. Once a quarter I open my bank statement and underline every recurring charge. Last time I found two services I had not used since spring.",
+   "ru": "Большинство подписок продлевается автоматически, а повышение цены часто прячется в письме. Раз в квартал я открываю выписку по счёту и отмечаю все регулярные списания. В прошлый раз нашёл два сервиса, которыми не пользовался с весны."
+  },
+  {
+   "kind": "passage",
+   "en": "The inspection station accepts cars without an appointment on weekday mornings. The queue is shortest around nine. Bring the registration paper, the insurance and a valid ID.",
+   "ru": "Станция техосмотра принимает машины без записи по утрам в будни. Очередь меньше всего около девяти. Возьмите с собой свидетельство о регистрации, страховку и паспорт."
+  },
+  {
+   "kind": "passage",
+   "en": "Linen shrinks if it is washed hot and dried on a high setting. Wash it at 30 degrees and hang it up while still slightly damp. It will iron itself under its own weight.",
+   "ru": "Лён садится, если стирать его горячей водой и сушить на высокой температуре. Стирайте при 30 градусах и вешайте чуть влажным. Под собственным весом он разгладится сам."
+  },
+  {
+   "kind": "passage",
+   "en": "My gas bill came to 94 euros last month, nearly double the usual. The provider explained that the previous bill was estimated too low. They asked for the meter reading and corrected the amount.",
+   "ru": "В прошлом месяце счёт за газ составил 94 евро, почти вдвое больше обычного. Поставщик объяснил, что прошлый счёт был занижен по оценке. Я отправил показания счётчика, и сумму пересчитали."
+  },
+  {
+   "kind": "passage",
+   "en": "When a parcel arrives damaged, do not sign for it until you have opened it with the courier. Take a picture of the box and the contents. A claim without photos is almost always refused.",
+   "ru": "Если посылка пришла повреждённой, не расписывайтесь в получении, пока не вскроете её при курьере. Сфотографируйте коробку и содержимое. Претензию без фотографий почти всегда отклоняют."
+  },
+  {
+   "kind": "passage",
+   "en": "A bookshelf from a flat-pack store survived three moves because we always kept the little wrench and the screws in a bag taped to the back. Without it, the shelf would have been scrap by now.",
+   "ru": "Книжный стеллаж из мебельного магазина пережил три переезда, потому что ключ и крепёж мы всегда держали в пакете, приклеенном к задней стенке. Без этого он давно пошёл бы на дрова."
+  },
+  {
+   "kind": "passage",
+   "en": "Cheap olive oil is fine for frying, but not for dressing. For salads we buy a small bottle of the good one and use it up within two months, before it goes stale.",
+   "ru": "Недорогое оливковое масло подойдёт для жарки, но не для заправки. Для салатов мы берём маленькую бутылку хорошего и расходуем её за два месяца, пока оно не выдохлось."
+  },
+  {
+   "kind": "passage",
+   "en": "I turned the thermostat from 23 to 21 degrees and wore a thicker jumper at home. The heating bill dropped by about 15 percent over the winter. Nobody in the family noticed the difference.",
+   "ru": "Я снизил термостат с 23 до 21 градуса, а дома стал носить свитер потеплее. За зиму счёт за отопление уменьшился примерно на 15 процентов. Разницы никто в семье не заметил."
+  },
+  {
+   "kind": "passage",
+   "en": "The neighbour below complained about the smell of frying onions. We started opening the window and switching on the extractor fan. Since then, there have been no more complaints.",
+   "ru": "Сосед снизу пожаловался на запах жареного лука. Мы стали открывать окно и включать вытяжку. С тех пор жалоб больше не было."
+  },
+  {
+   "kind": "passage",
+   "en": "If you pay for car insurance in one go, the annual price is about 5 percent lower than twelve monthly payments. It is worth it only if you have the money set aside and don't plan to sell the car soon.",
+   "ru": "Если оплатить автострахование сразу, годовая цена выходит примерно на 5 процентов ниже, чем при двенадцати ежемесячных платежах. Это выгодно, только если деньги отложены и вы не собираетесь скоро продавать машину."
+  },
+  {
+   "kind": "passage",
+   "en": "The recipe says to chill the dough for an hour, but I leave it overnight. The biscuits hold their shape better and taste richer. Just remember to take the dough out thirty minutes before rolling.",
+   "ru": "В рецепте сказано охлаждать тесто час, но я оставляю его на ночь. Печенье лучше держит форму и получается вкуснее. Только не забудьте достать тесто за полчаса до раскатывания."
+  },
+  {
+   "kind": "passage",
+   "en": "Grandma's flat has no lift and the stairs are steep, so grocery delivery became a real help. We order every Friday and ask the courier to carry the heavy bags up. The fee is small compared to the trouble it saves.",
+   "ru": "В бабушкином доме нет лифта, а лестница крутая, поэтому доставка продуктов стала настоящим подспорьем. Мы заказываем каждую пятницу и просим курьера занести тяжёлые пакеты наверх. Плата невелика по сравнению с тем, сколько хлопот это экономит."
+  },
+  {
+   "kind": "passage",
+   "en": "Set up a standing order that moves 100 euros to a savings account the day after payday. You will not miss money you never saw in your main account. After a year, you have 1,200 plus interest.",
+   "ru": "Настройте автоперевод 100 евро на накопительный счёт на следующий день после зарплаты. Вы не заметите нехватки денег, которых не видели на основном счёте. Через год накопится 1 200 плюс проценты."
+  },
+  {
+   "kind": "note",
+   "en": "## Winter tyres\nChange them when the night temperature stays below seven degrees. Mark the position of each wheel before storing.",
+   "ru": "## Зимние шины\nМеняйте их, когда ночная температура держится ниже семи градусов. Перед хранением пометьте, с какого места снято каждое колесо."
+  },
+  {
+   "kind": "note",
+   "en": "## Rent\nPay by the fifth of the month. Keep the transfer confirmation in the folder for the lease.",
+   "ru": "## Аренда\nПлатить до пятого числа каждого месяца. Подтверждение перевода хранить в папке с договором."
+  },
+  {
+   "kind": "note",
+   "en": "## Groceries for the week\nBuy rice, oats and lentils in kilo bags. Check the price per kilo before taking any promo item.",
+   "ru": "## Продукты на неделю\nРис, овсянку и чечевицу брать килограммовыми пакетами. Перед покупкой по акции сверять цену за килограмм."
+  },
+  {
+   "kind": "note",
+   "en": "## Warranty folder\nOne envelope per appliance, with the receipt and the manual. Throw it out only after the guarantee has expired.",
+   "ru": "## Папка с гарантиями\nНа каждый прибор по конверту: чек и инструкция. Выбрасывать только после окончания гарантии."
+  },
+  {
+   "kind": "note",
+   "en": "## Laundry\nDark clothes inside out, 30 degrees. Towels separately, and half the usual amount of powder.",
+   "ru": "## Стирка\nТёмное - навыворот, 30 градусов. Полотенца отдельно и вдвое меньше порошка."
+  },
+  {
+   "kind": "note",
+   "en": "## Car oil change\nDue every 10,000 km or once a year. Take the old filter receipt to the garage.",
+   "ru": "## Замена масла\nКаждые 10 000 км или раз в год. Взять в сервис чек на предыдущий фильтр."
+  },
+  {
+   "kind": "note",
+   "en": "## Parcels\nIf the courier misses us, the pickup point holds the package for seven days. Bring an ID and the code from the message.",
+   "ru": "## Посылки\nЕсли курьер нас не застал, пункт выдачи хранит посылку семь дней. Взять паспорт и код из сообщения."
+  },
+  {
+   "kind": "note",
+   "en": "## Emergency fund\nGoal: three months of fixed costs, about 3,600. Add 150 every month until it is reached.",
+   "ru": "## Подушка безопасности\nЦель: расходы за три месяца, около 3 600. Добавлять по 150 каждый месяц, пока не накопится."
+  },
+  {
+   "kind": "note",
+   "en": "## Heating season\nBleed the radiators in October. Close the vents in the bedroom at night, but not completely.",
+   "ru": "## Отопительный сезон\nВ октябре спустить воздух из батарей. На ночь прикрывать вентили в спальне, но не до конца."
+  },
+  {
+   "kind": "note",
+   "en": "## Tomato soup\nRoast the tomatoes for 30 minutes at 200 degrees. Blend with stock, salt and a spoon of cream.",
+   "ru": "## Томатный суп\nЗапекать помидоры 30 минут при 200 градусах. Взбить блендером с бульоном, солью и ложкой сливок."
+  },
+  {
+   "kind": "note",
+   "en": "## Insurance renewal\nThe policy ends on 3 March. Get two quotes by mid-February and compare the deductible, not just the price.",
+   "ru": "## Продление страховки\nПолис заканчивается 3 марта. До середины февраля получить два расчёта и сравнивать франшизу, а не только цену."
+  },
+  {
+   "kind": "note",
+   "en": "## Shelf repair\nThe screws are too short for the wall. Buy 50 mm ones with plugs, and drill 8 mm holes.",
+   "ru": "## Ремонт полки\nВинты слишком короткие для этой стены. Купить 50 мм с дюбелями и сверлить отверстия на 8 мм."
+  },
+  {
+   "kind": "note",
+   "en": "## Monthly check\nOn the 25th, send the electricity reading and review recurring card payments.",
+   "ru": "## Ежемесячная проверка\n25 числа передать показания электричества и просмотреть регулярные списания с карты."
+  },
+  {
+   "kind": "note",
+   "en": "## Neighbours\nThe lady in flat 7 keeps our spare key. Return her jar and mention the party on Saturday in advance.",
+   "ru": "## Соседи\nЗапасной ключ хранится у соседки из седьмой квартиры. Вернуть ей банку и заранее предупредить о гостях в субботу."
+  },
+  {
+   "kind": "note",
+   "en": "## Tax receipts\nScan every pharmacy and clinic receipt in the evening it arrives. Thermal paper fades within a year.",
+   "ru": "## Налоговые чеки\nСканировать каждый чек из аптеки и клиники в тот же вечер. Термобумага выцветает меньше чем за год."
+  },
+  {
+   "kind": "sentence",
+   "en": "I put a sticker with the bin collection days on the fridge so nobody forgets.",
+   "ru": "Я приклеил на холодильник график вывоза мусора, чтобы никто не забывал."
+  },
+  {
+   "kind": "passage",
+   "en": "Cheap sheets pill after a few washes. Check the thread count before buying, and wash them once before the first night. Two good sets last longer than four bad ones.",
+   "ru": "Дешёвое бельё после нескольких стирок покрывается катышками. Перед покупкой смотрите на плотность ткани и постирайте комплект до первой ночи. Два хороших комплекта прослужат дольше четырёх плохих."
+  },
+  {
+   "kind": "query",
+   "en": "why do my knees hurt after squats",
+   "ru": "почему болят колени после приседаний"
+  },
+  {
+   "kind": "query",
+   "en": "how to stop waking up at 4 am",
+   "ru": "как перестать просыпаться в 4 утра"
+  },
+  {
+   "kind": "query",
+   "en": "how much protein per day for lifting",
+   "ru": "сколько белка в день при силовых тренировках"
+  },
+  {
+   "kind": "query",
+   "en": "breaststroke arm technique for beginners",
+   "ru": "техника рук в брассе для новичков"
+  },
+  {
+   "kind": "query",
+   "en": "yoga for lower back pain desk job",
+   "ru": "йога от боли в пояснице при сидячей работе"
+  },
+  {
+   "kind": "query",
+   "en": "hamstring stretch before bed",
+   "ru": "растяжка задней поверхности бедра перед сном"
+  },
+  {
+   "kind": "query",
+   "en": "sore throat third day no fever",
+   "ru": "болит горло третий день без температуры"
+  },
+  {
+   "kind": "query",
+   "en": "can ibuprofen be taken on an empty stomach",
+   "ru": "можно ли принимать ибупрофен натощак"
+  },
+  {
+   "kind": "query",
+   "en": "gums bleeding when brushing teeth",
+   "ru": "кровоточат дёсны при чистке зубов"
+  },
+  {
+   "kind": "query",
+   "en": "eye strain from screen in the evening",
+   "ru": "усталость глаз от экрана вечером"
+  },
+  {
+   "kind": "query",
+   "en": "how to calm down before a presentation",
+   "ru": "как успокоиться перед выступлением"
+  },
+  {
+   "kind": "query",
+   "en": "how to add a new habit to your morning",
+   "ru": "как встроить новую привычку в утро"
+  },
+  {
+   "kind": "query",
+   "en": "9 year old refuses to do homework",
+   "ru": "ребёнок 9 лет не хочет делать уроки"
+  },
+  {
+   "kind": "query",
+   "en": "grandmother keeps forgetting names",
+   "ru": "бабушка всё время забывает имена"
+  },
+  {
+   "kind": "query",
+   "en": "dog pulls on the leash how to train",
+   "ru": "собака тянет поводок как отучить"
+  },
+  {
+   "kind": "query",
+   "en": "how often is it normal for a cat to vomit hairballs",
+   "ru": "как часто у кошки нормально срыгивание шерсти"
+  },
+  {
+   "kind": "query",
+   "en": "keeping in touch with friends abroad",
+   "ru": "как не терять связь с друзьями за границей"
+  },
+  {
+   "kind": "query",
+   "en": "spaced repetition for vocabulary",
+   "ru": "интервальное повторение для слов"
+  },
+  {
+   "kind": "query",
+   "en": "how to prepare for an exam in 2 weeks",
+   "ru": "как подготовиться к экзамену за 2 недели"
+  },
+  {
+   "kind": "query",
+   "en": "how to finish an online course",
+   "ru": "как дойти до конца онлайн-курса"
+  },
+  {
+   "kind": "query",
+   "en": "how to read 20 books a year",
+   "ru": "как читать по 20 книг в год"
+  },
+  {
+   "kind": "query",
+   "en": "evening journaling prompts",
+   "ru": "вопросы для вечернего дневника"
+  },
+  {
+   "kind": "query",
+   "en": "what to do when motivation disappears",
+   "ru": "что делать, если пропала мотивация"
+  },
+  {
+   "kind": "query",
+   "en": "is intermittent fasting safe for beginners",
+   "ru": "безопасно ли интервальное голодание для новичка"
+  },
+  {
+   "kind": "query",
+   "en": "rounded lower back in deadlift",
+   "ru": "круглая спина в становой тяге"
+  },
+  {
+   "kind": "query",
+   "en": "does magnesium before bed help sleep",
+   "ru": "помогает ли магний на ночь уснуть"
+  },
+  {
+   "kind": "query",
+   "en": "when to see a doctor about headaches",
+   "ru": "когда идти к врачу с головной болью"
+  },
+  {
+   "kind": "query",
+   "en": "night guard for teeth grinding",
+   "ru": "капа от скрежета зубами во сне"
+  },
+  {
+   "kind": "query",
+   "en": "do blue light glasses actually work",
+   "ru": "помогают ли очки от синего света"
+  },
+  {
+   "kind": "query",
+   "en": "vaccination schedule for an adult dog",
+   "ru": "график прививок для взрослой собаки"
+  },
+  {
+   "kind": "sentence",
+   "en": "I started going to bed at 23:00 and my afternoon slump has almost disappeared.",
+   "ru": "Я стал ложиться в 23:00, и дневной спад почти исчез."
+  },
+  {
+   "kind": "sentence",
+   "en": "Oatmeal with a handful of walnuts keeps me full until lunch.",
+   "ru": "Овсянка с горстью грецких орехов сытно держит меня до самого обеда."
+  },
+  {
+   "kind": "sentence",
+   "en": "My trainer says to add 5 kg to the bar only when every set feels clean.",
+   "ru": "Тренер говорит добавлять к штанге 5 кг только тогда, когда все подходы идут чисто."
+  },
+  {
+   "kind": "sentence",
+   "en": "Swimming 800 metres twice a week has done more for my shoulders than any massage.",
+   "ru": "Плавание по 800 метров дважды в неделю помогло моим плечам больше любого массажа."
+  },
+  {
+   "kind": "sentence",
+   "en": "Ten minutes of yoga after work is enough to loosen up my neck.",
+   "ru": "Десяти минут йоги после работы хватает, чтобы размять шею."
+  },
+  {
+   "kind": "sentence",
+   "en": "The pharmacist reminded me to finish the whole course of antibiotics even if I feel better.",
+   "ru": "Фармацевт напомнила, что курс антибиотиков нужно допить до конца, даже если стало лучше."
+  },
+  {
+   "kind": "sentence",
+   "en": "The dentist found a small cavity and booked the filling for Thursday at 9:30.",
+   "ru": "Стоматолог нашёл небольшой кариес и записал меня на пломбу в четверг на 9:30."
+  },
+  {
+   "kind": "sentence",
+   "en": "My glasses prescription went up by a full diopter in one year.",
+   "ru": "За один год зрение у меня упало на целую диоптрию."
+  },
+  {
+   "kind": "sentence",
+   "en": "Writing three lines about my worries before bed helps me stop replaying the day.",
+   "ru": "Три строчки о тревогах перед сном помогают мне перестать прокручивать день в голове."
+  },
+  {
+   "kind": "sentence",
+   "en": "I keep my gym bag by the front door so there is nothing to decide in the morning.",
+   "ru": "Спортивная сумка стоит у входной двери, чтобы утром не пришлось ничего решать."
+  },
+  {
+   "kind": "sentence",
+   "en": "Our son is ten, and he has finally agreed to pack his school bag the evening before.",
+   "ru": "Нашему сыну десять, и он наконец согласился собирать портфель с вечера."
+  },
+  {
+   "kind": "sentence",
+   "en": "My dad is 78 and still insists on carrying the groceries himself.",
+   "ru": "Папе 78, и он до сих пор настаивает, что сумки из магазина понесёт сам."
+  },
+  {
+   "kind": "sentence",
+   "en": "Our beagle gets restless if his evening walk is shorter than forty minutes.",
+   "ru": "Наш бигль начинает нервничать, если вечерняя прогулка короче сорока минут."
+  },
+  {
+   "kind": "sentence",
+   "en": "The vet said the cat should lose 600 grams slowly, over three months.",
+   "ru": "Ветеринар сказал, что кошке надо сбросить 600 граммов, не торопясь, за три месяца."
+  },
+  {
+   "kind": "sentence",
+   "en": "Some friendships survive on one long phone call a year, and that is fine.",
+   "ru": "Некоторые дружбы держатся на одном долгом разговоре в год, и в этом нет ничего плохого."
+  },
+  {
+   "kind": "sentence",
+   "en": "I learn ten new Spanish words every morning while the coffee brews.",
+   "ru": "Каждое утро, пока варится кофе, я учу по десять новых испанских слов."
+  },
+  {
+   "kind": "sentence",
+   "en": "For the exam I wrote all the formulas on one sheet and then rewrote it from memory.",
+   "ru": "К экзамену я выписал все формулы на один лист, а потом переписывал его по памяти."
+  },
+  {
+   "kind": "sentence",
+   "en": "The online course had 40 videos, and I got stuck on number 12.",
+   "ru": "В онлайн-курсе было 40 видео, и я застрял на двенадцатом."
+  },
+  {
+   "kind": "sentence",
+   "en": "I read thirty pages before bed instead of scrolling, and I fall asleep faster.",
+   "ru": "Вместо ленты я читаю тридцать страниц перед сном и засыпаю быстрее."
+  },
+  {
+   "kind": "sentence",
+   "en": "My journal is mostly lists, and that is exactly why it is easy to keep.",
+   "ru": "Мой дневник - это в основном списки, и именно поэтому его легко вести."
+  },
+  {
+   "kind": "sentence",
+   "en": "Motivation got me to sign up, but it is the schedule that keeps me going.",
+   "ru": "Записаться меня заставила мотивация, а продолжать помогает расписание."
+  },
+  {
+   "kind": "sentence",
+   "en": "Stress shows up in my body first: a tight jaw and shallow breathing.",
+   "ru": "Стресс я замечаю сначала по телу: сжатая челюсть и поверхностное дыхание."
+  },
+  {
+   "kind": "sentence",
+   "en": "I drink a glass of water before my first coffee, and by now it is automatic.",
+   "ru": "Стакан воды перед первым кофе я теперь пью на автомате."
+  },
+  {
+   "kind": "sentence",
+   "en": "A cold usually feels worst on the third day and fades by the end of the week.",
+   "ru": "Простуда обычно достигает пика на третий день, а к концу недели сходит на нет."
+  },
+  {
+   "kind": "sentence",
+   "en": "The doctor ordered a blood test for ferritin and vitamin D.",
+   "ru": "Врач назначила анализ крови на ферритин и витамин D."
+  },
+  {
+   "kind": "sentence",
+   "en": "Static stretching works best after a workout, not before it.",
+   "ru": "Статическую растяжку лучше делать после тренировки, а не до неё."
+  },
+  {
+   "kind": "sentence",
+   "en": "Pool etiquette is simple: swim in a circle and keep to the right.",
+   "ru": "Правила в бассейне простые: плывём по кругу и держимся правой стороны."
+  },
+  {
+   "kind": "sentence",
+   "en": "Before buying a cold remedy, tell the pharmacist about every supplement you take.",
+   "ru": "Прежде чем покупать средство от простуды, скажите фармацевту обо всех добавках, которые вы принимаете."
+  },
+  {
+   "kind": "sentence",
+   "en": "Every 20 minutes I look out of the window for 20 seconds to rest my eyes.",
+   "ru": "Каждые 20 минут я на 20 секунд смотрю в окно, чтобы дать глазам отдохнуть."
+  },
+  {
+   "kind": "sentence",
+   "en": "My therapist suggested that I name the feeling before trying to fix it.",
+   "ru": "Психотерапевт посоветовала сначала назвать чувство, а уже потом пытаться что-то с ним сделать."
+  },
+  {
+   "kind": "sentence",
+   "en": "Eating dinner at least three hours before bed improved my sleep.",
+   "ru": "Ужин не позже чем за три часа до сна улучшил мой сон."
+  },
+  {
+   "kind": "sentence",
+   "en": "Grandma's pill organizer has a slot for every day, and my sister refills it on Sundays.",
+   "ru": "В бабушкиной таблетнице есть ячейка на каждый день, а сестра пополняет её по воскресеньям."
+  },
+  {
+   "kind": "sentence",
+   "en": "The school asked parents to keep screens off on weeknights.",
+   "ru": "Школа попросила родителей не давать детям экраны по вечерам в будни."
+  },
+  {
+   "kind": "sentence",
+   "en": "I finally booked the eye exam I had been putting off for two years.",
+   "ru": "Я наконец записался на проверку зрения, которую откладывал два года."
+  },
+  {
+   "kind": "sentence",
+   "en": "Lentils are cheap and filling, and they have more protein than most people expect.",
+   "ru": "Чечевица дешёвая и сытная, а белка в ней больше, чем принято думать."
+  },
+  {
+   "kind": "sentence",
+   "en": "My language partner corrects my Spanish, and I correct her English, one hour every Tuesday.",
+   "ru": "Моя языковая партнёрша исправляет мой испанский, а я - её английский, час каждый вторник."
+  },
+  {
+   "kind": "sentence",
+   "en": "Once I stopped studying to music with lyrics, my focus got much better.",
+   "ru": "Когда я перестал заниматься под музыку со словами, сосредоточиться стало гораздо легче."
+  },
+  {
+   "kind": "sentence",
+   "en": "The cat hides under the bed as soon as the carrier comes out.",
+   "ru": "Стоит достать переноску, и кошка прячется под кровать."
+  },
+  {
+   "kind": "sentence",
+   "en": "I started with a 30-second plank and now I can hold it for two minutes.",
+   "ru": "Я начал с планки на 30 секунд, а теперь держу её две минуты."
+  },
+  {
+   "kind": "sentence",
+   "en": "Seeing the dentist twice a year costs less than fixing one neglected tooth.",
+   "ru": "Ходить к стоматологу дважды в год дешевле, чем лечить один запущенный зуб."
+  },
+  {
+   "kind": "sentence",
+   "en": "My brother and I agreed to call each other every Sunday, even if only for five minutes.",
+   "ru": "Мы с братом договорились созваниваться каждое воскресенье, пусть даже на пять минут."
+  },
+  {
+   "kind": "sentence",
+   "en": "A 20-minute nap after lunch beats a second cup of coffee.",
+   "ru": "Двадцать минут сна после обеда лучше второй чашки кофе."
+  },
+  {
+   "kind": "sentence",
+   "en": "Taking notes by hand helped me remember the lecture better than typing them.",
+   "ru": "Конспект от руки запомнился лучше, чем набранный на клавиатуре."
+  },
+  {
+   "kind": "sentence",
+   "en": "A weekly review on Friday afternoon keeps my to-do list honest.",
+   "ru": "Недельный обзор в пятницу после обеда не даёт моему списку дел врать."
+  },
+  {
+   "kind": "sentence",
+   "en": "When the fever went past 39, we called the doctor.",
+   "ru": "Когда температура перевалила за 39, мы позвонили врачу."
+  },
+  {
+   "kind": "passage",
+   "en": "I used to treat sleep as the first thing to cut when work piled up. After a month of seven and a half hours a night, I forget fewer things and snap at people less. It turns out that rest was the productive part.",
+   "ru": "Раньше я первым делом урезал сон, когда на работе наваливалось дел. После месяца по семь с половиной часов за ночь я реже что-то забываю и реже срываюсь на людях. Оказывается, продуктивной частью был как раз отдых."
+  },
+  {
+   "kind": "passage",
+   "en": "Meal prep on Sunday takes me about an hour. I cook one grain, one protein and a tray of roasted vegetables, then mix them differently through the week. It isn't exciting, but I no longer order takeaway at 8 p.m. just because I'm tired.",
+   "ru": "Заготовки на неделю занимают у меня по воскресеньям около часа. Я варю одну крупу, готовлю один источник белка и противень запечённых овощей, а потом по-разному сочетаю их в течение недели. Не слишком интересно, зато я больше не заказываю еду в 8 вечера только потому, что устал."
+  },
+  {
+   "kind": "passage",
+   "en": "Beginners often add weight too fast. A better rule is to stay at a weight until you can do three sets of eight with the same form. Progress feels slower, but you avoid the shoulder that complains for a month.",
+   "ru": "Новички часто слишком быстро наращивают вес. Правило получше: оставайтесь на прежнем весе, пока не сможете сделать три подхода по восемь с той же техникой. Прогресс кажется медленнее, зато вы не получите плечо, которое потом ноет месяц."
+  },
+  {
+   "kind": "passage",
+   "en": "My first swimming lessons were humbling: I couldn't breathe out under water. The coach made me hum into the pool for ten minutes. After that the rhythm of the stroke finally began to make sense.",
+   "ru": "Первые уроки плавания меня смирили: я не умел выдыхать в воду. Тренер заставил меня десять минут гудеть под водой. После этого ритм гребка наконец стал понятен."
+  },
+  {
+   "kind": "passage",
+   "en": "Yoga didn't make me flexible overnight. What changed in the first month was that I began to notice when I was holding my breath. That alone made my evenings calmer.",
+   "ru": "Гибким меня йога за ночь не сделала. За первый месяц изменилось другое: я стала замечать, когда задерживаю дыхание. Одно это сделало мои вечера спокойнее."
+  },
+  {
+   "kind": "passage",
+   "en": "If your hips feel stiff after a long day at a desk, try a deep lunge with the back knee on a folded towel. Hold it for a minute on each side and breathe slowly. Don't bounce.",
+   "ru": "Если после долгого дня за столом бёдра как деревянные, попробуйте глубокий выпад, поставив заднее колено на сложенное полотенце. Задержитесь на минуту с каждой стороны и дышите медленно. Не пружиньте."
+  },
+  {
+   "kind": "passage",
+   "en": "Most colds are viral, so antibiotics won't help. Rest, fluids and gargling with salt water do more. See a doctor if the fever lasts longer than five days or you start having trouble breathing.",
+   "ru": "Большинство простуд вирусные, так что антибиотики не помогут. Больше пользы от покоя, питья и полоскания горла солёной водой. Идите к врачу, если температура держится дольше пяти дней или появляется затруднённое дыхание."
+  },
+  {
+   "kind": "passage",
+   "en": "Before a doctor's appointment I write down my symptoms, when they started and what I've already tried. The visit lasts only fifteen minutes, and a short list means I don't leave with the real question unasked.",
+   "ru": "Перед визитом к врачу я записываю симптомы, когда они начались и что я уже пробовал. Приём длится всего пятнадцать минут, и короткий список не даёт мне уйти, так и не задав главный вопрос."
+  },
+  {
+   "kind": "passage",
+   "en": "Keep the leaflet from every medicine you buy, at least until the box is finished. It lists interactions and the maximum daily dose. For paracetamol, the maximum for an adult is 4 g a day.",
+   "ru": "Храните инструкцию к каждому купленному лекарству, хотя бы пока не закончилась упаковка. В ней перечислены взаимодействия и максимальная суточная доза. Для парацетамола максимум для взрослого - 4 г в сутки."
+  },
+  {
+   "kind": "passage",
+   "en": "I avoided the dentist for years because of one bad visit in childhood. This time I told the dentist right away that I was nervous, and she agreed on a hand signal for pausing. The whole check-up took twenty minutes.",
+   "ru": "Годами я обходил стоматолога стороной из-за одного неудачного визита в детстве. В этот раз я сразу сказал врачу, что волнуюсь, и мы договорились о жесте, которым я могу попросить паузу. Весь осмотр занял двадцать минут."
+  },
+  {
+   "kind": "passage",
+   "en": "After a long day of reading I used to get headaches behind my eyes. The optician said it was mild farsightedness and prescribed glasses for reading only. The headaches were gone within a week.",
+   "ru": "После долгого дня за чтением у меня болела голова за глазами. Окулист сказал, что это слабая дальнозоркость, и выписал очки только для чтения. Через неделю головные боли прошли."
+  },
+  {
+   "kind": "passage",
+   "en": "Low mood is not a character flaw. If it lasts more than two weeks and begins to affect your work or sleep, it is worth talking to a professional. Asking for help early is usually easier than waiting it out.",
+   "ru": "Плохое настроение - не изъян характера. Если оно держится больше двух недель и начинает мешать работе или сну, стоит поговорить со специалистом. Попросить помощи вовремя обычно проще, чем пережидать."
+  },
+  {
+   "kind": "passage",
+   "en": "When work gets overwhelming I do a small reset: stand up, drink some water and take five slow breaths. It doesn't solve the problem. It just lets me look at it with a calmer head.",
+   "ru": "Когда работы становится слишком много, я делаю небольшую перезагрузку: встаю, пью воду и делаю пять медленных вдохов. Проблему это не решает. Зато я могу взглянуть на неё спокойнее."
+  },
+  {
+   "kind": "passage",
+   "en": "I tried to build five habits at once and kept none of them. This year I picked a single one, a ten-minute walk after lunch. Two months in, it feels like part of the day rather than a chore.",
+   "ru": "Я пытался завести пять привычек сразу и не удержал ни одной. В этом году выбрал одну: десять минут пешком после обеда. Спустя два месяца это стало частью дня, а не обязанностью."
+  },
+  {
+   "kind": "passage",
+   "en": "I do my hardest task in the first two hours of the day, before opening email. In the afternoon my energy drops and I handle routine work. Simply reordering the day gave me more than any app.",
+   "ru": "Самую трудную задачу я делаю в первые два часа дня, до того как открою почту. После обеда силы падают, и я занимаюсь рутиной. Одна перестановка в расписании дала мне больше, чем любое приложение."
+  },
+  {
+   "kind": "passage",
+   "en": "Our eleven-year-old was anxious about her maths test. Instead of reassuring her, we asked what she would do if she got stuck. Having a plan calmed her down more than any pep talk.",
+   "ru": "Наша одиннадцатилетняя дочь тревожилась перед контрольной по математике. Вместо утешений мы спросили, что она будет делать, если застрянет. План успокоил её лучше любых подбадриваний."
+  },
+  {
+   "kind": "passage",
+   "en": "Visiting my grandfather every Saturday, I noticed he had stopped cooking for himself. A neighbour now brings him lunch three days a week, and I bring soup on the others. He eats properly again, and he has company.",
+   "ru": "Навещая деда по субботам, я заметил, что он перестал готовить себе еду. Теперь три дня в неделю ему носит обед соседка, а в остальные дни суп приношу я. Он снова нормально ест, и рядом есть кто-то живой."
+  },
+  {
+   "kind": "passage",
+   "en": "A walk is not just exercise for a dog, it is also a chance to sniff, and sniffing tires them out mentally. On rainy days a ten-minute scent game at home can replace part of a long outing.",
+   "ru": "Прогулка для собаки - не только нагрузка, но и возможность понюхать, а нюхать - значит уставать головой. В дождливые дни десятиминутная игра на поиск запаха дома может заменить часть долгой прогулки."
+  },
+  {
+   "kind": "passage",
+   "en": "Our cat refused to drink from her bowl, so we put out a small fountain. She now drinks twice as much. The vet said extra water is good for an older cat's kidneys.",
+   "ru": "Наша кошка не пила из миски, и мы поставили маленький фонтанчик. Теперь она пьёт вдвое больше. Ветеринар сказал, что лишняя вода полезна почкам пожилой кошки."
+  },
+  {
+   "kind": "passage",
+   "en": "Adult friendships need an invitation. Nobody has free time, so I suggest something specific: coffee on Saturday at ten. Vague promises to meet up soon rarely turn into an actual meeting.",
+   "ru": "Взрослой дружбе нужно приглашение. Свободного времени ни у кого нет, поэтому я предлагаю что-то конкретное: кофе в субботу в десять. Расплывчатые обещания увидеться как-нибудь редко превращаются во встречу."
+  },
+  {
+   "kind": "passage",
+   "en": "I used to cram grammar tables and still froze in conversation. Now I speak for fifteen minutes a day with a tutor, even if badly. My vocabulary is smaller than before, but I can actually say things.",
+   "ru": "Раньше я зубрил таблицы по грамматике и всё равно столбенел в разговоре. Теперь я по пятнадцать минут в день говорю с репетитором, пусть и плохо. Слов у меня стало меньше, зато я наконец могу что-то сказать."
+  },
+  {
+   "kind": "passage",
+   "en": "In the last week before exams, practise with past papers under a time limit. Rereading notes feels productive but only tests recognition. Past papers show you what you can really recall.",
+   "ru": "В последнюю неделю перед экзаменами решайте прошлогодние варианты на время. Перечитывать конспекты кажется полезным, но так проверяется только узнавание. Старые варианты показывают, что вы действительно помните."
+  },
+  {
+   "kind": "passage",
+   "en": "Free online courses have completion rates of a few percent. What helped me was paying a small fee and booking two fixed evenings a week. Having money and a calendar slot at stake changes behaviour.",
+   "ru": "Бесплатные онлайн-курсы заканчивают единицы процентов людей. Мне помогло то, что я заплатил небольшую сумму и закрепил за курсом два вечера в неделю. Когда на кону деньги и место в календаре, поведение меняется."
+  },
+  {
+   "kind": "passage",
+   "en": "I keep one book in the bathroom, one by the bed and one in my bag. It sounds silly, but I read more simply because a book is always within reach. Last month I finished three.",
+   "ru": "У меня одна книга лежит в ванной, одна у кровати и одна в сумке. Звучит глупо, но я читаю больше просто потому, что книга всегда под рукой. В прошлом месяце я закончил три."
+  },
+  {
+   "kind": "passage",
+   "en": "I don't write long journal entries. Each evening I note one thing that went well, one thing that annoyed me, and what I'll do tomorrow. Looking back over a month, I see patterns I would have missed.",
+   "ru": "Длинных записей в дневнике я не делаю. Каждый вечер отмечаю одно, что получилось, одно, что раздражало, и что сделаю завтра. Перечитывая месяц, я вижу закономерности, которые иначе бы пропустил."
+  },
+  {
+   "kind": "passage",
+   "en": "Waiting to feel motivated is a trap. I commit to five minutes, and nine times out of ten I keep going. Starting is the hard part, not continuing.",
+   "ru": "Ждать, пока появится мотивация, - ловушка. Я обещаю себе пять минут, и в девяти случаях из десяти продолжаю. Трудно именно начать, а не продолжить."
+  },
+  {
+   "kind": "passage",
+   "en": "On weekends I try to get up no more than an hour later than on weekdays. Sleeping until noon makes Sunday night harder. A steady schedule is the cheapest sleep aid I have found.",
+   "ru": "В выходные я стараюсь вставать не позже чем на час позднее, чем в будни. Если спать до полудня, воскресная ночь становится тяжелее. Ровный режим - самое дешёвое снотворное из всех, что я пробовал."
+  },
+  {
+   "kind": "passage",
+   "en": "Cutting out sugar completely lasted nine days. Now I just keep sweets out of the house, so having one means going to the shop. It's a small barrier, and it works.",
+   "ru": "Полностью отказаться от сахара у меня получилось на девять дней. Теперь я просто не держу сладкое дома, так что за конфетой надо идти в магазин. Преграда маленькая, но работает."
+  },
+  {
+   "kind": "passage",
+   "en": "Her doctor recommended strength training twice a week to my mother, saying it protects the bones after menopause. She started with light dumbbells and a trainer who watches her form. After three months she carries shopping bags more easily.",
+   "ru": "Врач посоветовал моей маме силовые тренировки дважды в неделю: по его словам, они защищают кости после менопаузы. Она начала с лёгких гантелей и тренера, который следит за техникой. Через три месяца ей стало легче носить пакеты из магазина."
+  },
+  {
+   "kind": "passage",
+   "en": "At the pharmacy I always ask for the generic with the same active ingredient. It's usually cheaper, and the pharmacist can confirm the dose matches. Never swap a medicine on your own if the doctor prescribed a specific one.",
+   "ru": "В аптеке я всегда спрашиваю аналог с тем же действующим веществом. Он обычно дешевле, и фармацевт может подтвердить, что дозировка совпадает. Но никогда не заменяйте лекарство сами, если врач назначил конкретное."
+  },
+  {
+   "kind": "note",
+   "en": "## Vet visit\nThe cat needs her second vaccine three weeks after the first. Ask about the flea treatment while we are there.",
+   "ru": "## Визит к ветеринару\nКошке нужна вторая прививка через три недели после первой. Заодно спросить про обработку от блох."
+  },
+  {
+   "kind": "note",
+   "en": "## Dentist, Thursday\nFilling at 9:30, no coffee beforehand. The numbness lasts about two hours, so no hot drinks until then.",
+   "ru": "## Стоматолог, четверг\nПломба в 9:30, до этого без кофе. Онемение держится около двух часов, так что горячего не пить."
+  },
+  {
+   "kind": "note",
+   "en": "## Sleep experiment\nNo screens after 22:00 for two weeks. Track how long it takes to fall asleep.",
+   "ru": "## Эксперимент со сном\nДве недели без экранов после 22:00. Записывать, сколько времени уходит на засыпание."
+  },
+  {
+   "kind": "note",
+   "en": "## Leg day\nSquats 4x6, Romanian deadlift 3x8, lunges 3x10. Keep the knees tracking over the toes.",
+   "ru": "## День ног\nПриседания 4x6, румынская тяга 3x8, выпады 3x10. Колени держать по линии носков."
+  },
+  {
+   "kind": "note",
+   "en": "## Pool schedule\nTuesday and Friday at 7:00, lane 3. Warm up with 200 m easy, then do drills.",
+   "ru": "## Расписание бассейна\nВторник и пятница в 7:00, третья дорожка. Разминка - 200 м в лёгком темпе, затем упражнения на технику."
+  },
+  {
+   "kind": "note",
+   "en": "## Grandma's medicines\nBlood pressure tablet in the morning, vitamin D with lunch. Check the supply every second Sunday.",
+   "ru": "## Бабушкины лекарства\nТаблетка от давления утром, витамин D за обедом. Проверять запас каждое второе воскресенье."
+  },
+  {
+   "kind": "note",
+   "en": "## Spanish\nLearn the past tense this week. Ten sentences a day, read aloud.",
+   "ru": "## Испанский\nНа этой неделе - прошедшее время. По десять предложений в день, вслух."
+  },
+  {
+   "kind": "note",
+   "en": "## Exam plan\nDays 1-5: topics 1-6. Days 6-9: past papers. Last day: light review and an early night.",
+   "ru": "## План к экзамену\nДни 1-5: темы 1-6. Дни 6-9: варианты прошлых лет. Последний день: лёгкое повторение и ранний отбой."
+  },
+  {
+   "kind": "note",
+   "en": "## Book club\nThe next meeting is on the 24th. Finish the second half and write down two questions.",
+   "ru": "## Книжный клуб\nСледующая встреча 24-го. Дочитать вторую половину и записать два вопроса."
+  },
+  {
+   "kind": "note",
+   "en": "## Evening journal\nThree lines: what went well, what drained me, one plan for tomorrow.",
+   "ru": "## Вечерний дневник\nТри строки: что получилось, что вымотало, один план на завтра."
+  },
+  {
+   "kind": "note",
+   "en": "## Parent meeting\nThe teacher says Mia is strong at reading but rushes through maths. Practise checking answers before handing in.",
+   "ru": "## Родительское собрание\nУчительница говорит, что Мия отлично читает, но торопится в математике. Тренировать привычку проверять ответы перед сдачей."
+  },
+  {
+   "kind": "note",
+   "en": "## Friend's birthday\nLena turns 40 on Saturday. Book a table for six and bring the photo album.",
+   "ru": "## День рождения подруги\nЛене в субботу исполняется 40. Заказать столик на шестерых и взять фотоальбом."
+  },
+  {
+   "kind": "note",
+   "en": "## Eye test\nAppointment on the 3rd at 16:00. Bring the current glasses and a note of daily screen hours.",
+   "ru": "## Проверка зрения\nЗапись на 3-е в 16:00. Взять нынешние очки и записку, сколько часов в день я провожу за экраном."
+  },
+  {
+   "kind": "note",
+   "en": "## Stretch routine\nFive minutes each morning: cat-cow, hip flexor stretch, neck rolls. Don't force any position.",
+   "ru": "## Утренняя растяжка\nПять минут каждое утро: кошка-корова, растяжка сгибателей бедра, вращения шеей. Ни в одну позу себя не заталкивать."
+  },
+  {
+   "kind": "note",
+   "en": "## Dog training\nPractise 'stay' for ten seconds, three times a day. Reward with a small treat, then a calm release word.",
+   "ru": "## Дрессировка собаки\nОтрабатывать «сидеть-ждать» по десять секунд, три раза в день. Награда - маленькое лакомство, потом спокойное слово-разрешение."
+  },
+  {
+   "kind": "query",
+   "en": "best time to visit the fjords",
+   "ru": "когда лучше ехать к фьордам"
+  },
+  {
+   "kind": "query",
+   "en": "do i need a transit visa for istanbul",
+   "ru": "нужна ли транзитная виза в Стамбуле"
+  },
+  {
+   "kind": "query",
+   "en": "cheap flights tuesday vs saturday",
+   "ru": "дешёвые билеты: вторник или суббота"
+  },
+  {
+   "kind": "query",
+   "en": "hotel near old town with late check-in",
+   "ru": "отель у старого города с поздним заселением"
+  },
+  {
+   "kind": "query",
+   "en": "packing list for a week in iceland",
+   "ru": "что взять в Исландию на неделю"
+  },
+  {
+   "kind": "query",
+   "en": "how to read contour lines on a map",
+   "ru": "как читать горизонтали на карте"
+  },
+  {
+   "kind": "query",
+   "en": "why is the sky blue at noon",
+   "ru": "почему днём небо голубое"
+  },
+  {
+   "kind": "query",
+   "en": "how does a monsoon form",
+   "ru": "как возникает муссон"
+  },
+  {
+   "kind": "query",
+   "en": "longest river in europe",
+   "ru": "самая длинная река Европы"
+  },
+  {
+   "kind": "query",
+   "en": "causes of the thirty years war",
+   "ru": "причины Тридцатилетней войны"
+  },
+  {
+   "kind": "query",
+   "en": "what is entropy in simple terms",
+   "ru": "что такое энтропия простыми словами"
+  },
+  {
+   "kind": "query",
+   "en": "when is the next meteor shower",
+   "ru": "когда ближайший метеорный поток"
+  },
+  {
+   "kind": "query",
+   "en": "why does salt melt ice",
+   "ru": "почему соль растапливает лёд"
+  },
+  {
+   "kind": "query",
+   "en": "how do bees find flowers",
+   "ru": "как пчёлы находят цветы"
+  },
+  {
+   "kind": "query",
+   "en": "when to plant tomato seedlings",
+   "ru": "когда высаживать рассаду томатов"
+  },
+  {
+   "kind": "query",
+   "en": "how to tune a violin by ear",
+   "ru": "как настроить скрипку на слух"
+  },
+  {
+   "kind": "query",
+   "en": "home vocal recording without echo",
+   "ru": "запись вокала дома без эха"
+  },
+  {
+   "kind": "query",
+   "en": "what is a tritone substitution",
+   "ru": "что такое тритоновая замена"
+  },
+  {
+   "kind": "query",
+   "en": "mixing oil paint for skin tones",
+   "ru": "как смешать масляные краски для телесных тонов"
+  },
+  {
+   "kind": "query",
+   "en": "rule of thirds in portraits",
+   "ru": "правило третей в портрете"
+  },
+  {
+   "kind": "query",
+   "en": "how to start writing a novel",
+   "ru": "с чего начать писать роман"
+  },
+  {
+   "kind": "query",
+   "en": "slow burn crime series recommendations",
+   "ru": "неторопливые детективные сериалы, что посмотреть"
+  },
+  {
+   "kind": "query",
+   "en": "best co-op board games for two",
+   "ru": "лучшие кооперативные настолки на двоих"
+  },
+  {
+   "kind": "query",
+   "en": "notary fee for power of attorney",
+   "ru": "сколько стоит доверенность у нотариуса"
+  },
+  {
+   "kind": "query",
+   "en": "what to ask at the end of an interview",
+   "ru": "что спросить в конце собеседования"
+  },
+  {
+   "kind": "query",
+   "en": "how to negotiate salary after an offer",
+   "ru": "как торговаться о зарплате после оффера"
+  },
+  {
+   "kind": "query",
+   "en": "resignation letter with two weeks notice",
+   "ru": "заявление об увольнении с отработкой две недели"
+  },
+  {
+   "kind": "query",
+   "en": "small business ideas for a village",
+   "ru": "бизнес-идеи для небольшого посёлка"
+  },
+  {
+   "kind": "query",
+   "en": "is free will compatible with determinism",
+   "ru": "совместимы ли свобода воли и детерминизм"
+  },
+  {
+   "kind": "query",
+   "en": "playlist for a long night drive",
+   "ru": "плейлист для долгой ночной дороги"
+  },
+  {
+   "kind": "sentence",
+   "en": "Our flight to Lisbon leaves at 6:40, so we have to be at the airport by four.",
+   "ru": "Рейс в Лиссабон в 6:40, так что в аэропорту нам надо быть к четырём."
+  },
+  {
+   "kind": "sentence",
+   "en": "The consulate wants a bank statement for the last three months along with the visa application.",
+   "ru": "В консульстве к заявлению на визу просят выписку по счёту за последние три месяца."
+  },
+  {
+   "kind": "sentence",
+   "en": "I booked a room with a window onto the courtyard because the street side is noisy at night.",
+   "ru": "Взял номер с окном во двор: со стороны улицы по ночам шумно."
+  },
+  {
+   "kind": "sentence",
+   "en": "Merino socks dry overnight, so two pairs are enough for the whole trek.",
+   "ru": "Мериносовые носки за ночь высыхают, так что на весь поход хватит двух пар."
+  },
+  {
+   "kind": "sentence",
+   "en": "The trail splits at the stone hut, and the left fork is the one that goes to the lake.",
+   "ru": "У каменной хижины тропа разветвляется, и к озеру ведёт левая."
+  },
+  {
+   "kind": "sentence",
+   "en": "In Seville the summer afternoons reach forty degrees, and the locals simply vanish indoors until six.",
+   "ru": "В Севилье летом днём бывает под сорок, и местные до шести просто исчезают в домах."
+  },
+  {
+   "kind": "sentence",
+   "en": "The Atacama is so dry that some of its weather stations have never recorded a single drop of rain.",
+   "ru": "В Атакаме так сухо, что на некоторых метеостанциях за всё время не зафиксировано ни капли дождя."
+  },
+  {
+   "kind": "sentence",
+   "en": "Rome did not fall in a single year; the western empire faded over several generations.",
+   "ru": "Рим пал не за один год: Западная империя угасала на протяжении нескольких поколений."
+  },
+  {
+   "kind": "sentence",
+   "en": "A pendulum's period depends on its length, not on how heavy the weight is.",
+   "ru": "Период маятника зависит от его длины, а не от массы груза."
+  },
+  {
+   "kind": "sentence",
+   "en": "Io, a moon of Jupiter, is the most volcanically active body we know of.",
+   "ru": "Ио, спутник Юпитера, - самое вулканически активное из известных нам небесных тел."
+  },
+  {
+   "kind": "sentence",
+   "en": "Vinegar and baking soda react to release carbon dioxide, which is why the mixture foams.",
+   "ru": "Уксус и сода реагируют с выделением углекислого газа, поэтому смесь вспенивается."
+  },
+  {
+   "kind": "sentence",
+   "en": "Octopuses have three hearts, and two of them serve only the gills.",
+   "ru": "У осьминогов три сердца, и два из них обслуживают только жабры."
+  },
+  {
+   "kind": "sentence",
+   "en": "Garlic goes into the ground in October, about a month before the first hard frost.",
+   "ru": "Чеснок сажают в октябре, примерно за месяц до первых крепких морозов."
+  },
+  {
+   "kind": "sentence",
+   "en": "My old upright piano holds its tuning much better since I moved it away from the radiator.",
+   "ru": "Моё старое пианино стало гораздо лучше держать строй, после того как я отодвинул его от батареи."
+  },
+  {
+   "kind": "sentence",
+   "en": "The bridge of the song needs a key change, otherwise the last chorus sounds like a copy of the first.",
+   "ru": "В бридже нужна смена тональности, иначе последний припев звучит как копия первого."
+  },
+  {
+   "kind": "sentence",
+   "en": "Soft window light from the left gives the portrait its calm mood.",
+   "ru": "Мягкий свет из окна слева задаёт портрету спокойное настроение."
+  },
+  {
+   "kind": "sentence",
+   "en": "Every draft of my story comes out shorter, and the story gets better for it.",
+   "ru": "Каждый новый черновик рассказа получается короче, и рассказу это идёт на пользу."
+  },
+  {
+   "kind": "sentence",
+   "en": "The film runs two hours, but only the last twenty minutes really matter.",
+   "ru": "Фильм идёт два часа, но по-настоящему важны в нём только последние двадцать минут."
+  },
+  {
+   "kind": "sentence",
+   "en": "We lost the board game again because nobody wanted to be the one to trade cards.",
+   "ru": "Мы снова проиграли в настолку, потому что никто не хотел первым меняться картами."
+  },
+  {
+   "kind": "sentence",
+   "en": "The side quest in the swamp took me four hours and rewarded me with a rusty spoon.",
+   "ru": "Побочное задание в болоте заняло у меня четыре часа, а в награду выдали ржавую ложку."
+  },
+  {
+   "kind": "sentence",
+   "en": "The notary said the signature has to be made in his presence, even if the document is already printed.",
+   "ru": "Нотариус сказал, что подписывать нужно при нём, даже если документ уже распечатан."
+  },
+  {
+   "kind": "sentence",
+   "en": "The contract has an automatic renewal clause that is easy to miss on page nine.",
+   "ru": "В договоре есть пункт об автоматической пролонгации, который легко проглядеть на девятой странице."
+  },
+  {
+   "kind": "sentence",
+   "en": "I asked about the salary range on the first call, and the recruiter named it without hesitation.",
+   "ru": "Про вилку по зарплате я спросил уже на первом звонке, и рекрутёр назвал её не задумываясь."
+  },
+  {
+   "kind": "sentence",
+   "en": "Our weekly meeting dropped to fifteen minutes once we banned slides.",
+   "ru": "Еженедельная планёрка сократилась до пятнадцати минут, как только мы запретили слайды."
+  },
+  {
+   "kind": "sentence",
+   "en": "A shop that repairs old film cameras could survive in a city this size if it also sells film.",
+   "ru": "Мастерская по ремонту старых плёночных фотоаппаратов в городе такого размера выживет, если ещё и торговать плёнкой."
+  },
+  {
+   "kind": "sentence",
+   "en": "The Stoics did not ask us to feel nothing; they asked us to question our first reaction.",
+   "ru": "Стоики не призывали ничего не чувствовать, они предлагали проверять свою первую реакцию."
+  },
+  {
+   "kind": "sentence",
+   "en": "The ferry to the island runs only twice a week in October.",
+   "ru": "В октябре паром на остров ходит всего дважды в неделю."
+  },
+  {
+   "kind": "sentence",
+   "en": "Breakfast was included in the room price, but only until ten.",
+   "ru": "Завтрак входил в стоимость номера, но только до десяти."
+  },
+  {
+   "kind": "sentence",
+   "en": "A rain jacket stops being waterproof once the seam tape starts to peel.",
+   "ru": "Дождевик перестаёт быть непромокаемым, когда начинает отклеиваться лента на швах."
+  },
+  {
+   "kind": "sentence",
+   "en": "The highest point of the country is a modest hill in the north, only 322 meters above sea level.",
+   "ru": "Высшая точка страны - скромный холм на севере, всего 322 метра над уровнем моря."
+  },
+  {
+   "kind": "sentence",
+   "en": "A strong El Niño usually brings a wetter winter to the west coast of South America.",
+   "ru": "Сильный Эль-Ниньо обычно приносит более влажную зиму на западное побережье Южной Америки."
+  },
+  {
+   "kind": "sentence",
+   "en": "Light from the Sun takes about eight minutes to reach us.",
+   "ru": "Свету от Солнца нужно около восьми минут, чтобы дойти до нас."
+  },
+  {
+   "kind": "sentence",
+   "en": "Ice floats because water expands as it freezes.",
+   "ru": "Лёд плавает, потому что при замерзании вода расширяется."
+  },
+  {
+   "kind": "sentence",
+   "en": "The wolves in the reserve hunt mostly at dusk, so we kept the noise in camp low.",
+   "ru": "Волки в заповеднике охотятся в основном в сумерках, поэтому в лагере мы старались не шуметь."
+  },
+  {
+   "kind": "sentence",
+   "en": "Cucumbers need a trellis, otherwise half the crop rots on the ground.",
+   "ru": "Огурцам нужна опора, иначе половина урожая сгниёт на земле."
+  },
+  {
+   "kind": "sentence",
+   "en": "The microphone should sit about a fist away from the singer's mouth.",
+   "ru": "Микрофон лучше ставить примерно в кулаке от рта певца."
+  },
+  {
+   "kind": "sentence",
+   "en": "The minor pentatonic is the safest scale to improvise on when you are nervous.",
+   "ru": "Минорная пентатоника - самая надёжная гамма для импровизации, когда волнуешься."
+  },
+  {
+   "kind": "sentence",
+   "en": "His landscapes use almost no blue, which is why they feel so warm.",
+   "ru": "В его пейзажах почти нет синего, поэтому они кажутся такими тёплыми."
+  },
+  {
+   "kind": "sentence",
+   "en": "The series loses its way in season three, when every character suddenly gets a secret twin.",
+   "ru": "Сериал теряет нить в третьем сезоне, когда у каждого героя внезапно появляется тайный близнец."
+  },
+  {
+   "kind": "sentence",
+   "en": "I handed in my notice on Monday and felt lighter by Tuesday.",
+   "ru": "Заявление об уходе я подал в понедельник, а ко вторнику мне уже было легче."
+  },
+  {
+   "kind": "sentence",
+   "en": "A silver gelatin print can last over a hundred years if it is washed properly.",
+   "ru": "Желатиново-серебряный отпечаток при хорошей промывке может прослужить больше ста лет."
+  },
+  {
+   "kind": "sentence",
+   "en": "A weekend pastry stall could pay for itself within a month.",
+   "ru": "Палатка с выпечкой по выходным может окупиться за месяц."
+  },
+  {
+   "kind": "sentence",
+   "en": "The interviewer stayed silent for ten seconds, and I realized it was on purpose.",
+   "ru": "Интервьюер молчал секунд десять, и я понял, что это нарочно."
+  },
+  {
+   "kind": "sentence",
+   "en": "Tickets to the museum are free on the first Sunday of every month.",
+   "ru": "В первое воскресенье каждого месяца билеты в музей бесплатные."
+  },
+  {
+   "kind": "sentence",
+   "en": "The old map shows a ford that no longer exists.",
+   "ru": "На старой карте нарисован брод, которого давно нет."
+  },
+  {
+   "kind": "passage",
+   "en": "The embassy's booking system opens new slots at midnight. I set an alarm, refreshed the page twice and got a place on the fourteenth of March. Bring printed copies of everything, even if the form says electronic ones are fine.",
+   "ru": "Запись в посольство открывает новые окна в полночь. Я поставил будильник, дважды обновил страницу и получил место на четырнадцатое марта. Берите распечатки всего, даже если в анкете сказано, что хватит электронных копий."
+  },
+  {
+   "kind": "passage",
+   "en": "A ninety-minute layover looks fine on paper. With a terminal change and a passport check it is tight. I now pick at least two hours, and I never book the last flight of the day.",
+   "ru": "Пересадка в девяносто минут на бумаге выглядит нормально. Но со сменой терминала и паспортным контролем она впритык. Теперь я беру не меньше двух часов и никогда не покупаю последний рейс за день."
+  },
+  {
+   "kind": "passage",
+   "en": "The hotel looked perfect in the photos. In reality the lift was broken and the room faced the kitchen vents. Now I read the newest reviews first, and the three-star ones above all.",
+   "ru": "На фотографиях отель выглядел идеально. На деле лифт не работал, а окна номера выходили на вытяжку кухни. Теперь я сначала читаю самые свежие отзывы, и особенно те, где три звезды."
+  },
+  {
+   "kind": "passage",
+   "en": "We set off at seven and reached the saddle by noon. Mountain weather turns by early afternoon, so we skipped the summit. The summit is not going anywhere.",
+   "ru": "Мы вышли в семь и к полудню были на перевале. В горах погода меняется уже после обеда, поэтому на вершину мы не пошли. Вершина никуда не денется."
+  },
+  {
+   "kind": "passage",
+   "en": "Coastal cities stay milder than inland ones at the same latitude because the sea stores heat. In winter it gives warmth back, in summer it cools the air. That is why frosts on the island are rare.",
+   "ru": "Прибрежные города мягче тех, что лежат в глубине материка на той же широте: море накапливает тепло. Зимой оно его отдаёт, летом охлаждает воздух. Поэтому морозы на острове редки."
+  },
+  {
+   "kind": "passage",
+   "en": "Lake Baikal holds roughly a fifth of the world's unfrozen fresh water. It is also the deepest lake on Earth, at over 1,600 meters. Its age is counted in tens of millions of years.",
+   "ru": "В Байкале около пятой части всей незамёрзшей пресной воды планеты. Это ещё и самое глубокое озеро на Земле, больше 1600 метров. Его возраст исчисляется десятками миллионов лет."
+  },
+  {
+   "kind": "passage",
+   "en": "Before the printing press, a book was copied by hand, and a single copy could take a monk a year. Afterwards, ideas began to travel faster than any authority could control.",
+   "ru": "До книгопечатания книгу переписывали от руки, и на один экземпляр у монаха мог уйти год. После этого идеи стали расходиться быстрее, чем любая власть успевала за ними уследить."
+  },
+  {
+   "kind": "passage",
+   "en": "Sound needs a medium, so in space nobody hears an explosion. Films add the roar because we expect it. In water, by the way, sound travels about four times faster than in air.",
+   "ru": "Звуку нужна среда, поэтому в космосе взрыва никто не услышит. Грохот в кино добавляют, потому что мы его ждём. Кстати, в воде звук распространяется примерно вчетверо быстрее, чем в воздухе."
+  },
+  {
+   "kind": "passage",
+   "en": "Venus is hotter than Mercury even though it is farther from the Sun. Its thick carbon dioxide atmosphere traps the heat, and the surface sits at around 465 degrees.",
+   "ru": "Венера горячее Меркурия, хотя находится от Солнца дальше. Её плотная атмосфера из углекислого газа удерживает тепло, и на поверхности около 465 градусов."
+  },
+  {
+   "kind": "passage",
+   "en": "Rust is iron slowly combining with oxygen in the presence of water. Paint does not stop the process, it only keeps water away from the metal. Once the coat is scratched, rust starts again underneath.",
+   "ru": "Ржавчина - это железо, которое медленно соединяется с кислородом в присутствии воды. Краска процесс не останавливает, а лишь не пускает воду к металлу. Стоит поцарапать слой, и под ним ржавчина начинается заново."
+  },
+  {
+   "kind": "passage",
+   "en": "Crows can remember human faces. Researchers who wore a mask while catching birds were scolded by crows for years afterwards, even by birds that had never been caught.",
+   "ru": "Вороны запоминают человеческие лица. Исследователей, которые ловили птиц в маске, вороны потом годами ругали, в том числе и те, которых никогда не ловили."
+  },
+  {
+   "kind": "passage",
+   "en": "Carrots sown in heavy clay come out forked. I loosened the bed with sand and compost last autumn, and this spring the rows came up evenly. Thin the seedlings early, or the roots will compete.",
+   "ru": "Морковь, посеянная в тяжёлой глине, вырастает рогатой. Прошлой осенью я разрыхлил грядку песком и компостом, и этой весной всходы пошли ровными рядами. Прореживайте рано, иначе корнеплоды будут мешать друг другу."
+  },
+  {
+   "kind": "passage",
+   "en": "New guitar strings sound bright for a week and then settle. Do not judge the tone on the first day. I change mine every two months, a bit sooner if I play daily.",
+   "ru": "Новые струны на гитаре неделю звенят ярко, а потом звук устаканивается. Не судите о тембре в первый день. Я меняю струны раз в два месяца, а если играю каждый день - чуть раньше."
+  },
+  {
+   "kind": "passage",
+   "en": "Recording at night is easier because the house is quiet. The microphone picks up the fridge, so I unplug it for the hour. Always record a few seconds of room silence at the start for noise removal later.",
+   "ru": "Ночью писаться проще: в доме тихо. Микрофон ловит холодильник, поэтому на этот час я выдёргиваю его из розетки. В начале всегда оставляйте несколько секунд тишины в комнате, чтобы потом можно было убрать шум."
+  },
+  {
+   "kind": "passage",
+   "en": "The progression I-vi-IV-V has carried hundreds of songs. It works because every step is a small, easy movement. To freshen it up, swap one chord for its relative minor or borrow a chord from the parallel key.",
+   "ru": "Последовательность I-vi-IV-V держит сотни песен. Она работает, потому что каждый шаг в ней - небольшое лёгкое движение. Чтобы освежить её, замените один аккорд на параллельный минорный или одолжите аккорд из одноимённой тональности."
+  },
+  {
+   "kind": "passage",
+   "en": "A good playlist is built like a good evening: a slow start, a peak in the middle, a quiet end. I put the loudest track about two thirds of the way in, never first. Songs in the same key also blend more smoothly.",
+   "ru": "Хороший плейлист строится как хороший вечер: неспешное начало, пик посередине, тихий конец. Самый громкий трек я ставлю примерно на две трети длины, но не первым. Песни в одной тональности к тому же стыкуются мягче."
+  },
+  {
+   "kind": "passage",
+   "en": "Before painting the sky, I tone the canvas with a thin layer of warm grey. A white canvas makes every colour look harsher than it is. The grey also shows through in places and holds the picture together.",
+   "ru": "Прежде чем писать небо, я тонирую холст тонким слоем тёплого серого. На белом холсте любой цвет кажется резче, чем есть. А серый кое-где просвечивает и скрепляет картину."
+  },
+  {
+   "kind": "passage",
+   "en": "Early morning light is long and soft, and the shadows are blue. I walk the same street for several days to learn when the sun hits the wall. A good photograph is often just patience and a good wall.",
+   "ru": "Рано утром свет длинный и мягкий, а тени синие. Я несколько дней подряд хожу по одной улице, чтобы понять, когда солнце ложится на стену. Хороший снимок часто состоит из терпения и хорошей стены."
+  },
+  {
+   "kind": "passage",
+   "en": "A first chapter should make one promise to the reader and start keeping it. Do not explain the world; show one person who wants something. The details can wait for chapter two.",
+   "ru": "Первая глава должна дать читателю одно обещание и начать его выполнять. Не объясняйте мир, покажите одного человека, который чего-то хочет. Подробности подождут до второй главы."
+  },
+  {
+   "kind": "passage",
+   "en": "The film uses almost no music for the first hour. When the strings finally come in, you feel it physically. Silence works as an instrument, if you are brave enough to leave it alone.",
+   "ru": "Первый час в фильме почти нет музыки. Когда наконец вступают струнные, это чувствуешь телом. Тишина работает как инструмент, если хватает смелости её не трогать."
+  },
+  {
+   "kind": "passage",
+   "en": "We tested the new strategy game with four players, and it took three hours instead of the promised ninety minutes. The rulebook is fine, but the turn order drags. Next time we will cut the trading phase.",
+   "ru": "Мы опробовали новую стратегию вчетвером, и партия заняла три часа вместо обещанных полутора. Правила написаны нормально, но очерёдность ходов тянется. В следующий раз выкинем фазу обмена."
+  },
+  {
+   "kind": "passage",
+   "en": "The game never tells you where to go, it only draws smoke on the horizon. Players climb toward it without any quest marker. That is honest design: curiosity does the guiding.",
+   "ru": "Игра никогда не говорит, куда идти, а только рисует дым на горизонте. Игроки лезут к нему без всякой метки задания. Это честный дизайн: путь показывает любопытство."
+  },
+  {
+   "kind": "passage",
+   "en": "Before signing the lease, I checked who is responsible for repairs. The text said \"minor repairs\" without defining them. I asked to add a cap in money, and the landlord agreed in writing.",
+   "ru": "Перед подписанием аренды я проверил, кто отвечает за ремонт. В тексте стояло «мелкий ремонт» без определения. Я попросил добавить потолок в деньгах, и арендодатель письменно согласился."
+  },
+  {
+   "kind": "passage",
+   "en": "A certified translation must be attached to the original or to its notarised copy. Plain photocopies are not accepted. The seal and the stitching of the pages are part of what makes it valid.",
+   "ru": "Заверенный перевод нужно прикладывать к оригиналу или к его нотариальной копии. Простые ксерокопии не принимают. Печать и прошивка страниц - часть того, что делает документ действительным."
+  },
+  {
+   "kind": "passage",
+   "en": "At the interview they asked about my biggest failure. I told them about a release we delayed because I had missed a dependency, and what we changed afterwards. The answer was short and concrete, and they came back to it twice.",
+   "ru": "На собеседовании меня спросили о самой большой неудаче. Я рассказал про релиз, который мы сорвали, потому что я упустил одну зависимость, и что мы после этого поменяли. Ответ был коротким и конкретным, и они вернулись к нему дважды."
+  },
+  {
+   "kind": "passage",
+   "en": "Salary is only one number in an offer. Ask about the review cycle, the bonus rules and extra days off. A smaller raise with a clear path to promotion is often worth more.",
+   "ru": "Зарплата - лишь одна цифра в предложении. Спросите про цикл пересмотра оклада, правила премий и дополнительные выходные. Меньшая прибавка при понятном пути к повышению часто стоит больше."
+  },
+  {
+   "kind": "passage",
+   "en": "Meetings without an agenda tend to end in new meetings. We now send three questions the evening before, and whoever cannot answer them does not need to come.",
+   "ru": "Встречи без повестки обычно заканчиваются новыми встречами. Теперь мы накануне вечером рассылаем три вопроса, и кто не может на них ответить, тому приходить не нужно."
+  },
+  {
+   "kind": "passage",
+   "en": "Leaving gracefully matters more than leaving fast. I wrote a handover document and trained my replacement for two weeks. A year later the same manager recommended me for a new role.",
+   "ru": "Уйти достойно важнее, чем уйти быстро. Я написал передаточный документ и две недели обучал своего преемника. Через год тот же руководитель порекомендовал меня на новую должность."
+  },
+  {
+   "kind": "passage",
+   "en": "A small repair-and-rental point for camping gear could work near the trailhead. The equipment is expensive and many people use it twice a year. The main risk is seasonality, so a winter line would be needed.",
+   "ru": "Небольшой пункт ремонта и проката туристического снаряжения мог бы работать у начала маршрута. Снаряжение дорогое, а пользуются им многие раза два в год. Главный риск - сезонность, так что понадобится зимний ассортимент."
+  },
+  {
+   "kind": "passage",
+   "en": "The ship of Theseus asks whether an object stays the same after all its parts are replaced. The puzzle is not really about ships. It is about what we mean by \"same\", and that depends on what we want to do with the word.",
+   "ru": "Корабль Тесея ставит вопрос: остаётся ли предмет тем же после замены всех его частей. На самом деле загадка не про корабли. Она про то, что мы называем «тем же самым», а это зависит от того, зачем нам это слово."
+  },
+  {
+   "kind": "note",
+   "en": "## Packing\nRoll clothes tightly and keep one dry set in a separate bag. The rain always comes on the first and the last day.",
+   "ru": "## Сборы\nВещи лучше скатать плотно, а одну сухую смену держать в отдельном пакете. Дождь всегда приходит в первый и в последний день."
+  },
+  {
+   "kind": "note",
+   "en": "## Schengen rule\nStay up to 90 days in any 180-day period. Count the days from the first entry, not from the booking date.",
+   "ru": "## Правило шенгена\nМожно находиться до 90 дней в любом периоде в 180 дней. Дни считаются от первого въезда, а не от даты брони."
+  },
+  {
+   "kind": "note",
+   "en": "## Fjord route\nBook the ferry in advance in July. The 9:30 sailing fills up first.",
+   "ru": "## Маршрут по фьордам\nПаром в июле бронируйте заранее. Рейс в 9:30 раскупают первым."
+  },
+  {
+   "kind": "note",
+   "en": "## Cloud types\nCumulonimbus means a storm is possible within the hour. High, thin cirrus often appears a day before a front.",
+   "ru": "## Типы облаков\nКучево-дождевые значат, что гроза возможна в течение часа. Высокие тонкие перистые часто появляются за сутки до фронта."
+  },
+  {
+   "kind": "note",
+   "en": "## Free fall\nWithout air resistance a feather and a hammer fall together. On the Moon this was checked in front of a camera.",
+   "ru": "## Свободное падение\nБез сопротивления воздуха перо и молоток падают одновременно. На Луне это проверили на камеру."
+  },
+  {
+   "kind": "note",
+   "en": "## Acid and water\nAdd acid to water, never water to acid. The heat released can make the drops spit.",
+   "ru": "## Кислота и вода\nКислоту льют в воду, а не наоборот. Выделяющееся тепло может вызвать разбрызгивание."
+  },
+  {
+   "kind": "note",
+   "en": "## Compost\nKeep roughly one part green waste to two parts brown. If it smells of ammonia, add dry leaves.",
+   "ru": "## Компост\nДержите примерно одну часть зелёных отходов на две части бурых. Если пахнет аммиаком, добавьте сухих листьев."
+  },
+  {
+   "kind": "note",
+   "en": "## Chord voicing\nMove the third up an octave to open the chord.",
+   "ru": "## Расположение аккорда\nПеренесите терцию на октаву вверх, и аккорд зазвучит просторнее."
+  },
+  {
+   "kind": "note",
+   "en": "## Mic placement\nTurn the microphone slightly off-axis from the mouth to soften harsh P sounds.",
+   "ru": "## Позиция микрофона\nПоверните микрофон чуть мимо оси рта, чтобы смягчить резкие «п»."
+  },
+  {
+   "kind": "note",
+   "en": "## Glazing\nApply a transparent layer only after the previous one is completely dry. In oil this can take several days.",
+   "ru": "## Лессировка\nПрозрачный слой наносите, только когда предыдущий полностью высох. В масле это может занять несколько дней."
+  },
+  {
+   "kind": "note",
+   "en": "## Character arc\nA character changes when a belief starts to cost them something. Write the cost first.",
+   "ru": "## Арка героя\nГерой меняется, когда его убеждение начинает чего-то стоить. Сначала напишите цену."
+  },
+  {
+   "kind": "note",
+   "en": "## Contract checklist\nCheck the dates, penalties and the termination clause. Ask for the cancellation terms in plain words.",
+   "ru": "## Проверка договора\nСверьте сроки, штрафы и пункт о расторжении. Попросите изложить условия отмены простыми словами."
+  },
+  {
+   "kind": "note",
+   "en": "## Salary talk\nName a range rather than a single number, and let the other side answer first.",
+   "ru": "## Разговор о зарплате\nНазывайте вилку, а не одну цифру, и пусть первой ответит другая сторона."
+  },
+  {
+   "kind": "note",
+   "en": "## Co-op rules\nBefore the first game, agree whether players may show each other their cards. Half of all arguments start there.",
+   "ru": "## Правила кооператива\nПеред первой партией договоритесь, можно ли показывать друг другу карты. Половина споров начинается именно с этого."
+  },
+  {
+   "kind": "note",
+   "en": "## Idea: tool library\nResidents borrow rarely used tools for a small deposit. Start with ten items and a notebook.",
+   "ru": "## Идея: библиотека инструментов\nЖильцы берут редко нужные инструменты под небольшой залог. Начать можно с десяти предметов и тетради."
+  }
+ ]
+}

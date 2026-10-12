@@ -16,6 +16,7 @@
 //! network call the product makes is one the person asked for.
 
 use crate::error::Result;
+use crate::neutral::LanguageAxes;
 
 /// What a text is to the model.
 ///
@@ -47,6 +48,15 @@ pub trait Model {
 
     /// The length of every vector it makes.
     fn dimensions(&self) -> usize;
+
+    /// The directions its vectors carry the language along, which are
+    /// removed before two vectors are compared; `None` when they are compared
+    /// as they come. See [`crate::neutral`].
+    ///
+    /// Required, not defaulted: a wrapper that forgot to pass it on would
+    /// build its index in another space than the model it wraps, and nothing
+    /// would say so.
+    fn language(&self) -> Option<&LanguageAxes>;
 }
 
 /// Something that turns text into vectors.
@@ -72,6 +82,10 @@ impl Model for crate::model::ModelSpec {
 
     fn dimensions(&self) -> usize {
         self.dimensions
+    }
+
+    fn language(&self) -> Option<&LanguageAxes> {
+        self.language_axes()
     }
 }
 
@@ -173,6 +187,10 @@ mod onnx {
 
         fn dimensions(&self) -> usize {
             self.spec.dimensions()
+        }
+
+        fn language(&self) -> Option<&crate::neutral::LanguageAxes> {
+            self.spec.language_axes()
         }
     }
 

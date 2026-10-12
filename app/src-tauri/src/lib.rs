@@ -37,6 +37,7 @@ pub fn run() {
             commands::search,
             commands::search_hybrid,
             commands::similar,
+            commands::explain,
             commands::update,
             commands::update_vectors,
             commands::meaning_status,

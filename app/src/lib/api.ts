@@ -29,6 +29,9 @@ export interface Hit {
   fragment: string
   /** Byte offsets into the UTF-8 fragment, `[start, end]`. */
   highlights: [number, number][]
+  /** Where the sentence closest in meaning to the query is in the fragment,
+   * in the same offsets; once the row has been asked why it was found. */
+  closest?: [number, number]
   tags: string[]
   /** When the file was last modified, in seconds since the epoch. */
   modified: number
@@ -50,6 +53,15 @@ export interface Place {
 export interface Ranked extends Hit {
   words: Place | null
   meaning: Place | null
+  /** The meaning alone found it, written in another language than the query. */
+  across: boolean
+}
+
+/** Why a row was found: the sentence that answered, and the fragment that
+ * shows it. */
+export interface Explained {
+  fragment: string
+  closest: [number, number]
 }
 
 export interface Found {
@@ -123,6 +135,10 @@ export const api = {
   searchHybrid: (query: string) => invoke<Found | null>('search_hybrid', { query }),
   /** Documents that say what a pasted passage says. */
   similar: (text: string) => invoke<Found | null>('similar', { text }),
+  /** The sentence of a row's chunk closest to the query, or to the pasted
+   * passage; `null` when it cannot be told. */
+  explain: (text: string, passage: boolean, path: string, line: number) =>
+    invoke<Explained | null>('explain', { text, passage, path, line }),
   /** `null` when an update is already running in this window. */
   update: () => invoke<UpdateReport | null>('update'),
   meaningStatus: () => invoke<MeaningStatus>('meaning_status'),

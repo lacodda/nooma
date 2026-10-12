@@ -384,10 +384,14 @@ fn print_ranked(ranked: &Ranked, all_words: bool) {
 }
 
 /// Which halves found a document: `words`, `some words`, `meaning 0.84`, or
-/// both. The cosine is printed because it means the same from one search to
-/// the next - how close, not just which is closer.
+/// both; `meaning 0.84, another language` when the meaning found it in the
+/// other language. The cosine is printed because it means the same from one
+/// search to the next - how close, not just which is closer.
 fn found_by(ranked: &Ranked, all_words: bool) -> String {
     let words = ranked.words.map(|_| if all_words { "words" } else { "some words" }.to_string());
-    let meaning = ranked.meaning.map(|place| format!("meaning {:.2}", place.score));
+    let meaning = ranked.meaning.map(|place| {
+        let across = if ranked.across { ", another language" } else { "" };
+        format!("meaning {:.2}{across}", place.score)
+    });
     [words, meaning].into_iter().flatten().collect::<Vec<_>>().join(" + ")
 }

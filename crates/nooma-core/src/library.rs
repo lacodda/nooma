@@ -76,7 +76,7 @@ pub const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const WRITER_MEMORY: usize = 64 * 1024 * 1024;
 
 /// Characters in a result's fragment.
-const FRAGMENT_CHARS: usize = 240;
+pub(crate) const FRAGMENT_CHARS: usize = 240;
 
 /// A folder the library searches.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -198,6 +198,11 @@ pub struct Hit {
     /// Where in `fragment` the matching words are, as byte ranges.
     #[serde(serialize_with = "ranges_as_pairs")]
     pub highlights: Vec<Range<usize>>,
+    /// Where in `fragment` the sentence closest in meaning to the query is,
+    /// as a byte range: set for a hit the meaning found and no word of the
+    /// query is marked in, once asked why - see [`crate::why`].
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "range_as_pair")]
+    pub closest: Option<Range<usize>>,
     /// The document's tags.
     pub tags: Vec<String>,
     /// When the file was last modified, in seconds since the epoch.
@@ -236,6 +241,13 @@ fn ranges_as_pairs<S: serde::Serializer>(ranges: &[Range<usize>], serializer: S)
         seq.serialize_element(&[range.start, range.end])?;
     }
     seq.end()
+}
+
+fn range_as_pair<S: serde::Serializer>(range: &Option<Range<usize>>, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+    match range {
+        Some(range) => serializer.serialize_some(&[range.start, range.end]),
+        None => serializer.serialize_none(),
+    }
 }
 
 /// The folders a person searches, and the index over them.
@@ -849,6 +861,7 @@ impl Finder {
                     line: line_of(&doc, fields),
                     fragment,
                     highlights,
+                    closest: None,
                     tags: all_text(&doc, fields.tags),
                     modified: modified_of(&doc, fields),
                     score,
@@ -877,45 +890,66 @@ impl Finder {
         let fields = &self.fields;
         let mut out = Vec::with_capacity(at.len());
         for (path, line) in at {
-            let key = path.to_string_lossy();
-            let in_file = || TermQuery::new(Term::from_field_text(fields.path, &key), IndexRecordOption::Basic);
-            // The chunk that starts at the line, read alone: a long journal
-            // has hundreds of chunks, and reading them all to pick one cost
-            // more than the search that found it.
-            let at_line = BooleanQuery::new(vec![
-                (Occur::Must, Box::new(in_file()) as Box<dyn Query>),
-                (
-                    Occur::Must,
-                    Box::new(TermQuery::new(Term::from_field_u64(fields.line, u64::from(*line)), IndexRecordOption::Basic)),
-                ),
-            ]);
-            let mut addresses = searcher.search(&at_line, &DocSetCollector).map_err(Error::fulltext)?;
-            if addresses.is_empty() {
-                // Changed since the line was recorded: every chunk, to find
-                // the one at or before it.
-                addresses = searcher.search(&in_file(), &DocSetCollector).map_err(Error::fulltext)?;
-            }
-            let mut chunks = Vec::with_capacity(addresses.len());
-            for address in addresses {
-                let doc: TantivyDocument = searcher.doc(address).map_err(Error::fulltext)?;
-                chunks.push((line_of(&doc, fields), doc));
-            }
-            chunks.sort_by_key(|(starts, _)| *starts);
-            let chosen = chunks.iter().rev().find(|(starts, _)| starts <= line).or_else(|| chunks.first());
-            out.push(chosen.map(|(starts, doc)| Hit {
+            out.push(self.chunk_at(&searcher, path, *line)?.map(|(starts, doc)| Hit {
                 path: path.clone(),
-                kind: first_text(doc, fields.kind),
-                title: first_text(doc, fields.title),
-                headings: all_text(doc, fields.headings),
-                line: *starts,
-                fragment: opening(&first_text(doc, fields.body)),
+                kind: first_text(&doc, fields.kind),
+                title: first_text(&doc, fields.title),
+                headings: all_text(&doc, fields.headings),
+                line: starts,
+                fragment: opening(&first_text(&doc, fields.body)),
                 highlights: Vec::new(),
-                tags: all_text(doc, fields.tags),
-                modified: modified_of(doc, fields),
+                closest: None,
+                tags: all_text(&doc, fields.tags),
+                modified: modified_of(&doc, fields),
                 score: 0.0,
             }));
         }
         Ok(out)
+    }
+
+    /// The whole text of the chunk starting at a line of a file, found as
+    /// [`Finder::chunks`] finds it; `None` when the index no longer holds the
+    /// file.
+    pub fn chunk_text(&self, path: &Path, line: u32) -> Result<Option<String>> {
+        self.reader.reload().map_err(Error::fulltext)?;
+        let searcher = self.reader.searcher();
+        Ok(self.chunk_at(&searcher, path, line)?.map(|(_, doc)| first_text(&doc, self.fields.body)))
+    }
+
+    /// The chunk that starts at a line of a file, or - the file changed since
+    /// the line was recorded - the one at or before it, with the line it
+    /// starts on.
+    fn chunk_at(&self, searcher: &tantivy::Searcher, path: &Path, line: u32) -> Result<Option<(u32, TantivyDocument)>> {
+        let fields = &self.fields;
+        let key = path.to_string_lossy();
+        let in_file = || TermQuery::new(Term::from_field_text(fields.path, &key), IndexRecordOption::Basic);
+        // The chunk that starts at the line, read alone: a long journal has
+        // hundreds of chunks, and reading them all to pick one cost more than
+        // the search that found it.
+        let at_line = BooleanQuery::new(vec![
+            (Occur::Must, Box::new(in_file()) as Box<dyn Query>),
+            (
+                Occur::Must,
+                Box::new(TermQuery::new(Term::from_field_u64(fields.line, u64::from(line)), IndexRecordOption::Basic)),
+            ),
+        ]);
+        let mut addresses = searcher.search(&at_line, &DocSetCollector).map_err(Error::fulltext)?;
+        if addresses.is_empty() {
+            // Changed since the line was recorded: every chunk, to find the
+            // one at or before it.
+            addresses = searcher.search(&in_file(), &DocSetCollector).map_err(Error::fulltext)?;
+        }
+        let mut chunks = Vec::with_capacity(addresses.len());
+        for address in addresses {
+            let doc: TantivyDocument = searcher.doc(address).map_err(Error::fulltext)?;
+            chunks.push((line_of(&doc, fields), doc));
+        }
+        chunks.sort_by_key(|(starts, _)| *starts);
+        let at = chunks
+            .iter()
+            .rposition(|(starts, _)| *starts <= line)
+            .or_else(|| (!chunks.is_empty()).then_some(0));
+        Ok(at.map(|at| chunks.swap_remove(at)))
     }
 }
 

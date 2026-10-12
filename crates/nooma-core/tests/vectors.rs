@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use nooma_core::eval::{EvalQuery, Evaluation, QuerySet};
-use nooma_core::{Embedder, Error, Library, Model, Progress, Role};
+use nooma_core::{Embedder, Error, LanguageAxes, Library, Model, Progress, Role};
 
 /// Words hashed into 64 buckets, normalized. Counts every passage it reads.
 struct Hashing {
@@ -41,6 +41,10 @@ impl Model for Hashing {
 
     fn dimensions(&self) -> usize {
         64
+    }
+
+    fn language(&self) -> Option<&LanguageAxes> {
+        None
     }
 }
 
@@ -481,4 +485,149 @@ fn a_hit_by_meaning_is_the_chunk_that_matched() {
     assert_eq!(hits[0].headings, vec!["Kitchen".to_string(), "Kettle".to_string()]);
     assert_eq!(hits[0].line, 9, "the line its text starts on");
     assert!(hits[0].fragment.starts_with("Descale"), "{}", hits[0].fragment);
+}
+
+/// Words hashed into 63 buckets, and a 64th that says only whether a text is
+/// written in Cyrillic, heavier than a word or two: a stand-in for a model
+/// whose vectors carry their language - and, given the axis, one whose
+/// language was measured.
+struct Accented {
+    id: &'static str,
+    language: Option<LanguageAxes>,
+}
+
+impl Accented {
+    fn plain(id: &'static str) -> Self {
+        Self { id, language: None }
+    }
+
+    fn measured(id: &'static str) -> Self {
+        let mut axis = vec![0.0f32; 64];
+        axis[63] = 1.0;
+        Self {
+            id,
+            language: Some(LanguageAxes {
+                set: "stand-in".to_string(),
+                recipe: id.to_string(),
+                axes: vec![axis],
+            }),
+        }
+    }
+}
+
+impl Model for Accented {
+    fn model_id(&self) -> &str {
+        self.id
+    }
+
+    fn dimensions(&self) -> usize {
+        64
+    }
+
+    fn language(&self) -> Option<&LanguageAxes> {
+        self.language.as_ref()
+    }
+}
+
+impl Embedder for Accented {
+    fn embed(&mut self, texts: &[&str], _role: Role) -> nooma_core::Result<Vec<Vec<f32>>> {
+        Ok(texts
+            .iter()
+            .map(|text| {
+                let mut vector = vec![0.0f32; 64];
+                for word in text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()) {
+                    let bucket = blake3::hash(word.to_lowercase().as_bytes()).as_bytes()[0] as usize % 63;
+                    vector[bucket] += 1.0;
+                }
+                if text.chars().any(|c| matches!(c, '\u{0400}'..='\u{04FF}')) {
+                    vector[63] = 3.0;
+                }
+                nooma_core::embed::normalize(&mut vector);
+                vector
+            })
+            .collect())
+    }
+}
+
+/// A question in Russian about the kettle note, which is in English. Compared
+/// as the stand-in makes them, the vectors put the one Russian note first -
+/// for its alphabet; compared without the language, the kettle note leads.
+#[test]
+fn the_language_of_a_text_is_not_what_is_compared() {
+    let fixture = Fixture::new(&notes());
+    let library = fixture.library();
+    let question = "как descale kettle";
+    let first = |model: &mut Accented| {
+        library.update_vectors(model, &quiet()).unwrap();
+        let index = library.semantic(model).unwrap().unwrap();
+        let vector = model.embed(&[question], Role::Query).unwrap().pop().unwrap();
+        index.search(&vector, 4).unwrap()[0].path.clone()
+    };
+    assert!(first(&mut Accented::plain("plain")).ends_with("чай.md"), "the stand-in must carry its language");
+    assert!(first(&mut Accented::measured("measured")).ends_with("kettle.md"));
+
+    // Closeness outside the graph is measured the same way.
+    let mut model = Accented::measured("measured");
+    let index = library.semantic(&model).unwrap().unwrap();
+    let vectors = model.embed(&[question, "Descale the kettle.", "Зелёный чай."], Role::Passage).unwrap();
+    let close = index.closeness(&vectors[0], &vectors[1..]);
+    assert!(close[0] > close[1], "{close:?}");
+}
+
+/// The graph holds vectors in the space they are compared in. A model whose
+/// language comes to be measured searches nothing until the index is built
+/// again - from the store, without reading a passage.
+#[test]
+fn an_index_built_in_another_space_is_built_again_from_the_store() {
+    let fixture = Fixture::new(&notes());
+    let library = fixture.library();
+    library.update_vectors(&mut Accented::plain("accented"), &quiet()).unwrap();
+    let measured = Accented::measured("accented");
+    assert!(library.semantic(&Accented::plain("accented")).unwrap().is_some());
+    assert!(library.semantic(&measured).unwrap().is_none(), "an index of another space is not searched");
+
+    let mut measured = measured;
+    let report = library.update_vectors(&mut measured, &quiet()).unwrap();
+    assert_eq!(report.embedded, 0, "the vectors are kept: only the graph is built again");
+    let index = library.semantic(&measured).unwrap().expect("built in the measured space");
+    assert_eq!(index.behind(), 0);
+    assert!(library.semantic(&Accented::plain("accented")).unwrap().is_none());
+
+    // Built again, it answers as an index built in that space from the start.
+    let fresh = Fixture::new(&notes());
+    let fresh_library = fresh.library();
+    let mut from_start = Accented::measured("accented");
+    fresh_library.update_vectors(&mut from_start, &quiet()).unwrap();
+    let fresh_index = fresh_library.semantic(&from_start).unwrap().unwrap();
+    let vector = measured.embed(&["зелёный чай, сколько градусов"], Role::Query).unwrap().pop().unwrap();
+    let scores = |index: &nooma_core::SemanticIndex| index.search(&vector, 4).unwrap().iter().map(|hit| hit.score).collect::<Vec<_>>();
+    let (rebuilt, built) = (scores(&index), scores(&fresh_index));
+    assert_eq!(rebuilt.len(), built.len());
+    for (a, b) in rebuilt.iter().zip(&built) {
+        assert!((a - b).abs() < 1e-5, "{rebuilt:?} against {built:?}");
+    }
+}
+
+/// A row the meaning found shows the sentence that answered the question,
+/// not the top of its chunk, and says where it is.
+#[test]
+fn a_hit_by_meaning_shows_the_sentence_closest_to_the_question() {
+    let fixture = Fixture::new(&[(
+        "kitchen.md",
+        "# Kitchen\n\nThe espresso grinder sits on the left. Wipe the drip tray on Fridays. Descale the kettle with citric acid.\n",
+    )]);
+    let library = fixture.library();
+    let mut model = Hashing::new("hash");
+    library.update_vectors(&mut model, &quiet()).unwrap();
+    let index = library.semantic(&Hashing::new("hash")).unwrap().unwrap();
+    let finder = library.finder().unwrap().unwrap();
+
+    let vector = model.embed(&["descale kettle citric"], Role::Query).unwrap().pop().unwrap();
+    let mut hit = index.hits(&finder, &vector, 1, None).unwrap().remove(0);
+    assert!(hit.fragment.starts_with("The espresso"), "{}", hit.fragment);
+    assert!(nooma_core::why::explain(&finder, &index, &mut model, &vector, &mut hit).unwrap());
+    let closest = hit.closest.clone().expect("the sentence is marked");
+    assert_eq!(&hit.fragment[closest], "Descale the kettle with citric acid.");
+    assert!(hit.fragment.starts_with('…'), "text before it was left out: {}", hit.fragment);
+    assert!(hit.highlights.is_empty(), "no word is claimed to match");
 }

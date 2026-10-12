@@ -44,6 +44,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
+use crate::fulltext::{Script, script_of_text};
 #[cfg(feature = "semantic")]
 use crate::library::unix_now;
 use crate::library::{Hit, Matched};
@@ -98,6 +99,10 @@ pub struct Ranked {
     pub words: Option<Place>,
     /// Where the meaning put it, if it found it.
     pub meaning: Option<Place>,
+    /// Whether the meaning alone found it in another language than the
+    /// query's - told apart by alphabet, as the full-text half tells them:
+    /// the row a person would otherwise not see a reason for.
+    pub across: bool,
 }
 
 /// What a search answers.
@@ -167,7 +172,12 @@ pub fn fuse(words: Matched, meaning: Vec<Hit>, now: i64, limit: usize) -> Answer
             };
             let (_, mut hit) = shown.expect("every entry was found by one half");
             hit.score = total * freshness(hit.modified, now);
-            Ranked { hit, words, meaning }
+            Ranked {
+                hit,
+                words,
+                meaning,
+                across: false,
+            }
         })
         .collect();
     // Ties go to the path, so two runs over the same library agree.
@@ -176,6 +186,24 @@ pub fn fuse(words: Matched, meaning: Vec<Hit>, now: i64, limit: usize) -> Answer
     Answer {
         hits: ranked,
         all_words: words.all_words,
+    }
+}
+
+/// Mark the rows the meaning alone found written in another alphabet than
+/// the text that was asked.
+pub fn mark_across(answer: &mut Answer, asked: &str) {
+    let asked = script_of_text(asked);
+    if asked == Script::Other {
+        return;
+    }
+    for ranked in &mut answer.hits {
+        if ranked.meaning.is_none() || ranked.words.is_some() {
+            continue;
+        }
+        let hit = &ranked.hit;
+        let shown = format!("{} {} {}", hit.title, hit.headings.join(" "), hit.fragment);
+        let found = script_of_text(&shown);
+        ranked.across = found != Script::Other && found != asked;
     }
 }
 
@@ -199,17 +227,28 @@ pub fn search(finder: &crate::Finder, meaning: Option<(&crate::SemanticIndex, &[
         Some((index, vector)) => index.hits(finder, vector, wanted, None)?,
         None => Vec::new(),
     };
-    Ok(fuse(words, close, unix_now(), limit))
+    let mut answer = fuse(words, close, unix_now(), limit);
+    mark_across(&mut answer, query);
+    Ok(answer)
 }
 
 /// The documents that say what a passage says, ranked as [`search`] ranks:
 /// only the meaning answers - a paragraph's words are not a query - and
-/// freshness weighs as it does there. `skip` leaves out the file the passage
-/// came from.
+/// freshness weighs as it does there. `passage` is the text `vector` was
+/// read from; `skip` leaves out the file it came from.
 #[cfg(feature = "semantic")]
-pub fn similar(finder: &crate::Finder, index: &crate::SemanticIndex, vector: &[f32], limit: usize, skip: Option<&std::path::Path>) -> crate::Result<Answer> {
+pub fn similar(
+    finder: &crate::Finder,
+    index: &crate::SemanticIndex,
+    passage: &str,
+    vector: &[f32],
+    limit: usize,
+    skip: Option<&std::path::Path>,
+) -> crate::Result<Answer> {
     let close = index.hits(finder, vector, candidates(limit), skip)?;
-    Ok(fuse(Matched::default(), close, unix_now(), limit))
+    let mut answer = fuse(Matched::default(), close, unix_now(), limit);
+    mark_across(&mut answer, passage);
+    Ok(answer)
 }
 
 #[cfg(test)]
@@ -231,6 +270,7 @@ mod tests {
             line: 1,
             fragment: format!("{name} fragment"),
             highlights: Vec::new(),
+            closest: None,
             tags: Vec::new(),
             modified,
             score,
@@ -348,6 +388,28 @@ mod tests {
         // Chunks holding none of the distinctive words weigh nothing alike.
         let tied = fuse(words(&[(old("b"), 0.0), (old("a"), 0.0), (old("c"), 0.0)], false), Vec::new(), NOW, 10);
         assert_eq!(order(&tied), ["a", "b", "c"]);
+    }
+
+    /// A row only the meaning found, written in the other alphabet, is
+    /// marked; one the words found too, or one in the query's alphabet, is
+    /// not.
+    #[test]
+    fn a_row_found_across_languages_is_marked() {
+        let mut russian = old("чай");
+        russian.fragment = "Зелёный чай заваривают водой около восьмидесяти градусов.".to_string();
+        let mut english = old("kettle");
+        english.fragment = "Descale the kettle with citric acid.".to_string();
+        let mut both = old("both");
+        both.fragment = "Descale both.".to_string();
+        let mut answer = fuse(words(&[(both.clone(), 1.0)], true), vec![russian, english, both], NOW, 10);
+        mark_across(&mut answer, "как убрать накипь");
+        let across = |answer: &Answer, title: &str| answer.hits.iter().find(|r| r.hit.title == title).unwrap().across;
+        assert!(across(&answer, "kettle"));
+        assert!(!across(&answer, "чай"), "the query's own alphabet");
+        assert!(!across(&answer, "both"), "the words found it too");
+
+        mark_across(&mut answer, "2026-10-12");
+        assert!(across(&answer, "kettle"), "a query of no alphabet leaves the marks as they were");
     }
 
     #[test]

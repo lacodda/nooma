@@ -19,6 +19,9 @@
 //! and on queries in one language finding documents in the other.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use crate::neutral::LanguageAxes;
 
 /// How a model turns the vectors of a passage's tokens into one vector.
 ///
@@ -78,6 +81,12 @@ pub struct ModelSpec {
     pub passage_prefix: &'static str,
     /// The most tokens of a passage it reads; the rest is cut off.
     pub max_tokens: usize,
+    /// The directions along which its vectors say which language a text is
+    /// in, as `data/axes/<id>.json` holds them; `None` for a model whose
+    /// language has not been measured, whose vectors are compared as they
+    /// come. See [`crate::neutral`].
+    #[serde(skip)]
+    pub language: Option<&'static str>,
 }
 
 /// The tokenizer's files, by the names every model here uses for them.
@@ -136,6 +145,7 @@ pub const MODELS: &[ModelSpec] = &[
         query_prefix: "query: ",
         passage_prefix: "passage: ",
         max_tokens: 512,
+        language: Some(include_str!("../data/axes/multilingual-e5-small.json")),
     },
     ModelSpec {
         id: "paraphrase-multilingual-minilm-l12-v2",
@@ -178,6 +188,7 @@ pub const MODELS: &[ModelSpec] = &[
         // The tokenizer would accept 512; the model was trained on 128 and
         // reads past that with the positions it never learned.
         max_tokens: 128,
+        language: None,
     },
     ModelSpec {
         id: "bge-m3",
@@ -230,6 +241,7 @@ pub const MODELS: &[ModelSpec] = &[
         // It reads 8192, and attention costs the square of the length. A
         // chunk is at most 1500 characters, which is well inside this.
         max_tokens: 1024,
+        language: None,
     },
 ];
 
@@ -290,6 +302,26 @@ impl ModelSpec {
     pub fn passage_text(&self, passage: &str) -> String {
         format!("{}{passage}", self.passage_prefix)
     }
+
+    /// The directions its vectors carry the language along, read from the
+    /// catalogue once; `None` when its language was not measured.
+    pub fn language_axes(&self) -> Option<&'static LanguageAxes> {
+        static READ: OnceLock<Vec<Option<LanguageAxes>>> = OnceLock::new();
+        let read = READ.get_or_init(|| {
+            MODELS
+                .iter()
+                .map(|spec| {
+                    // Checked against the parallel set and the model's recipe
+                    // by this module's tests: a file that does not read is a
+                    // build that never passed them.
+                    spec.language
+                        .map(|json| serde_json::from_str(json).expect("the catalogue's language axes read"))
+                })
+                .collect()
+        });
+        let at = MODELS.iter().position(|spec| spec.id == self.id)?;
+        read[at].as_ref()
+    }
 }
 
 /// The directory models are kept in, shared by the command line and the
@@ -322,6 +354,32 @@ mod tests {
             assert!(spec.revision.len() == 40, "{}: a revision is a full commit id", spec.id);
         }
         assert!(ModelSpec::find(DEFAULT_MODEL).is_some());
+    }
+
+    /// The directions kept for a model are the ones the parallel set and the
+    /// model's recipe give today: a pair edited, or a prefix changed, and the
+    /// catalogue would remove a language it no longer measures. The answer is
+    /// to run the `language_axes` example again.
+    #[test]
+    fn every_model_s_language_was_measured_on_this_set_with_this_recipe() {
+        use crate::Model as _;
+        use crate::neutral::{AXES, ParallelSet};
+        let set = ParallelSet::parse(include_str!("../data/parallel-en-ru.json")).unwrap();
+        assert!(ModelSpec::default_model().language_axes().is_some(), "the default model's language is measured");
+        for spec in MODELS {
+            let Some(axes) = spec.language_axes() else { continue };
+            assert_eq!(axes.set, set.hash(), "{}: measured on another parallel set", spec.id);
+            assert_eq!(axes.recipe, spec.recipe(), "{}: measured with another recipe", spec.id);
+            assert_eq!(axes.axes.len(), AXES, "{}", spec.id);
+            for (i, a) in axes.axes.iter().enumerate() {
+                assert_eq!(a.len(), spec.dimensions, "{}", spec.id);
+                for (j, b) in axes.axes.iter().enumerate() {
+                    let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+                    let wanted = if i == j { 1.0 } else { 0.0 };
+                    assert!((dot - wanted).abs() < 1e-4, "{}: axes {i} and {j} meet at {dot}", spec.id);
+                }
+            }
+        }
     }
 
     #[test]

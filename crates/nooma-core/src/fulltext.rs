@@ -138,10 +138,32 @@ impl Fields {
 
 /// The alphabet a word is written in, for the purpose of stemming it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Script {
+pub enum Script {
+    /// Russian, as far as the stemmer is concerned.
     Cyrillic,
+    /// English, likewise.
     Latin,
+    /// Numbers, codes, other alphabets: kept as written.
     Other,
+}
+
+/// The alphabet most words of a text are written in, counting Cyrillic and
+/// Latin words; `Other` when it has neither. Decided by words, as stemming
+/// is: a Russian note full of English names is still a Russian note.
+pub fn script_of_text(text: &str) -> Script {
+    let (mut cyrillic, mut latin) = (0usize, 0usize);
+    for word in text.split(|c: char| !c.is_alphanumeric()) {
+        match script_of(word) {
+            Script::Cyrillic => cyrillic += 1,
+            Script::Latin => latin += 1,
+            Script::Other => {}
+        }
+    }
+    match (cyrillic, latin) {
+        (0, 0) => Script::Other,
+        _ if cyrillic >= latin => Script::Cyrillic,
+        _ => Script::Latin,
+    }
 }
 
 fn script_of(word: &str) -> Script {

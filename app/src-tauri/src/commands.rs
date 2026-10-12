@@ -11,7 +11,9 @@
 //! together - needs the model, which the window also uses to compute vectors
 //! in the background: that work borrows the model one small batch at a time
 //! and lets a waiting search go first, so a search waits at most a batch for
-//! it, and the words' answer stands in until it comes.
+//! it, and the words' answer stands in until it comes. A row the meaning found
+//! in another language is then asked why, one at a time: the sentence that
+//! answered, read by the model as a search reads its query.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -21,7 +23,9 @@ use std::time::{Duration, Instant};
 use nooma_core::embed::OnnxEmbedder;
 use nooma_core::library::indexing_threads;
 use nooma_core::model::ModelSpec;
-use nooma_core::{Answer, Embedder, Finder, Library, Model, Progress, Ranked, Role, SemanticIndex, Status, UpdateReport, VectorReport, hybrid};
+use nooma_core::{
+    Answer, Embedder, Finder, LanguageAxes, Library, Model, Progress, Ranked, Role, SemanticIndex, Status, UpdateReport, VectorReport, hybrid, why,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager as _, State};
 use tauri_plugin_opener::OpenerExt;
@@ -187,6 +191,9 @@ struct Described {
     id: String,
     recipe: String,
     dimensions: usize,
+    /// The directions its vectors are compared without: the graph the
+    /// window builds and searches is in the space the command line's is.
+    language: Option<LanguageAxes>,
 }
 
 impl Described {
@@ -195,6 +202,7 @@ impl Described {
             id: model.model_id().to_string(),
             recipe: model.recipe(),
             dimensions: model.dimensions(),
+            language: model.language().cloned(),
         }
     }
 }
@@ -210,6 +218,10 @@ impl Model for Described {
 
     fn dimensions(&self) -> usize {
         self.dimensions
+    }
+
+    fn language(&self) -> Option<&LanguageAxes> {
+        self.language.as_ref()
     }
 }
 
@@ -231,6 +243,10 @@ impl Model for Shared<'_> {
 
     fn dimensions(&self) -> usize {
         self.model.dimensions()
+    }
+
+    fn language(&self) -> Option<&LanguageAxes> {
+        self.model.language()
     }
 }
 
@@ -364,10 +380,59 @@ pub fn meaning_in(state: &AppState, text: &str, role: Role, limit: Option<usize>
     let Some(finder) = finder.as_ref() else { return Ok(None) };
     let answer = match role {
         Role::Query => hybrid::search(finder, Some((index, &vector)), text, limit),
-        Role::Passage => hybrid::similar(finder, index, &vector, limit, None),
+        Role::Passage => hybrid::similar(finder, index, text, &vector, limit, None),
     }
     .map_err(|e| e.to_string())?;
     Ok(Some(Found::of(answer, true, index.behind(), started)))
+}
+
+/// The sentence of a row's chunk that answered: the fragment to show
+/// instead of the chunk's opening, and where the sentence is in it.
+#[derive(Debug, Serialize)]
+pub struct Explained {
+    pub fragment: String,
+    /// Byte offsets into the UTF-8 fragment, as highlights are.
+    pub closest: [usize; 2],
+}
+
+/// Why a row the meaning found in another language was found: the sentence
+/// of its chunk closest to the query - or to the pasted passage, when
+/// `passage` is set. `None` when there is no model, no vectors, or no such
+/// chunk any more.
+#[tauri::command]
+pub async fn explain(state: State<'_, AppState>, text: String, passage: bool, path: PathBuf, line: u32) -> Result<Option<Explained>, String> {
+    let role = if passage { Role::Passage } else { Role::Query };
+    explain_in(&state, &text, role, &path, line)
+}
+
+pub fn explain_in(state: &AppState, text: &str, role: Role, path: &Path, line: u32) -> Result<Option<Explained>, String> {
+    // A search like any other, for the background update: it waits for the
+    // model as one does.
+    let _counted = Searching::count(&state.searching);
+    if text.trim().is_empty() || !state.has_model() {
+        return Ok(None);
+    }
+    let library = state.library()?;
+    // Held in the order a search holds them: the vector index, then the
+    // finder, then the model.
+    let kept = state.meaning_index(&library)?;
+    let Some(index) = kept.as_ref() else { return Ok(None) };
+    let finder = finder_of(state)?;
+    let Some(finder) = finder.as_ref() else { return Ok(None) };
+    let Some(mut hit) = finder.chunks(&[(path.to_path_buf(), line)]).map_err(|e| e.to_string())?.pop().flatten() else {
+        return Ok(None);
+    };
+    let told = state.with_embedder(|embedder| {
+        let vector = embedder.embed(&[text], role).map_err(|e| e.to_string())?.pop().unwrap_or_default();
+        why::explain(finder, index, embedder, &vector, &mut hit).map_err(|e| e.to_string())
+    })?;
+    Ok(match (told, hit.closest) {
+        (Some(true), Some(closest)) => Some(Explained {
+            fragment: hit.fragment,
+            closest: [closest.start, closest.end],
+        }),
+        _ => None,
+    })
 }
 
 /// Progress of an update, as the `index-progress` and `vectors-progress`
@@ -737,6 +802,10 @@ mod tests {
         fn dimensions(&self) -> usize {
             64
         }
+
+        fn language(&self) -> Option<&LanguageAxes> {
+            None
+        }
     }
 
     impl Embedder for Hashing {
@@ -826,6 +895,37 @@ mod tests {
         assert!(whole.hits[1].words.is_none());
     }
 
+    /// Asked why a row was found, the window gets the sentence of its chunk
+    /// closest to the question, marked, in place of the chunk's opening.
+    #[test]
+    fn a_row_is_told_the_sentence_that_answered() {
+        let notes = tempfile::tempdir().unwrap();
+        let kitchen = notes.path().join("kitchen.md");
+        std::fs::write(
+            &kitchen,
+            "# Kitchen
+
+The espresso grinder sits on the left. Wipe the drip tray on Fridays. Descale the kettle with citric acid.
+",
+        )
+        .unwrap();
+        let (_store, state) = library_with_model(notes.path(), Duration::ZERO);
+        assert!(
+            explain_in(&state, "descale kettle", Role::Query, &kitchen, 3).unwrap().is_none(),
+            "no vectors yet"
+        );
+        vectors_in(&state, &|_| {}).unwrap();
+
+        let path = indexed_path(&state, &kitchen).unwrap();
+        let told = explain_in(&state, "descale kettle citric", Role::Query, &path, 3).unwrap().expect("a sentence");
+        assert_eq!(&told.fragment[told.closest[0]..told.closest[1]], "Descale the kettle with citric acid.");
+        assert!(
+            explain_in(&state, "descale kettle", Role::Query, &notes.path().join("gone.md"), 1)
+                .unwrap()
+                .is_none()
+        );
+    }
+
     /// A search counted as waiting holds the background update off the model
     /// until it is done: the hand-over does not rest on the mutex being fair.
     #[test]
@@ -836,6 +936,7 @@ mod tests {
             id: "hash".to_string(),
             recipe: "hash".to_string(),
             dimensions: 64,
+            language: None,
         };
         state.searching.fetch_add(1, Ordering::AcqRel);
         let done = AtomicBool::new(false);

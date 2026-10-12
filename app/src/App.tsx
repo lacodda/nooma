@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useLocale } from 'dowel-ui'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as chooseFolder } from '@tauri-apps/plugin-dialog'
-import { api, type Found, type MeaningStatus, type Ranked, type Source, type Status } from '@/lib/api'
+import { api, type Explained, type Found, type MeaningStatus, type Ranked, type Source, type Status } from '@/lib/api'
 import { splitHighlights } from '@/lib/highlight'
 import { flatten, isPassage } from '@/lib/passage'
 import { folderOf } from '@/lib/paths'
@@ -93,6 +93,31 @@ export function App() {
     selectedPath.current = hits[index]?.path ?? null
   }, [])
 
+  /** Ask each row the meaning found in another language why, top first, and
+   * show the sentence that answered as it comes. Stops when another search
+   * starts; a row that cannot be told keeps its chunk's opening. */
+  const tellWhy = useCallback(async (answer: Found, text: string, passage: boolean, current: () => boolean) => {
+    for (const hit of answer.hits) {
+      if (!current()) return
+      if (!hit.across || hit.highlights.length > 0 || hit.closest !== undefined) continue
+      let told: Explained | null
+      try {
+        told = await api.explain(text, passage, hit.path, hit.line)
+      } catch {
+        // The model failed on a sentence it read for a search a moment ago:
+        // the rows stay as the search showed them, which is still the answer.
+        return
+      }
+      if (!current() || told === null || told === undefined) continue
+      const { fragment, closest } = told
+      setFound((shown) =>
+        shown === null
+          ? shown
+          : { ...shown, hits: shown.hits.map((row) => (row.path === hit.path && row.line === hit.line ? { ...row, fragment, closest } : row)) },
+      )
+    }
+  }, [])
+
   const runSearch = useCallback(
     (text: string, passage: string | null) => {
       const ticket = ++asked.current
@@ -134,6 +159,7 @@ export function App() {
           if (result !== null) {
             whole = 'shown'
             show(result)
+            void tellWhy(result, passage ?? text, passage !== null, current)
           } else {
             whole = 'none'
             if (words !== null) show(words)
@@ -165,7 +191,7 @@ export function App() {
           if (current()) setFailure(String(error))
         })
     },
-    [select],
+    [select, tellWhy],
   )
 
   const readMeaningStatus = useCallback(async () => {
@@ -631,6 +657,11 @@ function ResultRow({
             {t('results.meaning')}
           </Badge>
         )}
+        {hit.across && (
+          <Badge variant="outline" title={t('results.acrossHint')} className={badge}>
+            {t('results.across')}
+          </Badge>
+        )}
         <span className="ml-auto flex shrink-0 items-center" aria-hidden>
           <span className="h-0.5 w-11 overflow-hidden rounded-full bg-line">
             <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.round(relevance * 100)}%` }} />
@@ -642,9 +673,14 @@ function ResultRow({
       </div>
       {hit.fragment !== '' && (
         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-dim">
-          {splitHighlights(hit.fragment, hit.highlights).map((piece, index) =>
+          {/* The words matched are marked as the words' badge is coloured;
+            * the sentence that answered by meaning, as the meaning's. */}
+          {splitHighlights(hit.fragment, hit.closest !== undefined ? [hit.closest] : hit.highlights).map((piece, index) =>
             piece.marked ? (
-              <mark key={index} className="border-b border-info bg-info-soft px-px text-text">
+              <mark
+                key={index}
+                className={cn('px-px text-text', hit.closest !== undefined ? 'rounded-xs bg-accent-soft' : 'border-b border-info bg-info-soft')}
+              >
                 {piece.text}
               </mark>
             ) : (

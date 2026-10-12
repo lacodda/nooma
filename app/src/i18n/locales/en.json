@@ -17,6 +17,8 @@
     "someWords": "some words",
     "someWordsHint": "Some of the words of the query occur in this document - no document has them all",
     "meaning": "meaning",
+    "across": "another language",
+    "acrossHint": "Found by meaning in another language than the query. The sentence closest to it is marked.",
     "line": "line {{line}}",
     "nothing": "Nothing found",
     "nothingBody": "Nothing contains these words, and nothing is close in meaning. Try other words, or fewer.",

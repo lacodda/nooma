@@ -27,6 +27,7 @@ const contracts: Ranked = {
   score: 0.26,
   words: { rank: 1, score: 2, share: 1 },
   meaning: null,
+  across: false,
 }
 const other: Ranked = {
   path: '/notes/other.txt',
@@ -41,6 +42,7 @@ const other: Ranked = {
   score: 0.15,
   words: { rank: 2, score: 1, share: 1 },
   meaning: null,
+  across: false,
 }
 const supply: Ranked = {
   path: '/notes/supply.md',
@@ -55,6 +57,7 @@ const supply: Ranked = {
   score: 0.11,
   words: null,
   meaning: { rank: 1, score: 0.87 },
+  across: false,
 }
 
 /** What the words alone answer. */
@@ -164,6 +167,26 @@ describe('App', () => {
     // The cosine is in the meaning's hint, not on the row.
     expect(within(rows[2] as HTMLElement).getByText('meaning').getAttribute('title')).toContain('0.87')
     expect(list.textContent).not.toContain('0.87')
+  })
+
+  it('tells a row found in another language why: the sentence that answered, marked', async () => {
+    const english: Ranked = { ...supply, across: true, fragment: 'Terms. The supply agreement renews each year unless cancelled.' }
+    answer(oneSource, ready, { ...whole, hits: [contracts, english] })
+    const sentence = 'The supply agreement renews each year unless cancelled.'
+    // Byte offsets: the ellipsis before the sentence is three bytes of UTF-8.
+    const told = { fragment: `…${sentence}`, closest: [3, 3 + sentence.length] }
+    const plain = invoke.getMockImplementation()
+    invoke.mockImplementation((command: string, args?: unknown) =>
+      command === 'explain' ? Promise.resolve(told) : (plain as (c: string, a?: unknown) => unknown)(command, args),
+    )
+    render(<App />)
+    await typed('договор поставки')
+    const mark = await screen.findByText(sentence, { selector: 'mark' })
+    expect(mark.className).toContain('bg-accent-soft')
+    expect(invoke).toHaveBeenCalledWith('explain', { text: 'договор поставки', passage: false, path: '/notes/supply.md', line: 1 })
+    expect(invoke.mock.calls.filter(([command]) => command === 'explain')).toHaveLength(1)
+    const row = screen.getByText('Supply terms').closest('li') as HTMLElement
+    expect(within(row).getByText('another language').getAttribute('title')).toContain('another language than the query')
   })
 
   it('shows the words at once while the whole answer is slow, and keeps the selection when it comes', async () => {

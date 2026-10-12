@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 
 use nooma_core::embed::OnnxEmbedder;
 use nooma_core::eval::{Evaluation, QuerySet};
-use nooma_core::{Embedder, Library, ModelSpec, Role};
+use nooma_core::neutral::{AXES, LanguageAxes, ParallelSet};
+use nooma_core::{Embedder, Library, Model as _, ModelSpec, Role};
 
 fn models_dir() -> PathBuf {
     match std::env::var_os("NOOMA_MODELS") {
@@ -86,50 +87,66 @@ fn the_model_finds_a_document_by_meaning_in_either_language() {
         }
     }
 
-    // The floors sit below what the model measured when it was chosen
-    // (overall MRR 0.63, hit@10 0.94; 1.00 within a language), by enough to
-    // absorb a runtime update and not by enough to hide a broken prefix or
-    // pooling, which cost far more than that.
-    assert!(meaning.overall.mrr >= 0.55, "MRR {:.2}", meaning.overall.mrr);
-    assert!(meaning.overall.hit_at_10 >= 0.9, "hit@10 {:.2}", meaning.overall.hit_at_10);
+    // The floors sit below what the model measured once its language was
+    // taken out (overall MRR 0.86, hit@10 1.00; 1.00 within a language), by
+    // enough to absorb a runtime update and not by enough to hide a broken
+    // prefix or pooling, which cost far more than that.
+    assert!(meaning.overall.mrr >= 0.8, "MRR {:.2}", meaning.overall.mrr);
+    assert!(meaning.overall.hit_at_10 >= 0.95, "hit@10 {:.2}", meaning.overall.hit_at_10);
     for group in ["ru→ru", "en→en", "keywords"] {
         let m = meaning.groups[group];
         assert!(m.mrr >= 0.95, "{group}: MRR {:.2}", m.mrr);
     }
 
-    // Across languages this model is weak, and the test says so rather than
-    // hiding it: it ranks the near miss in the question's own language above
-    // the answer in the other (hit@1 was 0.00 both ways when it was chosen).
-    // What it must still do is find the answer somewhere near the top, where
-    // the words of the question cannot find it at all.
-    let across: Vec<_> = meaning
-        .outcomes
-        .iter()
-        .filter(|o| matches!(o.group.as_deref(), Some("ru→en" | "en→ru")))
-        .collect();
-    let found = across.iter().filter(|o| o.rank.is_some()).count() as f64 / across.len() as f64;
-    assert!(found >= 0.7, "across languages, in the first ten: {found:.2}");
+    // Across languages. As the model makes them, its vectors rank the near
+    // miss in the question's own language above the answer in the other
+    // (MRR 0.17 en→ru, 0.35 ru→en); compared without the language, the answer
+    // leads or follows the near miss (0.67, 0.79). Words cannot find it at all.
     for group in ["ru→en", "en→ru"] {
-        assert!(
-            meaning.groups[group].mrr > words.groups[group].mrr,
-            "{group}: meaning {:.2} does not beat words {:.2}",
-            meaning.groups[group].mrr,
-            words.groups[group].mrr
-        );
+        let m = meaning.groups[group];
+        assert!(m.mrr >= 0.55, "{group}: MRR {:.2}", m.mrr);
+        assert!(m.hit_at_3 >= 0.9, "{group}: hit@3 {:.2}", m.hit_at_3);
+        assert!(m.mrr > words.groups[group].mrr + 0.5, "{group}: words {:.2}", words.groups[group].mrr);
     }
 
     // The one list `find` shows. Every question in this set is built so that
     // its words mislead - the decoys share them - and the words still must
-    // not push the answer the meaning found out of the first ten: that is
-    // what weighing them by how much of the question they hold is for (it
-    // measured hit@10 0.94 with it, 0.66 without). Within a language and for
-    // keywords it answers first, as either half alone does.
-    assert!(hybrid.overall.mrr >= 0.55, "hybrid MRR {:.2}", hybrid.overall.mrr);
+    // not push the answer the meaning found out of the first three: that is
+    // what weighing them by how much of the question they hold is for. Within
+    // a language and for keywords it answers first, as either half alone
+    // does; across languages the decoy that shares a word with the question
+    // may stand above the answer, not far above (0.56 en→ru, 0.46 ru→en, and
+    // 0.13, 0.24 with the language left in).
+    assert!(hybrid.overall.mrr >= 0.7, "hybrid MRR {:.2}", hybrid.overall.mrr);
     assert!(hybrid.overall.mrr > words.overall.mrr);
-    assert!(hybrid.overall.hit_at_10 >= 0.9, "hybrid hit@10 {:.2}", hybrid.overall.hit_at_10);
+    assert!(hybrid.overall.hit_at_3 >= 0.95, "hybrid hit@3 {:.2}", hybrid.overall.hit_at_3);
     for group in ["ru→ru", "en→en", "keywords"] {
         let m = hybrid.groups[group];
         assert!(m.mrr >= 0.95, "hybrid, {group}: MRR {:.2}", m.mrr);
+    }
+    for group in ["ru→en", "en→ru"] {
+        let m = hybrid.groups[group];
+        assert!(m.mrr >= 0.4, "hybrid, {group}: MRR {:.2}", m.mrr);
+    }
+}
+
+/// The directions the catalogue removes from this model's vectors are the
+/// ones the parallel set gives when measured with it now - not with the
+/// runtime it was measured with once. Compared as what they remove, since a
+/// direction and its opposite remove the same thing.
+#[test]
+fn the_catalogue_s_language_is_what_the_parallel_set_gives_this_model() {
+    let mut model = model();
+    let kept = model.language().expect("the default model's language is measured").clone();
+    let set = ParallelSet::parse(include_str!("../data/parallel-en-ru.json")).unwrap();
+    let measured = LanguageAxes::measure(&mut model, &set, AXES).unwrap();
+    assert_eq!(measured.set, kept.set);
+    assert_eq!(measured.recipe, kept.recipe);
+    // The overlap of the two pairs of directions: one per direction kept,
+    // when they span the same plane.
+    for axis in &kept.axes {
+        let along: f32 = measured.axes.iter().map(|m| m.iter().zip(axis).map(|(a, b)| a * b).sum::<f32>().powi(2)).sum();
+        assert!(along > 0.999, "a kept direction lies {along:.4} in the measured plane");
     }
 }
 

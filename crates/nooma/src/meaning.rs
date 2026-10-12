@@ -2,7 +2,9 @@
 //! a progress line, and asking both halves.
 //!
 //! Every command that searches by meaning answers from the stored index and
-//! says how much of the library it covers. Computing vectors is indexing -
+//! says how much of the library it covers. A row only the meaning found shows
+//! the sentence that answered - the model reads the sentences of its chunk -
+//! since there is no word of the query in it to show. Computing vectors is indexing -
 //! an hour for a large library the first time - so it belongs to
 //! `nooma index`, never to a search that was asked for an answer.
 
@@ -14,7 +16,7 @@ use anyhow::Result;
 use nooma_core::embed::OnnxEmbedder;
 use nooma_core::library::indexing_threads;
 use nooma_core::model::ModelSpec;
-use nooma_core::{Answer, Embedder as _, Finder, Library, Progress, Role, SemanticIndex, hybrid};
+use nooma_core::{Answer, Embedder as _, Finder, Library, Progress, Role, SemanticIndex, hybrid, why};
 
 use crate::model::size;
 
@@ -79,8 +81,8 @@ pub fn load(models: &Path) -> Result<Option<OnnxEmbedder>> {
     Ok(Some(OnnxEmbedder::load(spec, models, indexing_threads())?))
 }
 
-/// The vector index, and a text as the model read it.
-type Read = (SemanticIndex, Vec<f32>);
+/// The vector index, a text as the model read it, and the model.
+type Read = (SemanticIndex, Vec<f32>, OnnxEmbedder);
 
 /// The vector index and a text read by the model, when both can be had.
 ///
@@ -104,7 +106,20 @@ fn read(library: &Library, models: &Path, text: &str, role: Role) -> Result<(Mea
         state: State::Ready,
         behind: index.behind(),
     };
-    Ok((meaning, Some((index, vector))))
+    Ok((meaning, Some((index, vector, embedder))))
+}
+
+/// Show each row only the meaning found at the sentence that answered.
+fn explain(finder: &Finder, read: Option<Read>, answer: &mut Answer) -> Result<()> {
+    let Some((index, vector, mut embedder)) = read else {
+        return Ok(());
+    };
+    for ranked in &mut answer.hits {
+        if why::wants_why(ranked) {
+            why::explain(finder, &index, &mut embedder, &vector, &mut ranked.hit)?;
+        }
+    }
+    Ok(())
 }
 
 /// Ask a query of both halves, ranked as one list; the words alone when the
@@ -114,7 +129,8 @@ pub fn search(library: &Library, finder: Option<&Finder>, models: &Path, query: 
         return Ok((Answer::default(), read(library, models, query, Role::Query)?.0));
     };
     let (meaning, read) = read(library, models, query, Role::Query)?;
-    let answer = hybrid::search(finder, read.as_ref().map(|(index, vector)| (index, vector.as_slice())), query, limit)?;
+    let mut answer = hybrid::search(finder, read.as_ref().map(|(index, vector, _)| (index, vector.as_slice())), query, limit)?;
+    explain(finder, read, &mut answer)?;
     Ok((answer, meaning))
 }
 
@@ -124,7 +140,11 @@ pub fn similar(library: &Library, finder: Option<&Finder>, models: &Path, passag
     // question.
     let (meaning, read) = read(library, models, passage, Role::Passage)?;
     let answer = match (finder, read) {
-        (Some(finder), Some((index, vector))) => hybrid::similar(finder, &index, &vector, limit, skip)?,
+        (Some(finder), Some(read)) => {
+            let mut answer = hybrid::similar(finder, &read.0, passage, &read.1, limit, skip)?;
+            explain(finder, Some(read), &mut answer)?;
+            answer
+        }
         _ => Answer::default(),
     };
     Ok((answer, meaning))
