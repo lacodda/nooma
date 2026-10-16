@@ -29,6 +29,13 @@ rayon.workspace = true
 directories.workspace = true
 tantivy = "0.26"
 rust-stemmers = "1"
+# Text out of PDF, page by page, in pure Rust. Without its default features:
+# colour management is for rendering, which nooma does not do; the old RC4
+# cipher stays, since a PDF locked only by an owner password still has to be
+# opened with the empty one.
+pdf_oxide = { version = "0.3.78", default-features = false, features = ["legacy-crypto"] }
+# Ligatures and other compatibility characters a PDF's fonts map text to.
+unicode-normalization = "0.1"
 # Embeddings through ONNX Runtime. The runtime is linked statically, fetched
 # by `ort` when it is built - never while nooma runs.
 fastembed = { version = "7.1", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }

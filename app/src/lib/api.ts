@@ -22,10 +22,12 @@ export interface Status {
 
 export interface Hit {
   path: string
-  kind: 'markdown' | 'text'
+  kind: 'markdown' | 'text' | 'pdf'
   title: string
   headings: string[]
   line: number
+  /** The page the chunk is on, from 1; only a PDF's hit has one. */
+  page?: number
   fragment: string
   /** Byte offsets into the UTF-8 fragment, `[start, end]`. */
   highlights: [number, number][]
@@ -81,6 +83,8 @@ export interface UpdateReport {
   removed: number
   chunks: number
   skipped: { path: string; reason: string }[]
+  /** PDFs read in this update with no text in them - scans, found by name. */
+  textless: string[]
   unavailable: string[]
   rebuilt: string | null
   took_ms: number

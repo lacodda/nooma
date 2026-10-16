@@ -24,6 +24,7 @@ pub mod lang;
 pub mod library;
 pub mod model;
 pub mod neutral;
+pub mod pdf;
 pub mod repo;
 pub mod store;
 pub mod summary;

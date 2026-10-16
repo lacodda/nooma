@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand};
+use nooma_core::document::{self, DocKind};
 use nooma_core::model::ModelSpec;
 use nooma_core::{Error, Library, Ranked, UpdateReport, VectorReport};
 
@@ -245,6 +246,9 @@ fn print_report(report: &UpdateReport) {
     for skipped in &report.skipped {
         println!("skipped {}: {}", skipped.path.display(), skipped.reason);
     }
+    for path in &report.textless {
+        println!("no text in {} - a scan? found by its name only", path.display());
+    }
 }
 
 /// Bring the full-text index up to date before a reading command answers;
@@ -314,7 +318,7 @@ pub fn similar(args: SimilarArgs) -> Result<()> {
         std::io::stdin().read_to_string(&mut text).context("reading the passage from standard input")?;
         (text, None)
     } else {
-        let text = std::fs::read_to_string(&args.example).with_context(|| format!("reading {}", args.example.display()))?;
+        let text = read_example(&args.example).with_context(|| format!("reading {}", args.example.display()))?;
         (text, Some(std::path::absolute(&args.example)?))
     };
     if text.trim().is_empty() {
@@ -360,6 +364,16 @@ pub fn similar(args: SimilarArgs) -> Result<()> {
     Ok(())
 }
 
+/// The text of the file a passage is taken from: a PDF's pages as the
+/// library reads them, anything else as text.
+fn read_example(path: &Path) -> Result<String> {
+    if DocKind::of(path) != Some(DocKind::Pdf) {
+        return Ok(std::fs::read_to_string(path)?);
+    }
+    let paged = nooma_core::pdf::read(std::fs::read(path)?).map_err(anyhow::Error::msg)?;
+    Ok(paged.pages.iter().map(|page| document::clean_page(page)).collect::<Vec<_>>().join("\n\n"))
+}
+
 /// One row of the list: what it is, which halves found it, where, and the
 /// passage that answered.
 fn print_ranked(ranked: &Ranked, all_words: bool) {
@@ -375,7 +389,11 @@ fn print_ranked(ranked: &Ranked, all_words: bool) {
         heading.push_str(&headings.join(" › "));
     }
     println!("{heading} ({})", found_by(ranked, all_words));
-    println!("  {}:{}", hit.path.display(), hit.line);
+    // A line is where an editor opens a note; a PDF is read by its pages.
+    match hit.page {
+        Some(page) => println!("  {} · p. {page}", hit.path.display()),
+        None => println!("  {}:{}", hit.path.display(), hit.line),
+    }
     let fragment = hit.fragment.split_whitespace().collect::<Vec<_>>().join(" ");
     if !fragment.is_empty() {
         println!("  {fragment}");

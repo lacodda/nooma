@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- The source of handbook.pdf: three pages of synthetic text, English and Russian. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>handbook.html</title>
+<style>
+  body { font-family: "Times New Roman", serif; font-size: 12pt; margin: 0; }
+  section { break-after: page; }
+  section:last-child { break-after: auto; }
+  /* A narrow, hyphenated column: words are broken across lines, and the
+     reader has to join them again. */
+  .narrow { width: 7cm; text-align: justify; hyphens: auto; }
+  h1 { font-size: 16pt; }
+</style>
+</head>
+<body>
+<section lang="en">
+  <h1>Espresso machine warranty</h1>
+  <p>The machine is covered for two years from the date on the receipt. Keep the receipt and the serial number from the label under the drip tray: a claim without them is refused.</p>
+  <p>The warranty does not cover limescale. Descale the boiler once a month with a citric solution, never with vinegar.</p>
+</section>
+<section lang="ru">
+  <h1>Гарантийный ремонт</h1>
+  <p class="narrow">Для гарантийного обслуживания кофемашины нужен кассовый чек и серийный номер. Неисправность, вызванная накипью, гарантийным случаем не считается: производитель рекомендует ежемесячную очистку бойлера лимонной кислотой.</p>
+  <p class="narrow">Сервисный центр принимает заявку по телефону и назначает дату приёма в течение пяти рабочих дней.</p>
+</section>
+<section lang="en">
+  <h1>Repairs after the warranty</h1>
+  <p>Once the two years are over, the steam wand gasket is the part that wears first. A replacement gasket costs little and takes ten minutes to fit with a flat screwdriver.</p>
+</section>
+</body>
+</html>

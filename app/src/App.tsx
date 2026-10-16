@@ -604,6 +604,10 @@ function MeaningNotice({
   return <Quiet>{t('meaning.notYet')}</Quiet>
 }
 
+/** The badge before a row's title: what kind of file it is, as its
+ * extension says it. */
+const KIND_LABELS: Record<Ranked['kind'], string> = { markdown: 'MD', text: 'TXT', pdf: 'PDF' }
+
 function ResultRow({
   hit,
   allWords,
@@ -627,7 +631,9 @@ function ResultRow({
 
   // A note's top heading is usually its title; saying it twice is noise.
   const headings = hit.headings[0] === hit.title ? hit.headings.slice(1) : hit.headings
-  const where = [folderOf(hit.path, sources), ...(headings.length > 0 ? [headings.join(' › ')] : []), t('results.line', { line: hit.line })]
+  // A note is opened at a line, a PDF is read by its pages.
+  const place = hit.page !== undefined ? t('results.page', { page: hit.page }) : t('results.line', { line: hit.line })
+  const where = [folderOf(hit.path, sources), ...(headings.length > 0 ? [headings.join(' › ')] : []), place]
   const badge = 'shrink-0 rounded-xs px-1.5 py-0 font-mono text-2xs font-normal'
   return (
     <li
@@ -642,7 +648,7 @@ function ResultRow({
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className="shrink-0 rounded-xs border border-line px-1 font-mono text-2xs font-bold text-dim">
-          {hit.kind === 'markdown' ? 'MD' : 'TXT'}
+          {KIND_LABELS[hit.kind]}
         </span>
         <span className="truncate text-sm font-semibold">{hit.title}</span>
         {/* Which halves found it. The cosine is in the meaning's hint: it

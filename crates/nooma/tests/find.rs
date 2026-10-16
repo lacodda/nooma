@@ -80,6 +80,31 @@ impl Fixture {
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         self
     }
+
+    /// The notes with these PDFs from the core's fixtures beside them.
+    fn with_pdfs(self, names: &[&str]) -> Self {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../nooma-core/tests/pdf");
+        for name in names {
+            std::fs::copy(fixtures.join(name), self.notes.path().join(name)).unwrap();
+        }
+        self
+    }
+}
+
+#[test]
+fn a_pdf_is_listed_at_its_page() {
+    let fixture = Fixture::new().with_pdfs(&["handbook.pdf", "scan.pdf"]).added();
+    let index = stdout(&fixture.run(&["index"]));
+    assert!(index.contains("no text in ") && index.contains("scan.pdf - a scan?"), "{index}");
+
+    let json = json_of(&fixture.run(&["find", "gasket", "--json"]));
+    assert_eq!(json["hits"][0]["kind"], "pdf");
+    assert_eq!(json["hits"][0]["page"], 3);
+    assert_eq!(json["hits"][0]["headings"], serde_json::json!(["Repairs"]));
+
+    let text = stdout(&fixture.run(&["find", "gasket"]));
+    assert!(text.starts_with("handbook · Repairs (words)"), "{text}");
+    assert!(text.contains("handbook.pdf · p. 3"), "{text}");
 }
 
 #[test]
@@ -226,7 +251,9 @@ fn source_list_and_remove() {
 fn the_reference_page_documents_the_fields_that_are_printed() {
     let reference = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src/content/docs/reference/find.md");
     let page = std::fs::read_to_string(&reference).unwrap_or_else(|e| panic!("{}: {e}", reference.display()));
-    let fixture = Fixture::new().added();
+    // A PDF among the notes, so the fields only a PDF's hit carries are
+    // printed too.
+    let fixture = Fixture::new().with_pdfs(&["handbook.pdf"]).added();
     for args in [vec!["index", "--json"], vec!["source", "list", "--json"], vec!["find", "warranty", "--json"]] {
         let printed = json_of(&fixture.run(&args));
         assert!(printed.is_object(), "every --json prints one object");

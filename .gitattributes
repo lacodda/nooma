@@ -1,0 +1,3 @@
+# PDF fixtures are bytes: a line ending changed on checkout moves every
+# offset in the cross-reference table.
+*.pdf binary

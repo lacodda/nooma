@@ -24,8 +24,20 @@
 //! Those are fields of the [`Document`], not text mixed into the body, so a
 //! query can match a note by what it is tagged or by what points at it without
 //! the tag list turning up as the fragment.
+//!
+//! # PDF
+//!
+//! A PDF has pages where a note has headings, and a reader is told "page 12"
+//! rather than "line 340". A page always ends a chunk, so every chunk is on
+//! one page and the page a result names is the page the answer is on. Its
+//! bookmarks, where it has them, stand in for headings: a chunk carries the
+//! path of the last bookmark at or before its page. What is read out of a page
+//! is cleaned of what typesetting leaves in it - soft hyphens, ligatures, runs
+//! of spaces - before it is cut. The text itself comes from [`crate::pdf`].
 
 use std::path::Path;
+
+use unicode_normalization::UnicodeNormalization as _;
 
 /// How long a chunk may grow, in characters, before the next paragraph starts
 /// a new one.
@@ -35,13 +47,15 @@ use std::path::Path;
 /// once.
 pub const MAX_CHUNK_CHARS: usize = 1500;
 
-/// What kind of text a file holds, which decides how it is cut.
+/// What kind of document a file holds, which decides how it is read and cut.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocKind {
     /// Markdown: headings, fences, frontmatter and links mean something.
     Markdown,
     /// Plain text: only blank lines do.
     Text,
+    /// PDF: pages, and bookmarks where it has them.
+    Pdf,
 }
 
 impl DocKind {
@@ -52,6 +66,7 @@ impl DocKind {
         match extension.as_str() {
             "md" | "markdown" => Some(Self::Markdown),
             "txt" | "text" => Some(Self::Text),
+            "pdf" => Some(Self::Pdf),
             _ => None,
         }
     }
@@ -61,6 +76,20 @@ impl DocKind {
         match self {
             Self::Markdown => "markdown",
             Self::Text => "text",
+            Self::Pdf => "pdf",
+        }
+    }
+
+    /// The largest file of this kind that is read.
+    ///
+    /// A text file of 16 MB is a log or a dump, and reading it would hold up
+    /// every file behind it. A PDF that size is an ordinary book: its bytes
+    /// are mostly pictures, which are not read, and its text is a fraction of
+    /// them.
+    pub const fn max_bytes(self) -> u64 {
+        match self {
+            Self::Markdown | Self::Text => 16 * 1024 * 1024,
+            Self::Pdf => 256 * 1024 * 1024,
         }
     }
 }
@@ -91,19 +120,160 @@ pub struct Chunk {
     pub headings: Vec<String>,
     /// The text of the chunk, paragraphs separated by a blank line.
     pub text: String,
-    /// The 1-based line the chunk starts on, as an editor counts lines.
+    /// The 1-based line the chunk starts on, as an editor counts lines. In a
+    /// PDF, the line of the text read out of it, counted through the pages:
+    /// where the chunk is, not what a reader is told.
     pub line: u32,
+    /// The 1-based page the chunk is on: in a PDF, and nowhere else.
+    pub page: Option<u32>,
+}
+
+/// A paged document's text, as read out of it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Paged {
+    /// The text of each page, in order; an empty string for a page with no
+    /// text on it.
+    pub pages: Vec<String>,
+    /// The bookmarks, in the order the document lists them.
+    pub bookmarks: Vec<Bookmark>,
+    /// The title its metadata gives, if any.
+    pub title: Option<String>,
+}
+
+/// A bookmark: where it points, and the titles from the outermost bookmark
+/// down to this one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bookmark {
+    /// The 1-based page it points at.
+    pub page: u32,
+    /// Its title and the titles of the bookmarks it is nested in, outermost
+    /// first.
+    pub path: Vec<String>,
+}
+
+impl Paged {
+    /// A paged document from plain text, its pages separated by form feeds -
+    /// the way a paged document is written out as text.
+    pub fn from_text(text: &str) -> Self {
+        Self {
+            pages: text.split('\u{c}').map(str::to_string).collect(),
+            ..Self::default()
+        }
+    }
+
+    /// Whether no page holds any text: a scan, until it is read by OCR.
+    pub fn is_textless(&self) -> bool {
+        self.pages.iter().all(|page| page.trim().is_empty())
+    }
 }
 
 /// Read a file's text as a document of the given kind.
 ///
 /// `stem` is the file name without its extension, the title of last resort.
+/// A PDF's text is its pages separated by form feeds; [`read_paged`] reads
+/// one with its bookmarks and title.
 pub fn read(kind: DocKind, stem: &str, text: &str) -> Document {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     match kind {
         DocKind::Markdown => read_markdown(stem, text),
         DocKind::Text => read_plain(stem, text),
+        DocKind::Pdf => read_paged(stem, &Paged::from_text(text)),
     }
+}
+
+/// Read a paged document: each page cut on its own, under the bookmarks that
+/// lead to it.
+///
+/// The title is the file name. A PDF's metadata title is as often the name
+/// of the program that wrote it, or of the file it was printed from, as the
+/// name of the document; the file name is the one the reader sees in their
+/// folder and opens it by. A metadata title that names the document is kept
+/// as an alias, so the document is found by it too.
+pub fn read_paged(stem: &str, paged: &Paged) -> Document {
+    let mut bookmarks: Vec<&Bookmark> = paged.bookmarks.iter().filter(|b| !b.path.is_empty()).collect();
+    // By page, keeping the document's order among bookmarks on one page: the
+    // last one listed is the deepest, or the one that starts lowest.
+    bookmarks.sort_by_key(|bookmark| bookmark.page);
+
+    let mut builder = ChunkBuilder::default();
+    let mut line = 0;
+    let mut next_bookmark = 0;
+    let mut headings: &[String] = &[];
+    for (index, page) in paged.pages.iter().enumerate() {
+        let number = line_number(index);
+        while let Some(bookmark) = bookmarks.get(next_bookmark).filter(|b| b.page <= number) {
+            headings = &bookmark.path;
+            next_bookmark += 1;
+        }
+        builder.start_page(number, headings);
+        for text in clean_page(page).lines() {
+            if text.trim().is_empty() {
+                builder.end_paragraph();
+            } else {
+                builder.push_line(text, line_number(line));
+            }
+            line += 1;
+        }
+    }
+
+    let mut document = Document {
+        title: stem.to_string(),
+        chunks: non_empty(builder.finish(), Some(1)),
+        ..Document::default()
+    };
+    if let Some(title) = paged.title.as_deref().map(str::trim).filter(|title| names_a_document(title, stem)) {
+        document.aliases.push(title.to_string());
+    }
+    document
+}
+
+/// Whether a metadata title names the document rather than a file: not
+/// empty, not the file name again, and not a file name of its own - what a
+/// printer puts there, `Microsoft Word - report.docx`, `page.html`.
+fn names_a_document(title: &str, stem: &str) -> bool {
+    let looks_like_a_file = title
+        .rsplit_once('.')
+        .is_some_and(|(name, extension)| !name.is_empty() && (1..=5).contains(&extension.len()) && extension.chars().all(|c| c.is_ascii_alphanumeric()));
+    title.chars().any(char::is_alphabetic) && !title.eq_ignore_ascii_case(stem) && !looks_like_a_file
+}
+
+/// A page's text as typesetting left it, made into text a search can match.
+///
+/// A soft hyphen marks where a word was broken across lines; it goes with the
+/// line break and the spaces around it, and the word is whole again. What the
+/// fonts map to compatibility characters - ligatures, non-breaking spaces,
+/// full-width letters - becomes the ordinary characters (NFKC). A run of
+/// spaces becomes one: a PDF places words, and the gaps between them come out
+/// as spaces, as many as the gap was wide.
+pub fn clean_page(page: &str) -> String {
+    let mut joined = String::with_capacity(page.len());
+    let mut chars = page.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{ad}' {
+            while joined.ends_with(char::is_whitespace) {
+                joined.pop();
+            }
+            while chars.next_if(|c| c.is_whitespace()).is_some() {}
+            continue;
+        }
+        joined.push(c);
+    }
+    let normalized: String = joined.nfkc().collect();
+    let mut out = String::with_capacity(normalized.len());
+    for (index, line) in normalized.lines().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        let mut words = line.split([' ', '\t']).filter(|word| !word.is_empty());
+        if let Some(first) = words.next() {
+            out.push_str(first);
+            for word in words {
+                out.push(' ');
+                out.push_str(word);
+            }
+        }
+    }
+    out
 }
 
 fn read_plain(stem: &str, text: &str) -> Document {
@@ -119,7 +289,7 @@ fn read_plain(stem: &str, text: &str) -> Document {
     let chunks = builder.finish();
     Document {
         title: stem.to_string(),
-        chunks: non_empty(chunks),
+        chunks: non_empty(chunks, None),
         ..Document::default()
     }
 }
@@ -173,18 +343,20 @@ fn read_markdown(stem: &str, text: &str) -> Document {
     document.aliases = front.aliases;
     document.tags = tags;
     document.links = links;
-    document.chunks = non_empty(builder.finish());
+    document.chunks = non_empty(builder.finish(), None);
     document
 }
 
 /// A document with no text at all still gets one chunk, so a note that is
-/// only a title and tags can be found by them.
-fn non_empty(chunks: Vec<Chunk>) -> Vec<Chunk> {
+/// only a title and tags - or a scan - can be found by them. `page` is the
+/// page it says it is on, in a paged document.
+fn non_empty(chunks: Vec<Chunk>, page: Option<u32>) -> Vec<Chunk> {
     if chunks.is_empty() {
         vec![Chunk {
             headings: Vec::new(),
             text: String::new(),
             line: 1,
+            page,
         }]
     } else {
         chunks
@@ -207,6 +379,8 @@ struct ChunkBuilder {
     /// The paragraph being filled.
     paragraph: Vec<String>,
     paragraph_line: u32,
+    /// The page being read, in a paged document.
+    page: Option<u32>,
 }
 
 impl ChunkBuilder {
@@ -276,7 +450,17 @@ impl ChunkBuilder {
             headings: self.headings.iter().map(|(_, text)| text.clone()).collect(),
             text,
             line: self.current_line,
+            page: self.page,
         });
+    }
+
+    /// A new page ends the chunk before it, as a heading does, and puts the
+    /// chunks after it under these headings.
+    fn start_page(&mut self, page: u32, headings: &[String]) {
+        self.end_paragraph();
+        self.end_chunk();
+        self.page = Some(page);
+        self.headings = headings.iter().enumerate().map(|(level, text)| (level + 1, text.clone())).collect();
     }
 
     fn start_section(&mut self, level: usize, heading: String) {
@@ -566,7 +750,8 @@ mod tests {
     fn the_kind_comes_from_the_extension_without_case() {
         assert_eq!(DocKind::of(Path::new("a/b.MD")), Some(DocKind::Markdown));
         assert_eq!(DocKind::of(Path::new("a/b.txt")), Some(DocKind::Text));
-        assert_eq!(DocKind::of(Path::new("a/b.pdf")), None);
+        assert_eq!(DocKind::of(Path::new("a/b.Pdf")), Some(DocKind::Pdf));
+        assert_eq!(DocKind::of(Path::new("a/b.docx")), None);
         assert_eq!(DocKind::of(Path::new("a/README")), None);
     }
 
@@ -710,5 +895,124 @@ mod tests {
     fn a_byte_order_mark_is_not_text() {
         let doc = md("\u{feff}---\ntitle: T\n---\nbody\n");
         assert_eq!(doc.title, "T");
+    }
+
+    fn paged(pages: &[&str]) -> Paged {
+        Paged {
+            pages: pages.iter().map(|page| page.to_string()).collect(),
+            ..Paged::default()
+        }
+    }
+
+    fn bookmark(page: u32, path: &[&str]) -> Bookmark {
+        Bookmark {
+            page,
+            path: path.iter().map(|title| title.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn a_page_ends_a_chunk_and_every_chunk_names_its_page() {
+        // Two short pages would fit one chunk; they must not share one, or
+        // the second page's answer would be said to be on the first.
+        let doc = read_paged("book", &paged(&["first page", "second page\n\nits second paragraph", "", "fourth"]));
+        let chunks: Vec<(&str, u32, Option<u32>)> = doc.chunks.iter().map(|c| (c.text.as_str(), c.line, c.page)).collect();
+        assert_eq!(
+            chunks,
+            vec![
+                ("first page", 1, Some(1)),
+                ("second page\n\nits second paragraph", 2, Some(2)),
+                ("fourth", 5, Some(4)),
+            ],
+            "lines are counted through the pages, and a page with no text has no chunk"
+        );
+    }
+
+    #[test]
+    fn a_long_page_is_cut_and_each_piece_keeps_the_page() {
+        let paragraph = "word ".repeat(200);
+        let page = [paragraph.trim(), paragraph.trim(), paragraph.trim()].join("\n\n");
+        let doc = read_paged("book", &paged(&["intro", &page]));
+        assert!(doc.chunks.len() >= 3);
+        assert!(doc.chunks[1..].iter().all(|c| c.page == Some(2)));
+    }
+
+    #[test]
+    fn bookmarks_head_the_pages_from_theirs_to_the_next() {
+        let mut book = paged(&["preface", "one", "one more", "two", "two more"]);
+        book.bookmarks = vec![
+            bookmark(2, &["Part I"]),
+            bookmark(2, &["Part I", "Chapter 1"]),
+            bookmark(4, &["Part I", "Chapter 2"]),
+            // A bookmark whose page could not be told has no path to give.
+            bookmark(5, &[]),
+        ];
+        let doc = read_paged("book", &book);
+        let headings: Vec<Vec<&str>> = doc.chunks.iter().map(|c| c.headings.iter().map(String::as_str).collect()).collect();
+        assert_eq!(
+            headings,
+            vec![
+                vec![],
+                vec!["Part I", "Chapter 1"],
+                vec!["Part I", "Chapter 1"],
+                vec!["Part I", "Chapter 2"],
+                vec!["Part I", "Chapter 2"],
+            ]
+        );
+    }
+
+    #[test]
+    fn bookmarks_listed_out_of_page_order_still_head_their_pages() {
+        let mut book = paged(&["a", "b", "c"]);
+        book.bookmarks = vec![bookmark(3, &["Late"]), bookmark(1, &["Early"])];
+        let doc = read_paged("book", &book);
+        assert_eq!(doc.chunks[1].headings, vec!["Early"]);
+        assert_eq!(doc.chunks[2].headings, vec!["Late"]);
+    }
+
+    #[test]
+    fn a_soft_hyphen_joins_the_word_it_broke() {
+        // As a typesetter leaves it: the hyphen at the end of the line, or -
+        // read out in another order - at the start of the next.
+        assert_eq!(clean_page("определяе\u{ad}\nмая структура"), "определяемая структура");
+        assert_eq!(clean_page("определяе\n\u{ad} мая"), "определяемая");
+        assert_eq!(clean_page("по\u{ad}верить"), "поверить");
+    }
+
+    #[test]
+    fn ligatures_and_wide_gaps_become_plain_text() {
+        assert_eq!(clean_page("a \u{fb01}le  with\u{a0}\u{a0}gaps\t\tand\u{fb02}ow  "), "a file with gaps andflow");
+        assert_eq!(clean_page("  first\n\n  second  "), "first\n\nsecond");
+    }
+
+    #[test]
+    fn the_file_name_is_the_title_and_a_real_metadata_title_an_alias() {
+        let mut book = paged(&["text"]);
+        book.title = Some(" Coffee Machine Handbook ".to_string());
+        let doc = read_paged("handbook", &book);
+        assert_eq!(doc.title, "handbook");
+        assert_eq!(doc.aliases, vec!["Coffee Machine Handbook"]);
+
+        for junk in ["Microsoft Word - report.docx", "page.html", "", "  ", "HANDBOOK", "2025-03"] {
+            book.title = Some(junk.to_string());
+            assert!(read_paged("handbook", &book).aliases.is_empty(), "{junk:?} names a file, not the document");
+        }
+    }
+
+    #[test]
+    fn a_pdf_with_no_text_is_still_a_document_on_its_first_page() {
+        let scan = paged(&["", "  \n "]);
+        assert!(scan.is_textless());
+        let doc = read_paged("lease", &scan);
+        assert_eq!(doc.chunks.len(), 1);
+        assert_eq!((doc.chunks[0].text.as_str(), doc.chunks[0].page), ("", Some(1)));
+    }
+
+    #[test]
+    fn a_pdf_as_text_is_pages_between_form_feeds() {
+        let doc = read(DocKind::Pdf, "book", "one\u{c}two");
+        let pages: Vec<Option<u32>> = doc.chunks.iter().map(|c| c.page).collect();
+        assert_eq!(pages, vec![Some(1), Some(2)]);
+        assert!(md("text").chunks.iter().all(|c| c.page.is_none()), "only a paged document has pages");
     }
 }

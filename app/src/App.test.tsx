@@ -169,6 +169,28 @@ describe('App', () => {
     expect(list.textContent).not.toContain('0.87')
   })
 
+  it('says where a PDF answered by its page, and where a note did by its line', async () => {
+    const manual: Ranked = {
+      ...supply,
+      path: '/notes/manuals/kettle.pdf',
+      kind: 'pdf',
+      title: 'kettle',
+      headings: ['Care', 'Descaling'],
+      line: 340,
+      page: 12,
+    }
+    answer(oneSource, ready, { ...whole, hits: [manual, contracts] })
+    render(<App />)
+    await typed('descaling')
+    const row = (await screen.findByText('kettle')).closest('li') as HTMLElement
+    expect(within(row).getByText('PDF')).toBeTruthy()
+    expect(row.textContent).toContain('Care › Descaling · p. 12')
+    expect(row.textContent).not.toContain('line 340')
+    const note = screen.getByText('Договоры').closest('li') as HTMLElement
+    expect(within(note).getByText('MD')).toBeTruthy()
+    expect(note.textContent).toContain('line 5')
+  })
+
   it('tells a row found in another language why: the sentence that answered, marked', async () => {
     const english: Ranked = { ...supply, across: true, fragment: 'Terms. The supply agreement renews each year unless cancelled.' }
     answer(oneSource, ready, { ...whole, hits: [contracts, english] })

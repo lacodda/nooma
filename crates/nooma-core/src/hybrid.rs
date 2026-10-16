@@ -268,6 +268,7 @@ mod tests {
             title: name.to_string(),
             headings: Vec::new(),
             line: 1,
+            page: None,
             fragment: format!("{name} fragment"),
             highlights: Vec::new(),
             closest: None,

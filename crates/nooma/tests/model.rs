@@ -267,6 +267,12 @@ fn index_computes_the_vectors_and_find_and_similar_answer_by_meaning() {
     assert_eq!(piped["example"], "-");
     assert!(piped["hits"][0]["path"].as_str().unwrap().ends_with("kettle.md"), "{piped}");
 
+    // A PDF is a passage too, its text read as the library reads it: the
+    // handbook's first page says to descale with a citric solution.
+    let handbook = Path::new(env!("CARGO_MANIFEST_DIR")).join("../nooma-core/tests/pdf/handbook.pdf");
+    let from_pdf = json_of(&nooma(&["similar", handbook.to_str().unwrap(), "--json"], &models, store));
+    assert!(from_pdf["hits"][0]["path"].as_str().unwrap().ends_with("kettle.md"), "{from_pdf}");
+
     let page = reference("find.md");
     for printed in [&indexed, &found, &similar] {
         let mut fields = Vec::new();

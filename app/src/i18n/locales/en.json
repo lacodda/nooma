@@ -20,6 +20,7 @@
     "across": "another language",
     "acrossHint": "Found by meaning in another language than the query. The sentence closest to it is marked.",
     "line": "line {{line}}",
+    "page": "p. {{page}}",
     "nothing": "Nothing found",
     "nothingBody": "Nothing contains these words, and nothing is close in meaning. Try other words, or fewer.",
     "type": "Type to search",

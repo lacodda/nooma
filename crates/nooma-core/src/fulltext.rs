@@ -47,7 +47,7 @@ pub struct Fields {
     /// The file's absolute path: stored, and the term a file's chunks are
     /// deleted by.
     pub path: Field,
-    /// `markdown` or `text`.
+    /// `markdown`, `text` or `pdf`.
     pub kind: Field,
     /// The document's title.
     pub title: Field,
@@ -67,6 +67,8 @@ pub struct Fields {
     pub backlink_count: Field,
     /// The 1-based line the chunk starts on.
     pub line: Field,
+    /// The 1-based page the chunk is on; a PDF's chunks have one, no other.
+    pub page: Field,
     /// When the file was last modified, in seconds since the epoch.
     pub modified: Field,
 }
@@ -95,6 +97,7 @@ impl Fields {
             backlinks: builder.add_text_field("backlinks", stored),
             backlink_count: builder.add_u64_field("backlink_count", FAST),
             line: builder.add_u64_field("line", STORED | INDEXED),
+            page: builder.add_u64_field("page", STORED),
             modified: builder.add_u64_field("modified", STORED),
         };
         (builder.build(), fields)
@@ -115,6 +118,7 @@ impl Fields {
             backlinks: get("backlinks")?,
             backlink_count: get("backlink_count")?,
             line: get("line")?,
+            page: get("page")?,
             modified: get("modified")?,
         })
     }
