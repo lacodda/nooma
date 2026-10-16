@@ -87,6 +87,10 @@ and wire a new file into the model's catalogue entry. `cargo test -p nooma-core`
 
 Fixtures are written for the test. Nothing in the test corpus comes from a real repository or a real archive: nooma indexes personal files, and no fragment of real content belongs in the code, the tests, the fixtures or the screenshots.
 
+The PDFs in `crates/nooma-core/tests/pdf` are made from `source/handbook.html` by `source/make_fixtures.py`: Chrome prints it, as most PDFs are printed - a subset font, a real text layer, Russian hyphenated in a narrow column - and pypdf adds the outline, the metadata title and the two kinds of encryption. Change the HTML and run the script again rather than editing a PDF by hand; it needs Chrome and `pip install pypdf`.
+
+A PDF reader is chosen by what it reads out of PDFs whose text is known, not by how its output looks. Print a corpus whose words you have - the bilingual one in `tests/meaning` will do - in one column, two columns and a narrow hyphenated one, and count the words returned and the pairs of words returned in their order; then read a few real books and papers, Russian ones among them, for what the counts cannot see. ADR 0009 has the numbers that chose `pdf_oxide`.
+
 Green tests are not a verified product. Three defects in v0.1.0 were found only by running the binary against real repositories while 39 tests passed — a Windows path prefix leaking into every output, a type reported once per `impl` block, and a CLI flag that clashed with a positional argument so that no invocation parsed. Run it on something real before calling a version done.
 
 ## Principles

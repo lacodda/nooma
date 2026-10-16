@@ -17,7 +17,7 @@ The window comes as an installer on the same release page: `nooma_<version>_x64-
 
 ## What works today
 
-nooma searches folders of markdown and text by the words in them and by what they mean, from a window or from the shell, and indexes git repositories for [`rigger`](https://github.com/lacodda/rigger). Both halves answer as one list, ranked together; see [One list from two halves](/nooma/concepts/hybrid/).
+nooma searches folders of markdown, text and PDF by the words in them and by what they mean, from a window or from the shell, and indexes git repositories for [`rigger`](https://github.com/lacodda/rigger). Both halves answer as one list, ranked together; see [One list from two halves](/nooma/concepts/hybrid/).
 
 ## Search your folders
 
