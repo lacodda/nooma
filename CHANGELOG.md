@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.10.0] - 2026-10-16
+
+### Documentation
+- Describe PDF search
+
+### Features
+- Find a PDF at its page
+
+### Breaking Changes
+
+the full-text index goes to format 3 and is built
+again on the next update. In nooma-core the Chunk and Hit structs
+carry a page, DocKind has Pdf and a size limit of its own in place
+of the MAX_FILE_BYTES constant, and UpdateReport carries textless.
+The JSON of find and similar prints page for a PDF, and the JSON of
+index prints textless.
+
 ## [0.9.0] - 2026-10-12
 
 ### Build
