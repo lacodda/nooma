@@ -62,7 +62,10 @@ pub const SOURCES_FORMAT_VERSION: u32 = 1;
 ///
 /// 3: a chunk of a PDF carries its page, and the manifest says what read
 /// each file.
-pub const FULLTEXT_FORMAT_VERSION: u32 = 3;
+///
+/// 4: words are stemmed by the current Snowball rules (frostem), which cut
+/// some English words otherwise - `added` is `add`, no longer `ad`.
+pub const FULLTEXT_FORMAT_VERSION: u32 = 4;
 
 /// How documents are cut into chunks.
 ///

@@ -27,8 +27,12 @@ tree-sitter-go.workspace = true
 blake3.workspace = true
 rayon.workspace = true
 directories.workspace = true
-tantivy = "0.26"
-rust-stemmers = "1"
+tantivy = "0.27"
+# Snowball stemmers, the ones tantivy itself stems with. Held to one minor:
+# its minor is the date the upstream rules last changed, and a new one stems
+# some words differently - raised together with FULLTEXT_FORMAT_VERSION, or
+# the stored words are looked up by other rules and quietly do not match.
+frostem = { version = "~1.20260821.8", default-features = false, features = ["russian", "english"] }
 # Text out of PDF, page by page, in pure Rust. Without its default features:
 # colour management is for rendering, which nooma does not do; the old RC4
 # cipher stays, since a PDF locked only by an owner password still has to be
@@ -38,7 +42,12 @@ pdf_oxide = { version = "0.3.78", default-features = false, features = ["legacy-
 unicode-normalization = "0.1"
 # Embeddings through ONNX Runtime. The runtime is linked statically, fetched
 # by `ort` when it is built - never while nooma runs.
-fastembed = { version = "7.1", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }
+fastembed = { version = "7.2", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }
+# The runtime itself, for the one thing fastembed leaves to its caller: the
+# environment every model is loaded into. Pinned to the version fastembed
+# pins, so the two are one crate - a fastembed on another runtime fails to
+# resolve rather than handing over a type from a second copy.
+ort = { version = "=2.0.0-rc.15", default-features = false, optional = true }
 # The approximate nearest-neighbour graph over the vectors: a C++ library
 # built from source, so it lives behind the same feature as the model runner.
 usearch = { version = "2.26", optional = true }
@@ -50,7 +59,7 @@ usearch = { version = "2.26", optional = true }
 # `nooma` and the window turn it on.
 [features]
 default = []
-semantic = ["dep:fastembed", "dep:usearch"]
+semantic = ["dep:fastembed", "dep:ort", "dep:usearch"]
 
 [dev-dependencies]
 tempfile.workspace = true

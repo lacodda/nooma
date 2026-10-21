@@ -10,6 +10,9 @@ export default defineConfig({
 		starlight({
 			title: 'nooma',
 			description: 'Local semantic search over your files: find a document by what it is about, fully offline.',
+			// The 404 page is a content page (src/content/docs/404.md): Starlight's
+			// own route looks for that entry and warns on every build without it.
+			disable404Route: true,
 			logo: {
 				src: './src/assets/logo.svg',
 				alt: 'nooma',

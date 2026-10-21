@@ -206,8 +206,8 @@ impl<T: Tokenizer> Tokenizer for ScriptStemmerFilter<T> {
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
         ScriptStemmerStream {
             tail: self.inner.token_stream(text),
-            russian: rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::Russian),
-            english: rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English),
+            russian: frostem::Stemmer::new(frostem::Algorithm::Russian),
+            english: frostem::Stemmer::new(frostem::Algorithm::English),
         }
     }
 }
@@ -215,8 +215,8 @@ impl<T: Tokenizer> Tokenizer for ScriptStemmerFilter<T> {
 /// The stream [`ScriptStemmerFilter`] produces.
 pub struct ScriptStemmerStream<T> {
     tail: T,
-    russian: rust_stemmers::Stemmer,
-    english: rust_stemmers::Stemmer,
+    russian: frostem::Stemmer,
+    english: frostem::Stemmer,
 }
 
 impl<T: TokenStream> TokenStream for ScriptStemmerStream<T> {
@@ -298,6 +298,27 @@ mod tests {
     #[test]
     fn numbers_and_codes_are_kept_as_written() {
         assert_eq!(terms("INV-2025-0114"), vec!["inv", "2025", "0114"]);
+    }
+
+    /// The stems the stored index was built with. A stemmer that cuts these
+    /// words otherwise has new rules, and the index is built again by them:
+    /// raise `FULLTEXT_FORMAT_VERSION` along with it, then these stems.
+    #[test]
+    fn the_rules_are_the_ones_the_index_was_built_by() {
+        let pairs = [
+            ("договоров", "договор"),
+            ("гарантийного", "гарантийн"),
+            ("обслуживания", "обслуживан"),
+            ("ремонтировать", "ремонтирова"),
+            ("added", "add"),
+            ("evenings", "evening"),
+            ("organic", "organic"),
+            ("organizations", "organiz"),
+            ("warranties", "warranti"),
+        ];
+        for (word, stem) in pairs {
+            assert_eq!(terms(word), vec![stem], "{word}");
+        }
     }
 
     #[test]

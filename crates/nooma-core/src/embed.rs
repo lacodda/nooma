@@ -105,8 +105,10 @@ pub use onnx::OnnxEmbedder;
 #[cfg(feature = "semantic")]
 mod onnx {
     use std::path::Path;
+    use std::sync::{Mutex, PoisonError};
 
     use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
+    use ort::environment::Environment;
 
     use super::{Embedder, Model, Role, normalize};
     use crate::error::{Error, Result};
@@ -164,6 +166,7 @@ mod onnx {
                 user = user.with_external_initializer(name, read(weights)?);
             }
             let options = InitOptionsUserDefined::new()
+                .with_environment(environment()?)
                 .with_max_length(spec.max_tokens)
                 .with_intra_threads(threads.max(1));
             let model = TextEmbedding::try_new_from_user_defined(user, options).map_err(|e| Error::Embedding(e.to_string()))?;
@@ -174,6 +177,24 @@ mod onnx {
         pub fn spec(&self) -> &'static ModelSpec {
             self.spec
         }
+    }
+
+    /// The ONNX Runtime environment of this process, made by the first model
+    /// loaded and shared by every one after it.
+    ///
+    /// The runtime allows one environment a process, and refuses a second
+    /// even once the first is gone: a model loaded without this one would
+    /// load once and fail every time after - the window loading the model it
+    /// has just downloaded, a test comparing two.
+    fn environment() -> Result<Environment> {
+        static ENVIRONMENT: Mutex<Option<Environment>> = Mutex::new(None);
+        let mut held = ENVIRONMENT.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(environment) = held.as_ref() {
+            return Ok(environment.clone());
+        }
+        let environment = ort::init().with_name("nooma").build().map_err(|e| Error::Embedding(e.to_string()))?;
+        *held = Some(environment.clone());
+        Ok(environment)
     }
 
     impl Model for OnnxEmbedder {
@@ -218,6 +239,15 @@ mod onnx {
                 normalize(vector);
             }
             Ok(vectors)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn every_load_gets_the_one_environment() {
+            assert!(super::environment().is_ok());
+            assert!(super::environment().is_ok(), "a second environment is refused by the runtime");
         }
     }
 }
