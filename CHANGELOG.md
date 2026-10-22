@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.11.0] - 2026-10-21
+
+### Build
+- Update the stack
+
+### Documentation
+- Describe Word documents, books and encodings
+
+### Features
+- Read Word documents, books and text in any encoding
+
+### Breaking Changes
+
+the full-text index goes to format 4 and is built
+again on the next update, vectors kept. The new rules stem some
+English words otherwise - added is add, no longer ad.
+
+in nooma-core DocKind has Docx and Epub and no
+longer has of(), since a name no longer decides a kind - reading
+does; UpdateReport carries guessed. The JSON of index prints guessed,
+and a hit's kind may be docx or epub. Text that is not UTF-8 is read
+rather than skipped.
+
 ## [0.10.0] - 2026-10-16
 
 ### Documentation
