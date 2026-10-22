@@ -31,7 +31,7 @@ There is exactly one exception, and it is not in the default build: `--prose` ca
 
 ## What works today
 
-v0.10.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files, PDFs or an Obsidian vault, and search from a window with one field or from the shell:
+v0.11.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files, PDFs, Word documents, books or an Obsidian vault, and search from a window with one field or from the shell:
 
 <p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar and one list of results, each marked by the half that found it - a PDF at its page and bookmark first; Russian notes found for an English question are marked another language, with the sentence that answered highlighted" width="720"></p>
 
@@ -56,13 +56,15 @@ Any form of a word finds the others; the meaning finds the notes in words they d
 
 A PDF is read page by page: its result names the page the answer is on and the chapter its bookmarks give, and a word the typesetter broke across two lines is found whole. A scan has no text to read yet; it is found by its name, and the index says which files are scans.
 
+A Word document is read under its headings, a book under its table of contents, and a book is found by its author too. A file is what its bytes say, not its name: a PDF a browser saved as `invoice` is a PDF. A note saved in Windows-1251 or KOI8-R is read in its encoding, and the index says which encodings it had to guess.
+
 The model runs on your CPU and is fetched once, when you ask: a button in the window, `nooma model fetch` in the shell. The first reading of a large library takes an hour or so; it runs in the background, and search answers over what is read meanwhile. `nooma eval` measures each half and the list against questions whose answers you know, on your own folders.
 
 The repository index from earlier versions is still here: `nooma repo` reads a git repository into symbols, imports, module summaries and commit history, for [rigger](https://github.com/lacodda/rigger) and for scripts.
 
 ## Status
 
-v0.10.0. Markdown, text and PDF are searched by words and by meaning and answered with one list - in a window and on the command line - and a pasted passage finds its kin: the hybrid the name promises. A question in Russian finds the English document and the other way round, and says why; a PDF is found at its page. DOCX and EPUB come next. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.11.0. Markdown, text, PDF, Word documents and EPUB books are searched by words and by meaning and answered with one list - in a window and on the command line - and a pasted passage finds its kin: the hybrid the name promises. A question in Russian finds the English document and the other way round, and says why; a PDF is found at its page. Reading scans by OCR comes next. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 
