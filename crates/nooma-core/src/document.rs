@@ -34,9 +34,18 @@
 //! path of the last bookmark at or before its page. What is read out of a page
 //! is cleaned of what typesetting leaves in it - soft hyphens, ligatures, runs
 //! of spaces - before it is cut. The text itself comes from [`crate::pdf`].
+//!
+//! # Word documents and books
+//!
+//! A Word document and an EPUB are read out of their containers as
+//! [`Blocks`] - headings, paragraphs, and the parts a book is made of - and
+//! cut by the same rules: a heading ends a chunk, and so does the start of a
+//! part, which also says the headings it is under, as a PDF page's bookmarks
+//! do. Neither has lines or pages a reader is told about; where a chunk is,
+//! to a person, is the headings above it. The text comes from
+//! [`crate::docx`] and [`crate::epub`].
 
-use std::path::Path;
-
+use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization as _;
 
 /// How long a chunk may grow, in characters, before the next paragraph starts
@@ -48,7 +57,10 @@ use unicode_normalization::UnicodeNormalization as _;
 pub const MAX_CHUNK_CHARS: usize = 1500;
 
 /// What kind of document a file holds, which decides how it is read and cut.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// A file's kind is told by its bytes, not its name: see [`crate::reading`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DocKind {
     /// Markdown: headings, fences, frontmatter and links mean something.
     Markdown,
@@ -56,41 +68,49 @@ pub enum DocKind {
     Text,
     /// PDF: pages, and bookmarks where it has them.
     Pdf,
+    /// A Word document: headings by their styles, tables, notes.
+    Docx,
+    /// A book: chapters in reading order, under its contents.
+    Epub,
 }
 
 impl DocKind {
-    /// The kind a file is by its extension, or `None` for a file this build
-    /// does not read.
-    pub fn of(path: &Path) -> Option<Self> {
-        let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-        match extension.as_str() {
-            "md" | "markdown" => Some(Self::Markdown),
-            "txt" | "text" => Some(Self::Text),
-            "pdf" => Some(Self::Pdf),
-            _ => None,
-        }
-    }
-
     /// The name this kind goes by in `--json`.
     pub const fn name(self) -> &'static str {
         match self {
             Self::Markdown => "markdown",
             Self::Text => "text",
             Self::Pdf => "pdf",
+            Self::Docx => "docx",
+            Self::Epub => "epub",
         }
+    }
+
+    /// The kind a name from [`DocKind::name`] names.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Markdown, Self::Text, Self::Pdf, Self::Docx, Self::Epub]
+            .into_iter()
+            .find(|kind| kind.name() == name)
     }
 
     /// The largest file of this kind that is read.
     ///
     /// A text file of 16 MB is a log or a dump, and reading it would hold up
-    /// every file behind it. A PDF that size is an ordinary book: its bytes
-    /// are mostly pictures, which are not read, and its text is a fraction of
-    /// them.
+    /// every file behind it. A PDF, a Word document or a book that size is
+    /// ordinary: their bytes are mostly pictures, which are not read, and
+    /// their text is a fraction of them.
     pub const fn max_bytes(self) -> u64 {
         match self {
             Self::Markdown | Self::Text => 16 * 1024 * 1024,
-            Self::Pdf => 256 * 1024 * 1024,
+            Self::Pdf | Self::Docx | Self::Epub => 256 * 1024 * 1024,
         }
+    }
+
+    /// Whether a person is told the line a chunk starts on: in a file they
+    /// open in an editor, and nowhere else. A PDF is read by its pages, and a
+    /// Word document or a book has no lines a reader sees.
+    pub const fn has_lines(self) -> bool {
+        matches!(self, Self::Markdown | Self::Text)
     }
 }
 
@@ -140,6 +160,34 @@ pub struct Paged {
     pub title: Option<String>,
 }
 
+/// A document read out of a container - a Word document, a book - as the
+/// blocks it is built from, in reading order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Blocks {
+    /// What the document calls itself, when that is a better name for it
+    /// than its file's: a book's title. `None` names it by the file.
+    pub title: Option<String>,
+    /// Other names it is found by: a Word document's title in its
+    /// properties, a book's authors - a book is asked for by its author as
+    /// often as by its title.
+    pub aliases: Vec<String>,
+    /// The blocks.
+    pub blocks: Vec<Block>,
+}
+
+/// One block of a document read out of a container.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Block {
+    /// A heading, at its level: 1 is the outermost.
+    Heading(usize, String),
+    /// The start of a part - a page of a book: it ends the chunk before it
+    /// and puts the chunks after it under these headings, outermost first,
+    /// until the next heading or part.
+    Part(Vec<String>),
+    /// A paragraph; a line break inside it is a `\n`.
+    Paragraph(String),
+}
+
 /// A bookmark: where it points, and the titles from the outermost bookmark
 /// down to this one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,13 +220,59 @@ impl Paged {
 /// `stem` is the file name without its extension, the title of last resort.
 /// A PDF's text is its pages separated by form feeds; [`read_paged`] reads
 /// one with its bookmarks and title.
+///
+/// A Word document's or a book's text, without its container, is read as
+/// plain text; [`read_blocks`] reads one with its structure.
 pub fn read(kind: DocKind, stem: &str, text: &str) -> Document {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     match kind {
         DocKind::Markdown => read_markdown(stem, text),
-        DocKind::Text => read_plain(stem, text),
+        DocKind::Text | DocKind::Docx | DocKind::Epub => read_plain(stem, text),
         DocKind::Pdf => read_paged(stem, &Paged::from_text(text)),
     }
+}
+
+/// Read a document out of its blocks.
+///
+/// Its title is the one it gives when that names a document, or else the
+/// file name, which is then one of the names it is found by. Lines are
+/// counted as if the blocks were written out one per line with a blank line
+/// between: where a chunk is, as the vectors are keyed, not what a reader is
+/// told.
+pub fn read_blocks(stem: &str, blocks: &Blocks) -> Document {
+    let mut builder = ChunkBuilder::default();
+    let mut line = 0;
+    for block in &blocks.blocks {
+        match block {
+            Block::Heading(level, text) => {
+                builder.start_section((*level).max(1), text.clone());
+                line += 1;
+            }
+            Block::Part(path) => builder.start_part(path),
+            Block::Paragraph(text) => {
+                for text in text.lines() {
+                    builder.push_line(text, line_number(line));
+                    line += 1;
+                }
+                builder.end_paragraph();
+            }
+        }
+        line += 1;
+    }
+
+    let title = blocks.title.as_deref().map(str::trim).filter(|title| names_a_document(title, stem));
+    let mut document = Document {
+        title: title.unwrap_or(stem).to_string(),
+        chunks: non_empty(builder.finish(), None),
+        ..Document::default()
+    };
+    let others = blocks.aliases.iter().map(String::as_str).chain(title.map(|_| stem));
+    for alias in others.map(str::trim) {
+        if names_a_document(alias, &document.title) && !document.aliases.iter().any(|known| known == alias) {
+            document.aliases.push(alias.to_string());
+        }
+    }
+    document
 }
 
 /// Read a paged document: each page cut on its own, under the bookmarks that
@@ -457,9 +551,15 @@ impl ChunkBuilder {
     /// A new page ends the chunk before it, as a heading does, and puts the
     /// chunks after it under these headings.
     fn start_page(&mut self, page: u32, headings: &[String]) {
+        self.start_part(headings);
+        self.page = Some(page);
+    }
+
+    /// A new part - a page, a book's page - ends the chunk before it and
+    /// puts the chunks after it under these headings.
+    fn start_part(&mut self, headings: &[String]) {
         self.end_paragraph();
         self.end_chunk();
-        self.page = Some(page);
         self.headings = headings.iter().enumerate().map(|(level, text)| (level + 1, text.clone())).collect();
     }
 
@@ -747,15 +847,6 @@ mod tests {
     }
 
     #[test]
-    fn the_kind_comes_from_the_extension_without_case() {
-        assert_eq!(DocKind::of(Path::new("a/b.MD")), Some(DocKind::Markdown));
-        assert_eq!(DocKind::of(Path::new("a/b.txt")), Some(DocKind::Text));
-        assert_eq!(DocKind::of(Path::new("a/b.Pdf")), Some(DocKind::Pdf));
-        assert_eq!(DocKind::of(Path::new("a/b.docx")), None);
-        assert_eq!(DocKind::of(Path::new("a/README")), None);
-    }
-
-    #[test]
     fn a_heading_ends_a_chunk_and_names_the_next() {
         let doc = md("intro text\n\n# One\n\nfirst\n\n## Two\n\nsecond\n\n# Three\n\nthird\n");
         let chunks: Vec<(Vec<&str>, &str, u32)> = doc
@@ -1006,6 +1097,103 @@ mod tests {
         let doc = read_paged("lease", &scan);
         assert_eq!(doc.chunks.len(), 1);
         assert_eq!((doc.chunks[0].text.as_str(), doc.chunks[0].page), ("", Some(1)));
+    }
+
+    fn blocks(blocks: Vec<Block>) -> Blocks {
+        Blocks { blocks, ..Blocks::default() }
+    }
+
+    fn paragraph(text: &str) -> Block {
+        Block::Paragraph(text.to_string())
+    }
+
+    fn part(path: &[&str]) -> Block {
+        Block::Part(path.iter().map(|title| title.to_string()).collect())
+    }
+
+    fn headings_and_text(doc: &Document) -> Vec<(Vec<&str>, &str)> {
+        doc.chunks
+            .iter()
+            .map(|c| (c.headings.iter().map(String::as_str).collect(), c.text.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn a_part_ends_a_chunk_and_heads_the_ones_after_it() {
+        let book = blocks(vec![
+            part(&[]),
+            paragraph("title page"),
+            part(&["Winter"]),
+            paragraph("the lamp"),
+            part(&["Winter", "Fog"]),
+            paragraph("the horn"),
+            Block::Heading(3, "Diesel".into()),
+            paragraph("the tank"),
+            part(&["Repairs"]),
+            paragraph("the roof"),
+        ]);
+        let doc = read_blocks("book", &book);
+        assert_eq!(
+            headings_and_text(&doc),
+            vec![
+                (vec![], "title page"),
+                (vec!["Winter"], "the lamp"),
+                (vec!["Winter", "Fog"], "the horn"),
+                (vec!["Winter", "Fog", "Diesel"], "the tank"),
+                (vec!["Repairs"], "the roof"),
+            ]
+        );
+        assert!(doc.chunks.iter().all(|c| c.page.is_none()));
+        let lines: Vec<u32> = doc.chunks.iter().map(|c| c.line).collect();
+        assert!(
+            lines.windows(2).all(|pair| pair[0] < pair[1]),
+            "every chunk starts on a line of its own: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn a_heading_in_a_word_document_ends_a_chunk_and_names_the_next() {
+        let doc = read_blocks(
+            "lease",
+            &blocks(vec![
+                paragraph("Office lease"),
+                Block::Heading(1, "Terms".into()),
+                paragraph("rent"),
+                Block::Heading(2, "Rent".into()),
+                paragraph("1250 euros\na month"),
+            ]),
+        );
+        assert_eq!(
+            headings_and_text(&doc),
+            vec![
+                (vec![], "Office lease"),
+                (vec!["Terms"], "rent"),
+                (vec!["Terms", "Rent"], "1250 euros\na month")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_book_is_titled_by_its_title_and_found_by_its_file_name_and_authors() {
+        let mut book = blocks(vec![paragraph("text")]);
+        book.title = Some(" The Lighthouse Keeper's Notebook ".into());
+        book.aliases = vec!["Marta Fixture".into(), "Marta Fixture".into()];
+        let doc = read_blocks("9781234567897", &book);
+        assert_eq!(doc.title, "The Lighthouse Keeper's Notebook");
+        assert_eq!(doc.aliases, vec!["Marta Fixture"], "a number names no document, and a name is kept once");
+
+        let doc = read_blocks("lighthouse", &book);
+        assert_eq!(doc.aliases, vec!["Marta Fixture", "lighthouse"]);
+
+        book.title = Some("index.html".into());
+        assert_eq!(read_blocks("lighthouse", &book).title, "lighthouse", "a title that names a file is no title");
+    }
+
+    #[test]
+    fn a_document_with_no_text_still_has_a_chunk() {
+        let doc = read_blocks("empty", &blocks(vec![part(&["Cover"])]));
+        assert_eq!(doc.chunks.len(), 1);
+        assert!(doc.chunks[0].text.is_empty());
     }
 
     #[test]

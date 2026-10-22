@@ -22,9 +22,12 @@ export interface Status {
 
 export interface Hit {
   path: string
-  kind: 'markdown' | 'text' | 'pdf'
+  /** What the file is, as its bytes told it. */
+  kind: 'markdown' | 'text' | 'pdf' | 'docx' | 'epub'
   title: string
   headings: string[]
+  /** Where the chunk is: a line of a note, and for the other kinds a place
+   * the library keys the chunk by rather than one shown. */
   line: number
   /** The page the chunk is on, from 1; only a PDF's hit has one. */
   page?: number
@@ -83,8 +86,11 @@ export interface UpdateReport {
   removed: number
   chunks: number
   skipped: { path: string; reason: string }[]
-  /** PDFs read in this update with no text in them - scans, found by name. */
+  /** PDFs, Word documents and books read in this update with no text in
+   * them - scans, found by name. */
   textless: string[]
+  /** Text files whose encoding was guessed, with the guess. */
+  guessed: { path: string; encoding: string }[]
   unavailable: string[]
   rebuilt: string | null
   took_ms: number

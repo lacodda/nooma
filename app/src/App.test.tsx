@@ -191,6 +191,21 @@ describe('App', () => {
     expect(note.textContent).toContain('line 5')
   })
 
+  it('says where a Word document or a book answered by its headings alone', async () => {
+    const lease: Ranked = { ...supply, path: '/notes/lease', kind: 'docx', title: 'lease', headings: ['Terms', 'Rent'], line: 9 }
+    const book: Ranked = { ...supply, path: '/notes/book.epub', kind: 'epub', title: 'Notebook', headings: ['Winter'], line: 21 }
+    answer(oneSource, ready, { ...whole, hits: [lease, book] })
+    render(<App />)
+    await typed('rent')
+    const row = (await screen.findByText('lease')).closest('li') as HTMLElement
+    expect(within(row).getByText('DOCX')).toBeTruthy()
+    expect(row.textContent).toContain('Terms › Rent')
+    expect(row.textContent).not.toContain('line 9')
+    const chapter = screen.getByText('Notebook').closest('li') as HTMLElement
+    expect(within(chapter).getByText('EPUB')).toBeTruthy()
+    expect(chapter.textContent).not.toContain('line 21')
+  })
+
   it('tells a row found in another language why: the sentence that answered, marked', async () => {
     const english: Ranked = { ...supply, across: true, fragment: 'Terms. The supply agreement renews each year unless cancelled.' }
     answer(oneSource, ready, { ...whole, hits: [contracts, english] })

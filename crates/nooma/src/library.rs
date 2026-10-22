@@ -8,10 +8,11 @@
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Args, Subcommand};
-use nooma_core::document::{self, DocKind};
+use nooma_core::document::DocKind;
 use nooma_core::model::ModelSpec;
+use nooma_core::reading::Unread;
 use nooma_core::{Error, Library, Ranked, UpdateReport, VectorReport};
 
 use crate::meaning::{self, State};
@@ -249,6 +250,26 @@ fn print_report(report: &UpdateReport) {
     for path in &report.textless {
         println!("no text in {} - a scan? found by its name only", path.display());
     }
+    print_guessed(report);
+}
+
+/// The files whose encoding was guessed, counted by the guess: a wrong one is
+/// the reason a file is found by nothing, and the list in `--json` names
+/// them.
+fn print_guessed(report: &UpdateReport) {
+    if report.guessed.is_empty() {
+        return;
+    }
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for guessed in &report.guessed {
+        match counts.iter_mut().find(|(encoding, _)| *encoding == guessed.encoding) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((&guessed.encoding, 1)),
+        }
+    }
+    let counted: Vec<String> = counts.iter().map(|(encoding, count)| format!("{encoding} {count}")).collect();
+    let files = if report.guessed.len() == 1 { "file is" } else { "files are" };
+    println!("{} {files} not UTF-8, read in a guessed encoding: {}", report.guessed.len(), counted.join(", "));
 }
 
 /// Bring the full-text index up to date before a reading command answers;
@@ -364,14 +385,13 @@ pub fn similar(args: SimilarArgs) -> Result<()> {
     Ok(())
 }
 
-/// The text of the file a passage is taken from: a PDF's pages as the
-/// library reads them, anything else as text.
+/// The text of the file a passage is taken from, as the library reads it.
 fn read_example(path: &Path) -> Result<String> {
-    if DocKind::of(path) != Some(DocKind::Pdf) {
-        return Ok(std::fs::read_to_string(path)?);
-    }
-    let paged = nooma_core::pdf::read(std::fs::read(path)?).map_err(anyhow::Error::msg)?;
-    Ok(paged.pages.iter().map(|page| document::clean_page(page)).collect::<Vec<_>>().join("\n\n"))
+    let opened = nooma_core::reading::read_path(path).map_err(|unread| match unread {
+        Unread::NotADocument(what) => anyhow!("not a document nooma reads: {what}"),
+        Unread::Failed(why) => anyhow!("{why}"),
+    })?;
+    Ok(opened.document.chunks.iter().map(|chunk| chunk.text.as_str()).collect::<Vec<_>>().join("\n\n"))
 }
 
 /// One row of the list: what it is, which halves found it, where, and the
@@ -389,10 +409,13 @@ fn print_ranked(ranked: &Ranked, all_words: bool) {
         heading.push_str(&headings.join(" › "));
     }
     println!("{heading} ({})", found_by(ranked, all_words));
-    // A line is where an editor opens a note; a PDF is read by its pages.
+    // A line is where an editor opens a note; a PDF is read by its pages; a
+    // Word document or a book is found in by the headings above.
+    let has_lines = DocKind::from_name(&hit.kind).is_some_and(DocKind::has_lines);
     match hit.page {
         Some(page) => println!("  {} · p. {page}", hit.path.display()),
-        None => println!("  {}:{}", hit.path.display(), hit.line),
+        None if has_lines => println!("  {}:{}", hit.path.display(), hit.line),
+        None => println!("  {}", hit.path.display()),
     }
     let fragment = hit.fragment.split_whitespace().collect::<Vec<_>>().join(" ");
     if !fragment.is_empty() {

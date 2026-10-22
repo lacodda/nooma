@@ -277,16 +277,31 @@ fn exclusions_hidden_folders_and_ignore_files_are_honoured() {
 }
 
 #[test]
-fn text_that_is_not_utf8_is_skipped_and_said_so() {
+fn text_in_a_legacy_encoding_is_read_and_the_guess_is_reported() {
     let fixture = Fixture::new();
-    // "привет" in Windows-1251.
-    std::fs::write(fixture.path("home/legacy.txt"), [0xEF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2]).unwrap();
+    let legacy: Vec<u8> = "Сторож обходит склад дважды за ночь и записывает показания счётчиков в журнал."
+        .chars()
+        .map(|c| match c {
+            // Windows-1251: А..я at 0xC0..0xFF, ё at 0xB8.
+            'А'..='я' => (c as u32 - 'А' as u32 + 0xC0) as u8,
+            'ё' => 0xB8,
+            c => c as u8,
+        })
+        .collect();
+    std::fs::write(fixture.path("home/legacy.txt"), legacy).unwrap();
+    std::fs::write(fixture.path("home/blob.txt"), [0u8, 1, 2, 3, 0xFF, 0xFE, 7, 8].repeat(64)).unwrap();
     let mut library = fixture.library();
     library.add_source(&fixture.corpus, Vec::new()).unwrap();
     let report = library.update().unwrap();
-    assert_eq!(report.skipped.len(), 1);
-    assert!(report.skipped[0].path.ends_with("legacy.txt"));
-    assert_eq!(report.documents, 9);
+    assert_eq!(report.guessed.len(), 1);
+    assert!(report.guessed[0].path.ends_with("legacy.txt"));
+    assert_eq!(report.guessed[0].encoding, "windows-1251");
+    assert_eq!(report.skipped.len(), 1, "{:?}", report.skipped);
+    assert!(report.skipped[0].path.ends_with("blob.txt"));
+    assert_eq!(report.skipped[0].reason, "binary data, not text");
+    assert_eq!(report.documents, 10);
+    assert_eq!(found(&library, "сторож журнал"), vec!["legacy.txt"]);
+    assert!(library.update().unwrap().guessed.is_empty(), "a file read before is not guessed for again");
 }
 
 #[test]

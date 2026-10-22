@@ -9,9 +9,6 @@
 //! be read rather than an update that died. PDF has a thousand producers, and
 //! one malformed file in a folder of thousands must not cost the other ones.
 
-use std::any::Any;
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use pdf_oxide::PdfDocument;
 use pdf_oxide::outline::{Destination, OutlineItem};
 
@@ -32,15 +29,7 @@ pub fn reader() -> String {
 /// A page the library fails on reads as a page with no text, so one bad page
 /// does not lose a book; a document whose every page fails is not read.
 pub fn read(bytes: Vec<u8>) -> Result<Paged, String> {
-    guarded(|| read_unguarded(bytes))
-}
-
-/// A panic in the reader, as a reason the file was not read.
-fn guarded<T>(read: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    match catch_unwind(AssertUnwindSafe(read)) {
-        Ok(result) => result,
-        Err(panic) => Err(format!("the PDF reader failed on it: {}", panic_message(&*panic))),
-    }
+    crate::reading::guarded("the PDF reader", || read_unguarded(bytes))
 }
 
 fn read_unguarded(bytes: Vec<u8>) -> Result<Paged, String> {
@@ -112,14 +101,6 @@ fn title(doc: &PdfDocument) -> Option<String> {
     let info = doc.resolve_object(info).ok()?;
     let title = doc.resolve_object(info.as_dict()?.get("Title")?).ok()?;
     Some(pdf_oxide::optional_content::decode_pdf_text_string(title.as_string()?))
-}
-
-fn panic_message(panic: &(dyn Any + Send)) -> String {
-    panic
-        .downcast_ref::<&str>()
-        .map(|message| (*message).to_string())
-        .or_else(|| panic.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "a panic with no message".to_string())
 }
 
 #[cfg(test)]
@@ -198,13 +179,5 @@ mod tests {
         let mut bytes = fixture("handbook.pdf");
         bytes.truncate(bytes.len() / 3);
         let _ = read(bytes);
-    }
-
-    #[test]
-    fn a_panic_in_the_reader_is_a_file_not_read() {
-        let result: Result<(), String> = guarded(|| panic!("index out of bounds"));
-        assert_eq!(result, Err("the PDF reader failed on it: index out of bounds".to_string()));
-        let result: Result<(), String> = guarded(|| panic!("{} pages", 3));
-        assert_eq!(result, Err("the PDF reader failed on it: 3 pages".to_string()));
     }
 }

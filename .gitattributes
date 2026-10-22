@@ -1,3 +1,10 @@
 # PDF fixtures are bytes: a line ending changed on checkout moves every
 # offset in the cross-reference table.
 *.pdf binary
+
+# Word documents and books are zip archives, and the encoding and kind
+# fixtures are the bytes under test: none of them is text to git.
+*.docx binary
+*.epub binary
+crates/nooma-core/tests/formats/encodings/** binary
+crates/nooma-core/tests/formats/kinds/** binary

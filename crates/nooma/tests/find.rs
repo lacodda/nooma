@@ -83,9 +83,20 @@ impl Fixture {
 
     /// The notes with these PDFs from the core's fixtures beside them.
     fn with_pdfs(self, names: &[&str]) -> Self {
-        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../nooma-core/tests/pdf");
+        self.with_fixtures("pdf", names)
+    }
+
+    /// The notes with these files from the core's fixtures of the other
+    /// formats beside them: Word documents, books, encodings.
+    fn with_formats(self, names: &[&str]) -> Self {
+        self.with_fixtures("formats", names)
+    }
+
+    fn with_fixtures(self, folder: &str, names: &[&str]) -> Self {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../nooma-core/tests").join(folder);
         for name in names {
-            std::fs::copy(fixtures.join(name), self.notes.path().join(name)).unwrap();
+            let file = Path::new(name).file_name().unwrap();
+            std::fs::copy(fixtures.join(name), self.notes.path().join(file)).unwrap();
         }
         self
     }
@@ -105,6 +116,38 @@ fn a_pdf_is_listed_at_its_page() {
     let text = stdout(&fixture.run(&["find", "gasket"]));
     assert!(text.starts_with("handbook · Repairs (words)"), "{text}");
     assert!(text.contains("handbook.pdf · p. 3"), "{text}");
+}
+
+#[test]
+fn a_word_document_and_a_book_are_listed_by_their_files_under_their_headings() {
+    let fixture = Fixture::new().with_formats(&["lease.docx", "book.epub"]).added();
+    fixture.run(&["index"]);
+
+    let json = json_of(&fixture.run(&["find", "ceramic tiles", "--json"]));
+    assert_eq!(json["hits"][0]["kind"], "docx");
+    assert_eq!(json["hits"][0]["headings"], serde_json::json!(["Terms"]));
+    let text = stdout(&fixture.run(&["find", "ceramic tiles"]));
+    assert!(text.starts_with("lease · Terms (words)"), "{text}");
+    let place = text.lines().nth(1).unwrap();
+    assert!(place.trim_end().ends_with("lease.docx"), "the file alone, no line: {place:?}");
+
+    let text = stdout(&fixture.run(&["find", "fog horn"]));
+    assert!(
+        text.starts_with("The Lighthouse Keeper\u{2019}s Notebook · Winter on the cape › The fog signal (words)"),
+        "{text}"
+    );
+    assert!(text.lines().nth(1).unwrap().trim_end().ends_with("book.epub"), "{text}");
+}
+
+#[test]
+fn index_says_which_encodings_it_guessed() {
+    let fixture = Fixture::new()
+        .with_formats(&["encodings/windows-1251.txt", "encodings/koi8-r.txt", "encodings/ibm866.txt"])
+        .added();
+    let index = stdout(&fixture.run(&["index"]));
+    assert!(index.contains("3 files are not UTF-8, read in a guessed encoding: "), "{index}");
+    assert!(index.contains("windows-1251 1") && index.contains("IBM866 1"), "{index}");
+    assert!(stdout(&fixture.run(&["find", "сторож обходит"])).contains("windows-1251.txt"));
 }
 
 #[test]
@@ -252,8 +295,12 @@ fn the_reference_page_documents_the_fields_that_are_printed() {
     let reference = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src/content/docs/reference/find.md");
     let page = std::fs::read_to_string(&reference).unwrap_or_else(|e| panic!("{}: {e}", reference.display()));
     // A PDF among the notes, so the fields only a PDF's hit carries are
-    // printed too.
-    let fixture = Fixture::new().with_pdfs(&["handbook.pdf"]).added();
+    // printed too, and a text whose encoding is guessed, so the report names
+    // one.
+    let fixture = Fixture::new()
+        .with_pdfs(&["handbook.pdf"])
+        .with_formats(&["encodings/windows-1251.txt"])
+        .added();
     for args in [vec!["index", "--json"], vec!["source", "list", "--json"], vec!["find", "warranty", "--json"]] {
         let printed = json_of(&fixture.run(&args));
         assert!(printed.is_object(), "every --json prints one object");

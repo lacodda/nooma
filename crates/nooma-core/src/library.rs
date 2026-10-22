@@ -46,6 +46,7 @@ use tantivy::{DocAddress, DocId, Index, IndexWriter, Score, SegmentReader, Tanti
 use crate::document::{self, DocKind, Document};
 use crate::error::{Error, Result};
 use crate::fulltext::{self, Fields};
+use crate::reading::{self, Unread};
 
 /// The format of `sources.json`.
 pub const SOURCES_FORMAT_VERSION: u32 = 1;
@@ -64,7 +65,9 @@ pub const SOURCES_FORMAT_VERSION: u32 = 1;
 /// each file.
 ///
 /// 4: words are stemmed by the current Snowball rules (frostem), which cut
-/// some English words otherwise - `added` is `add`, no longer `ad`.
+/// some English words otherwise - `added` is `add`, no longer `ad`; and the
+/// manifest says what each file is, as its bytes told it, and which files
+/// with no extension were looked at and are no documents.
 pub const FULLTEXT_FORMAT_VERSION: u32 = 4;
 
 /// How documents are cut into chunks.
@@ -104,6 +107,18 @@ struct Manifest {
     indexed_at: Option<i64>,
     /// Every indexed file, by its path as a string.
     files: BTreeMap<String, FileEntry>,
+    /// Files with no extension that were looked at and are no documents, by
+    /// their path: not opened again until they change. A folder of them -
+    /// programs, a camera's dumps - would otherwise be read on every update.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    passed: BTreeMap<String, Passed>,
+}
+
+/// A file looked at and found to be no document, as it was then.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct Passed {
+    size: u64,
+    modified: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +130,8 @@ struct FileEntry {
     modified: u64,
     /// The blake3 hash of the file's bytes.
     hash: String,
+    /// What the file is, as its bytes told it.
+    kind: DocKind,
     title: String,
     /// Path inside the source, lowercased, `/`-separated, without the
     /// extension of a note and with any other's: what a `[[folder/note]]` or
@@ -125,17 +142,16 @@ struct FileEntry {
     /// The files that link to this one, by path.
     backlinks: Vec<String>,
     chunks: usize,
-    /// What read the file's text, when it was not read as text: for a PDF,
-    /// [`crate::pdf::reader`]. Empty for markdown and text.
+    /// What read the file's text, when it was not read as UTF-8 text: see
+    /// [`reading::reader`]. A file read otherwise now is read again.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     reader: String,
 }
 
-/// What reads a file of this kind, as the manifest records it.
-fn reader_of(kind: DocKind) -> String {
-    match kind {
-        DocKind::Pdf => crate::pdf::reader(),
-        DocKind::Markdown | DocKind::Text => String::new(),
+impl FileEntry {
+    /// Whether the file would be read as it was, were it read now.
+    fn reads_the_same(&self) -> bool {
+        reading::reads_the_same(self.kind, &self.reader)
     }
 }
 
@@ -152,9 +168,14 @@ pub struct UpdateReport {
     pub chunks: usize,
     /// Files that were found and could not be read, with the reason.
     pub skipped: Vec<Skipped>,
-    /// PDFs read in this update that hold no text - scans, most likely. They
-    /// are in the index, found by their names alone.
+    /// PDFs, Word documents and books read in this update that hold no
+    /// text: scans, most likely. They are in the index, found by their names
+    /// alone.
     pub textless: Vec<PathBuf>,
+    /// Text files read in this update whose encoding was not UTF-8 and was
+    /// guessed, with the guess: a wrong one reads as gibberish, and is seen
+    /// here rather than wondered at.
+    pub guessed: Vec<Guessed>,
     /// Sources whose folder could not be reached; their documents were kept.
     pub unavailable: Vec<PathBuf>,
     /// Why the whole index was thrown away and built again, if it was.
@@ -170,6 +191,15 @@ pub struct Skipped {
     pub path: PathBuf,
     /// Why, said for a person.
     pub reason: String,
+}
+
+/// A text file whose encoding an update guessed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Guessed {
+    /// The file.
+    pub path: PathBuf,
+    /// The encoding it was read in, by its WHATWG name: `windows-1251`.
+    pub encoding: String,
 }
 
 /// How far an update has got, for a progress bar.
@@ -505,6 +535,7 @@ impl Library {
         // Walk every source: what is there now, and what can be skipped
         // without opening it.
         let mut found: BTreeMap<String, Found> = BTreeMap::new();
+        let mut passed: BTreeMap<String, Passed> = BTreeMap::new();
         for source in &self.sources {
             if !source.path.is_dir() {
                 report.unavailable.push(source.path.clone());
@@ -517,9 +548,25 @@ impl Library {
             }
             for file in walk(source, &mut report.skipped)? {
                 let key = file.path.to_string_lossy().into_owned();
-                let unchanged = manifest.files.get(&key).filter(|entry| {
-                    entry.size == file.size && entry.modified == file.modified && entry.source == source.path && entry.reader == reader_of(file.kind)
-                });
+                if manifest.passed.get(&key)
+                    == Some(&Passed {
+                        size: file.size,
+                        modified: file.modified,
+                    })
+                {
+                    passed.insert(
+                        key,
+                        Passed {
+                            size: file.size,
+                            modified: file.modified,
+                        },
+                    );
+                    continue;
+                }
+                let unchanged = manifest
+                    .files
+                    .get(&key)
+                    .filter(|entry| entry.size == file.size && entry.modified == file.modified && entry.source == source.path && entry.reads_the_same());
                 let found_as = match unchanged {
                     Some(entry) => Found::Kept(entry.clone()),
                     None => Found::Candidate(file),
@@ -547,7 +594,7 @@ impl Library {
             .num_threads(indexing_threads())
             .build()
             .map_err(|e| Error::io(&self.root, std::io::Error::other(e)))?;
-        let read: Vec<(String, std::result::Result<Read, String>)> = readers.install(|| {
+        let read: Vec<(String, std::result::Result<Read, Unread>)> = readers.install(|| {
             candidates
                 .par_iter()
                 .map(|file| {
@@ -578,14 +625,31 @@ impl Library {
                     entry.modified = file.modified;
                     entries.insert(key, entry);
                 }
-                Ok(Read::Changed(entry, doc)) => {
-                    if file.kind == DocKind::Pdf && doc.chunks.iter().all(|chunk| chunk.text.is_empty()) {
+                Ok(Read::Changed(entry, doc, guessed)) => {
+                    if !entry.kind.has_lines() && doc.chunks.iter().all(|chunk| chunk.text.is_empty()) {
                         report.textless.push(file.path.clone());
+                    }
+                    if let Some(encoding) = guessed {
+                        report.guessed.push(Guessed {
+                            path: file.path.clone(),
+                            encoding: encoding.to_string(),
+                        });
                     }
                     entries.insert(key.clone(), entry);
                     parsed.insert(key, doc);
                 }
-                Err(reason) => report.skipped.push(Skipped {
+                // A file whose name never said it was a document is not
+                // reported for not being one.
+                Err(Unread::NotADocument(_)) if !reading::claims_a_document(&file.path) => {
+                    passed.insert(
+                        key,
+                        Passed {
+                            size: file.size,
+                            modified: file.modified,
+                        },
+                    );
+                }
+                Err(Unread::NotADocument(reason) | Unread::Failed(reason)) => report.skipped.push(Skipped {
                     path: file.path.clone(),
                     reason,
                 }),
@@ -632,9 +696,9 @@ impl Library {
             let Some(entry) = entries.get(key) else { continue };
             let doc = match parsed.remove(key) {
                 Some(doc) => doc,
-                None => match reread(Path::new(key)) {
-                    Ok(doc) => doc,
-                    Err(reason) => {
+                None => match reading::read_path(Path::new(key)) {
+                    Ok(opened) => opened.document,
+                    Err(Unread::NotADocument(reason) | Unread::Failed(reason)) => {
                         report.skipped.push(Skipped {
                             path: PathBuf::from(key),
                             reason,
@@ -660,6 +724,7 @@ impl Library {
         manifest.chunker_version = DOC_CHUNKER_VERSION;
         manifest.indexed_at = Some(unix_now());
         manifest.files = entries;
+        manifest.passed = passed;
         let bytes = serde_json::to_vec(&manifest).expect("manifest serializes");
         write_atomically(&self.manifest_path(), &bytes)?;
         // The writer holds tantivy's lock; dropping it only after the manifest
@@ -1087,11 +1152,10 @@ fn opening(body: &str) -> String {
 }
 
 fn add_document(writer: &IndexWriter, fields: &Fields, key: &str, entry: &FileEntry, doc: &Document, backlink_titles: &[&str]) -> Result<usize> {
-    let kind = DocKind::of(Path::new(key)).map_or("text", DocKind::name);
     for chunk in &doc.chunks {
         let mut out = TantivyDocument::default();
         out.add_text(fields.path, key);
-        out.add_text(fields.kind, kind);
+        out.add_text(fields.kind, entry.kind.name());
         out.add_text(fields.title, &doc.title);
         for alias in &doc.aliases {
             out.add_text(fields.aliases, alias);
@@ -1146,7 +1210,6 @@ pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
 struct WalkedFile {
     path: PathBuf,
     source: PathBuf,
-    kind: DocKind,
     size: u64,
     modified: u64,
 }
@@ -1161,8 +1224,9 @@ enum Found {
 enum Read {
     /// The bytes hash as before.
     Same(FileEntry),
-    /// New or changed: the fresh entry and the parsed document.
-    Changed(FileEntry, Document),
+    /// New or changed: the fresh entry, the parsed document, and the
+    /// encoding of a text whose encoding was guessed.
+    Changed(FileEntry, Document, Option<&'static str>),
 }
 
 fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> {
@@ -1199,9 +1263,9 @@ fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> 
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
-        let Some(kind) = DocKind::of(entry.path()) else {
+        if !reading::offered(entry.path()) {
             continue;
-        };
+        }
         let metadata = match entry.metadata() {
             Ok(metadata) => metadata,
             Err(error) => {
@@ -1212,13 +1276,6 @@ fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> 
                 continue;
             }
         };
-        if metadata.len() > kind.max_bytes() {
-            skipped.push(Skipped {
-                path: entry.path().to_path_buf(),
-                reason: format!("larger than {} MB", kind.max_bytes() / 1024 / 1024),
-            });
-            continue;
-        }
         let modified = metadata
             .modified()
             .ok()
@@ -1227,7 +1284,6 @@ fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> 
         files.push(WalkedFile {
             path: entry.path().to_path_buf(),
             source: source.path.clone(),
-            kind,
             size: metadata.len(),
             modified,
         });
@@ -1235,69 +1291,37 @@ fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> 
     Ok(files)
 }
 
-fn read_file(file: &WalkedFile, previous: Option<&FileEntry>) -> std::result::Result<Read, String> {
-    let bytes = std::fs::read(&file.path).map_err(|e| e.to_string())?;
+fn read_file(file: &WalkedFile, previous: Option<&FileEntry>) -> std::result::Result<Read, Unread> {
+    let bytes = reading::load(&file.path)?;
     let hash = blake3::hash(&bytes).to_hex().to_string();
-    let reader = reader_of(file.kind);
-    if let Some(previous) = previous.filter(|p| p.hash == hash && p.source == file.source && p.reader == reader) {
+    if let Some(previous) = previous.filter(|p| p.hash == hash && p.source == file.source && p.reads_the_same()) {
         return Ok(Read::Same(previous.clone()));
     }
-    let doc = parse(&file.path, file.kind, bytes)?;
+    let opened = reading::read(&file.path, bytes)?;
     let inside = file.path.strip_prefix(&file.source).unwrap_or(&file.path);
     // A vault links a note without its `.md` and any other file with its
     // extension: `[[plan]]` is plan.md, `![[manual.pdf]]` is the PDF, and
     // `[[manual]]` is not.
-    let inside = match file.kind {
+    let inside = match opened.kind {
         DocKind::Markdown => inside.with_extension(""),
-        DocKind::Text | DocKind::Pdf => inside.to_path_buf(),
+        DocKind::Text | DocKind::Pdf | DocKind::Docx | DocKind::Epub => inside.to_path_buf(),
     };
     let rel = inside.to_string_lossy().replace('\\', "/").to_lowercase();
+    let doc = opened.document;
     let entry = FileEntry {
         source: file.source.clone(),
         size: file.size,
         modified: file.modified,
         hash,
+        kind: opened.kind,
         title: doc.title.clone(),
         rel,
         links: doc.links.clone(),
         backlinks: Vec::new(),
         chunks: doc.chunks.len(),
-        reader,
+        reader: opened.reader,
     };
-    Ok(Read::Changed(entry, doc))
-}
-
-fn reread(path: &Path) -> std::result::Result<Document, String> {
-    let kind = DocKind::of(path).ok_or_else(|| "not a document nooma reads".to_string())?;
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    parse(path, kind, bytes)
-}
-
-fn parse(path: &Path, kind: DocKind, bytes: Vec<u8>) -> std::result::Result<Document, String> {
-    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    match kind {
-        DocKind::Pdf => Ok(document::read_paged(&stem, &crate::pdf::read(bytes)?)),
-        DocKind::Markdown | DocKind::Text => {
-            let text = decode(&bytes).ok_or_else(|| "not UTF-8 or UTF-16 text".to_string())?;
-            Ok(document::read(kind, &stem, &text))
-        }
-    }
-}
-
-/// A file's text: UTF-8, or UTF-16 when it says so with a byte order mark —
-/// what Windows Notepad saved for years. Anything else is not guessed at; a
-/// wrong guess indexes gibberish that no query will ever match, and a skip at
-/// least says so.
-fn decode(bytes: &[u8]) -> Option<String> {
-    let utf16 = |bytes: &[u8], read: fn([u8; 2]) -> u16| {
-        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|pair| read(*pair)).collect();
-        String::from_utf16(&units).ok()
-    };
-    match bytes {
-        [0xFF, 0xFE, rest @ ..] => utf16(rest, u16::from_le_bytes),
-        [0xFE, 0xFF, rest @ ..] => utf16(rest, u16::from_be_bytes),
-        _ => String::from_utf8(bytes.to_vec()).ok(),
-    }
+    Ok(Read::Changed(entry, doc, opened.guessed))
 }
 
 /// Fill in each entry's backlinks from every other entry's links.
@@ -1345,23 +1369,13 @@ fn resolve_backlinks(entries: &mut BTreeMap<String, FileEntry>) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn utf16_with_a_mark_is_text_and_unmarked_garbage_is_not() {
-        let mut le = vec![0xFF, 0xFE];
-        for unit in "привет".encode_utf16() {
-            le.extend(unit.to_le_bytes());
-        }
-        assert_eq!(decode(&le).as_deref(), Some("привет"));
-        // Windows-1251 "привет": not UTF-8, and not guessed at.
-        assert_eq!(decode(&[0xEF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2]), None);
-    }
-
     fn entry(source: &str, rel: &str, links: &[&str]) -> FileEntry {
         FileEntry {
             source: PathBuf::from(source),
             size: 0,
             modified: 0,
             hash: String::new(),
+            kind: DocKind::Markdown,
             title: rel.to_string(),
             rel: rel.to_string(),
             links: links.iter().map(|l| l.to_string()).collect(),

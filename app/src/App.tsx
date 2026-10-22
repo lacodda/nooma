@@ -604,9 +604,18 @@ function MeaningNotice({
   return <Quiet>{t('meaning.notYet')}</Quiet>
 }
 
-/** The badge before a row's title: what kind of file it is, as its
- * extension says it. */
-const KIND_LABELS: Record<Ranked['kind'], string> = { markdown: 'MD', text: 'TXT', pdf: 'PDF' }
+/** The badge before a row's title: what kind of file it is, as its bytes
+ * say it - a PDF saved with no extension is a PDF. */
+const KIND_LABELS: Record<Ranked['kind'], string> = { markdown: 'MD', text: 'TXT', pdf: 'PDF', docx: 'DOCX', epub: 'EPUB' }
+
+/** Where in its file a hit is, said for a person: the line a note opens at,
+ * the page of a PDF. A Word document or a book is found in by its headings,
+ * which the row says already. */
+function placeOf(hit: Ranked, t: (key: string, options: Record<string, unknown>) => string): string | null {
+  if (hit.page !== undefined) return t('results.page', { page: hit.page })
+  if (hit.kind === 'markdown' || hit.kind === 'text') return t('results.line', { line: hit.line })
+  return null
+}
 
 function ResultRow({
   hit,
@@ -631,9 +640,8 @@ function ResultRow({
 
   // A note's top heading is usually its title; saying it twice is noise.
   const headings = hit.headings[0] === hit.title ? hit.headings.slice(1) : hit.headings
-  // A note is opened at a line, a PDF is read by its pages.
-  const place = hit.page !== undefined ? t('results.page', { page: hit.page }) : t('results.line', { line: hit.line })
-  const where = [folderOf(hit.path, sources), ...(headings.length > 0 ? [headings.join(' › ')] : []), place]
+  const place = placeOf(hit, t)
+  const where = [folderOf(hit.path, sources), ...(headings.length > 0 ? [headings.join(' › ')] : []), ...(place === null ? [] : [place])]
   const badge = 'shrink-0 rounded-xs px-1.5 py-0 font-mono text-2xs font-normal'
   return (
     <li

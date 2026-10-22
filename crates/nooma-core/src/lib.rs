@@ -12,7 +12,10 @@
 //! [`rigger`]: https://github.com/lacodda/rigger
 
 pub mod document;
+pub mod docx;
 pub mod embed;
+pub mod encoding;
+pub mod epub;
 pub mod error;
 pub mod eval;
 pub mod fulltext;
@@ -25,6 +28,7 @@ pub mod library;
 pub mod model;
 pub mod neutral;
 pub mod pdf;
+pub mod reading;
 pub mod repo;
 pub mod store;
 pub mod summary;

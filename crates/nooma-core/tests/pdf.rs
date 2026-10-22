@@ -176,17 +176,21 @@ fn a_pdf_may_be_larger_than_a_text_file() {
     let fixture = Fixture::with(&[]);
     // Over the limit for text, well under the one for PDF: the text file is
     // skipped for its size, the PDF is opened - and refused for what it is.
+    // The limit is the one of the kind the bytes say: text named `.pdf` is
+    // text.
     let big = vec![b'x'; 17 * 1024 * 1024];
     std::fs::write(fixture.folder.join("dump.txt"), &big).unwrap();
-    std::fs::write(fixture.folder.join("book.pdf"), &big).unwrap();
+    std::fs::write(fixture.folder.join("dump.pdf"), &big).unwrap();
+    std::fs::write(fixture.folder.join("book.pdf"), [b"%PDF-1.7\n".as_slice(), &big].concat()).unwrap();
     let report = fixture.library().update().unwrap();
     let reasons: Vec<(String, &str)> = report
         .skipped
         .iter()
         .map(|skipped| (skipped.path.file_name().unwrap().to_string_lossy().into_owned(), skipped.reason.as_str()))
         .collect();
-    assert_eq!(reasons.len(), 2, "{reasons:?}");
+    assert_eq!(reasons.len(), 3, "{reasons:?}");
     assert!(reasons.contains(&("dump.txt".to_string(), "larger than 16 MB")), "{reasons:?}");
+    assert!(reasons.contains(&("dump.pdf".to_string(), "larger than 16 MB")), "{reasons:?}");
     let book = reasons.iter().find(|(name, _)| name == "book.pdf").unwrap();
     assert!(!book.1.starts_with("larger than"), "{book:?}");
 }

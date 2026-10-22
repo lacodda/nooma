@@ -40,6 +40,17 @@ frostem = { version = "~1.20260821.8", default-features = false, features = ["ru
 pdf_oxide = { version = "0.3.78", default-features = false, features = ["legacy-crypto"] }
 # Ligatures and other compatibility characters a PDF's fonts map text to.
 unicode-normalization = "0.1"
+# Text out of Word documents: by pdf_oxide's author, and already built as
+# its dependency. Its default features are none.
+office_oxide = "0.1.15"
+# An EPUB's archive and its pages: the zip reader and the XML reader Word
+# documents are read with, and the HTML entities a book's pages use.
+zip = { version = "9", default-features = false, features = ["deflate"] }
+quick-xml = { version = "0.42", features = ["escape-html"] }
+# Decoding text in the encodings files are found in, and guessing the one a
+# file does not name - the detector Firefox uses for pages that do not.
+encoding_rs = "0.8"
+chardetng = "1"
 # Embeddings through ONNX Runtime. The runtime is linked statically, fetched
 # by `ort` when it is built - never while nooma runs.
 fastembed = { version = "7.2", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }
