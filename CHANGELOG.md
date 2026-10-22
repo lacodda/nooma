@@ -4,6 +4,9 @@ All notable changes to this project are documented in this file.
 
 ## [0.11.0] - 2026-10-21
 
+### Bug Fixes
+- Link clang's runtime for the model on macOS
+
 ### Build
 - Update the stack
 
