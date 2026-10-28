@@ -25,14 +25,14 @@ nooma source remove <FOLDER>
 nooma source list [--json]
 ```
 
-A **source** is a folder. Everything under it that is a document - markdown and text, PDF, Word documents and EPUB books - is searched, except what is left out. A file is offered by its name - `.md`, `.markdown`, `.txt`, `.text`, `.pdf`, `.docx`, `.epub`, or no extension at all - and its first bytes decide what it is: a PDF a browser saved as `invoice` is read as a PDF, a Word document renamed to `.pdf` as a Word document, a note with no extension as text. What is left out:
+A **source** is a folder. Everything under it that is a document - markdown and text, PDF, Word documents and EPUB books, and on Windows pictures with text in them - is searched, except what is left out. A file is offered by its name - `.md`, `.markdown`, `.txt`, `.text`, `.pdf`, `.docx`, `.epub`, a picture's extension where pictures are read, or no extension at all - and its first bytes decide what it is: a PDF a browser saved as `invoice` is read as a PDF, a Word document renamed to `.pdf` as a Word document, a note with no extension as text. What is left out:
 
 - hidden files and folders, such as `.obsidian/`, `.trash/` and `.git/`;
 - whatever a `.gitignore` inside a git repository excludes;
 - whatever a `.nooma-ignore` file excludes - the same syntax as `.gitignore`, anywhere in the folder;
 - whatever `--exclude` patterns the source was added with, in the same syntax, relative to the folder;
-- text files larger than 16 MB - a log or a dump, at that size - and PDFs, Word documents and books larger than 256 MB. Their bytes are mostly pictures, which are not read, so a book of 50 MB is an ordinary one.
-- a file with no extension that turns out to be no document - a picture, a program - without a word, and without being opened again until it changes. One whose name claims a document it is not - a picture named `.pdf`, an old `.doc` renamed to `.docx` - is skipped, and the report says what it is.
+- text files larger than 16 MB - a log or a dump, at that size - pictures larger than 64 MB, and PDFs, Word documents and books larger than 256 MB. A book's bytes are mostly pictures, so a book of 50 MB is an ordinary one.
+- a file with no extension that turns out to be no document - a program, an archive - and a picture with no text in it, without a word, and without being opened again until it changes. One whose name claims a document it is not - an old `.doc` renamed to `.docx`, or a picture named `.pdf` where pictures are not read - is skipped, and the report says what it is.
 
 Two sources may not overlap. A folder inside a source would put its files in the index twice, and a folder around one would make the inner one's exclusions mean nothing; either is refused, naming the source it overlaps.
 
@@ -60,13 +60,15 @@ A source whose folder cannot be reached - a drive that is not plugged in - keeps
 
 **Text** is read in the encoding it is in. A byte order mark says it, and bytes that are UTF-8 are UTF-8 - so is UTF-8 with a character cut off at the end, or one damaged byte among hundreds of letters. UTF-16 without a mark is found by reading as text in it. Anything else - a note saved in Windows-1251, a letter in KOI8-R, a file from an old DOS program in code page 866, Shift_JIS - is a legacy encoding, and the encoding is guessed by the detector Firefox uses for pages that do not name theirs. A guess is said to be one: the report counts the files read in a guessed encoding, and `--json` names them, so a wrong guess - a file found by nothing, its text gibberish - can be seen rather than wondered at. A file with bytes no text has is skipped as binary data.
 
-**PDF** is read page by page, its text as the PDF's fonts map it - see [Chunks](#chunks) for how pages are cut. A PDF locked only against printing or copying opens as any other; one that needs a password to open is skipped, and the reason says so. A PDF with no text in it at all - a scan - is indexed by its name and the title in its metadata, so it is still found by them, and the report names it: its pages wait for OCR, which is not in this version. A PDF the reader fails on is skipped with the reason, and the rest of the update goes on. When a new nooma reads PDFs with a newer reader, the next update reads every PDF again - their bytes did not change, but what can be read out of them did - and leaves every other file as it is.
+**PDF** is read page by page, its text as the PDF's fonts map it - see [Chunks](#chunks) for how pages are cut. A PDF locked only against printing or copying opens as any other; one that needs a password to open is skipped, and the reason says so. A page with no text on it - a scanned page, or a whole scan - is read by OCR where there is OCR: on Windows, with the recognizers of the languages installed there - see [Pictures and scans](/nooma/concepts/pictures/). A PDF whose pages are still without text - a scan where there is no OCR, or blank pages - is indexed by its name and the title in its metadata, so it is still found by them, and the report names it. A PDF the reader fails on is skipped with the reason, and the rest of the update goes on. When a new nooma reads PDFs with a newer reader, the next update reads every PDF again - their bytes did not change, but what can be read out of them did - and leaves every other file as it is.
 
 **Word documents** (`.docx`) are read for their text as Word shows it: a tracked change as it stands, without the deleted text, a text box once, a footnote right after the paragraph that points at it, under that paragraph's headings. A heading is a heading by its style, whatever language Word wrote the style's name in. A table's row is a line of its cells. A comment is a remark about the document and a header or a footer repeats on every page, so neither is read; nor are the contents Word builds from the headings, which would put every heading's words in one chunk. A Word document's title is its file name, as a PDF's is, and the title in its properties is searched as another name for it. One under a password is skipped, and the reason says so.
 
+**Pictures** (`.png`, `.jpg`, `.tif`, `.bmp`, `.gif`, `.webp`, `.heic`, `.avif`) are documents where there is OCR, and their text is what OCR reads in them: a screenshot is found by the words on the screen, a photo of a page by the page. A picture's title is its file name. One with no text in it - a photo of a sunset - is passed over without a word, as a file that is no document is, and looked at again only when it changes, or when a language is added in Windows. A picture Windows cannot decode - a HEIC photo where its extension is not installed - is skipped, and the reason says so. Where there is no OCR, pictures are not looked at.
+
 **Books** (`.epub`, EPUB 2 and 3) are read in their reading order, chapter by chapter, under their table of contents - see [Chunks](#chunks). A book's title is the title it gives, and its authors and its file name are searched as other names for it: a book is asked for by its author as often as by its title. A book locked by DRM is skipped, and the reason says so; one whose only cipher is the obfuscation that keeps its fonts in it is read as any other.
 
-When a new nooma reads Word documents or books by newer rules, or guesses encodings with a newer detector, the next update reads those files again, and only those.
+When a new nooma reads Word documents or books by newer rules, or guesses encodings with a newer detector, the next update reads those files again, and only those. So it does when what reads pictures changes - a language added to Windows, a newer OCR - for the pictures and the PDFs.
 
 When the stored index was built by a nooma that cut or stemmed documents differently, it is thrown away and built again, and the report says why. Searching an index built by other rules would quietly find less.
 
@@ -85,7 +87,9 @@ Without the model, `index` updates the exact half and says how to fetch the mode
 | `removed` | Documents that left the index: deleted, excluded, or in a removed source. |
 | `chunks` | Chunks written in this update. |
 | `skipped` | Files found and not read, each with `path` and `reason`. |
-| `textless` | PDFs, Word documents and books read in this update that hold no text - scans, most likely - by path. They are in the index, found by their names. |
+| `textless` | PDFs, Word documents and books read in this update that hold no text - scans where there is no OCR, most likely - by path. They are in the index, found by their names. |
+| `recognized` | Pictures and PDFs read in this update whose text OCR read, in whole or in part, by path. |
+| `unrecognized` | Files read in this update with pages that are pictures of text OCR could not read, each with `path` and `reason`. They are in the index by what else they hold. |
 | `guessed` | Text files read in this update whose encoding was guessed, each with `path` and `encoding` - the guess, by its WHATWG name: `windows-1251`, `KOI8-U`, `UTF-16LE`. |
 | `unavailable` | Sources whose folder could not be reached. |
 | `rebuilt` | Why the whole index was built again, or `null`. |
@@ -147,11 +151,12 @@ Each hit carries:
 | Field | Meaning |
 | --- | --- |
 | `path` | The file. |
-| `kind` | What the file is, by its bytes: `markdown`, `text`, `pdf`, `docx` or `epub`. |
-| `title` | The frontmatter title, the first top-level heading, or the file name. A PDF's and a Word document's is always the file name; a book's is the title it gives. |
+| `kind` | What the file is, by its bytes: `markdown`, `text`, `pdf`, `docx`, `epub` or `image`. |
+| `title` | The frontmatter title, the first top-level heading, or the file name. A PDF's, a Word document's and a picture's is always the file name; a book's is the title it gives. |
 | `headings` | The headings above the chunk shown, outermost first; in a PDF, its bookmarks leading to the page; in a book, its contents leading to the chapter and section. |
-| `line` | The line the chunk starts on. In a PDF, a Word document or a book, a place counted through the text read out of it, which keeps the chunk apart from the others - not something to open it at: `page` is that, in a PDF. |
+| `line` | The line the chunk starts on. In a PDF, a Word document, a book or a picture, a place counted through the text read out of it, which keeps the chunk apart from the others - not something to open it at: `page` is that, in a PDF. |
 | `page` | The page the chunk is on, from 1; only in a PDF's hit. |
+| `recognized` | `true` when the chunk's text was read by OCR out of a picture - a picture, or a PDF page that is one - and so may hold misread words; absent otherwise. |
 | `fragment` | A piece of the chunk: around the words that matched when the words carried the document, its opening when the meaning did - or, for a document found across languages, the sentence that answered and what follows. |
 | `highlights` | Where the matching words are in `fragment`, as `[start, end]` byte offsets; empty when the fragment came from the meaning. |
 | `closest` | Where the sentence closest in meaning to the query is in `fragment`, as `[start, end]` byte offsets; only for a document found across languages. |
@@ -180,6 +185,8 @@ Only the half by meaning answers: a paragraph's words are not a query - every on
 A document is indexed as **chunks**: runs of paragraphs under one heading, packed up to 1,500 characters. A heading always starts a new chunk, a paragraph is split only when it is longer than a chunk on its own, and a fenced code block stays whole. A result points at its best chunk, so the fragment and the line are where the answer is rather than the top of the file. The half by meaning reads the same chunks, each with its document's title and the headings above it.
 
 In a **PDF**, a page always starts a new chunk, as a heading does: every chunk is on one page, and the page a result names is the page the answer is on. A paragraph that runs over onto the next page is two chunks. The PDF's bookmarks stand in for headings - a chunk is under the last bookmark that points at its page or an earlier one, with the bookmarks it is nested in - so a book's results say which chapter they are in. Before a page is cut, what typesetting leaves in its text is undone: a word broken across lines by a soft hyphen is joined again, ligatures and other compatibility characters become ordinary letters, and runs of spaces become one.
+
+A **picture's** text, and a scanned PDF page's, is what OCR read, laid out in paragraphs by where its lines stand, and cut as plain text is - a scanned page still on its own page. A word the typesetter broke across lines with a hyphen is whole again. Its chunks say they were read by OCR, since a word in them may be misread: the window marks them **OCR**, `find` writes `· OCR` after the place, and `--json` gives `recognized`.
 
 In a **Word document**, a heading ends a chunk and names the next, as in a note. In a **book**, a page of its reading order ends a chunk, as a PDF page does, and the table of contents stands in for headings: a chunk is under the last entry that points at its page or at a place in it before the chunk - chapters and the sections inside them alike. A book without contents is headed by its own headings. Neither has a line or a page to show; the headings above a chunk are where it is.
 

@@ -31,7 +31,7 @@ There is exactly one exception, and it is not in the default build: `--prose` ca
 
 ## What works today
 
-v0.11.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files, PDFs, Word documents, books or an Obsidian vault, and search from a window with one field or from the shell:
+v0.12.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files, PDFs, Word documents, books, screenshots and scans, or an Obsidian vault, and search from a window with one field or from the shell:
 
 <p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar and one list of results, each marked by the half that found it - a PDF at its page and bookmark first; Russian notes found for an English question are marked another language, with the sentence that answered highlighted" width="720"></p>
 
@@ -54,7 +54,7 @@ Kitchen appliances · Espresso setup (meaning 0.83)
 
 Any form of a word finds the others; the meaning finds the notes in words they do not use - a guarantee, a repair - and in the other language, showing the sentence that answered. Each document appears once, marked by the halves that found it; on the author's own archive the one list beats either half alone. Paste a paragraph into the window - or give it to `nooma similar` - to find what else says the same.
 
-A PDF is read page by page: its result names the page the answer is on and the chapter its bookmarks give, and a word the typesetter broke across two lines is found whole. A scan has no text to read yet; it is found by its name, and the index says which files are scans.
+A PDF is read page by page: its result names the page the answer is on and the chapter its bookmarks give, and a word the typesetter broke across two lines is found whole. On Windows a scanned page is read by the OCR Windows ships with, and so are screenshots and photos of pages: they are found by their words, in whichever installed language they are in, and a row read so is marked OCR.
 
 A Word document is read under its headings, a book under its table of contents, and a book is found by its author too. A file is what its bytes say, not its name: a PDF a browser saved as `invoice` is a PDF. A note saved in Windows-1251 or KOI8-R is read in its encoding, and the index says which encodings it had to guess.
 
@@ -64,7 +64,7 @@ The repository index from earlier versions is still here: `nooma repo` reads a g
 
 ## Status
 
-v0.11.0. Markdown, text, PDF, Word documents and EPUB books are searched by words and by meaning and answered with one list - in a window and on the command line - and a pasted passage finds its kin: the hybrid the name promises. A question in Russian finds the English document and the other way round, and says why; a PDF is found at its page. Reading scans by OCR comes next. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.12.0. Markdown, text, PDF, Word documents, EPUB books and - on Windows - screenshots and scans are searched by words and by meaning and answered with one list, in a window and on the command line: the hybrid the name promises. A question in Russian finds the English document and the other way round. Keeping the index current as files change comes next. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 
