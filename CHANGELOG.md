@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.12.0] - 2026-10-28
+
+### Build
+- Update the stack
+
+### Documentation
+- Describe pictures and scans
+
+### Features
+- Read the text in pictures and scanned pages
+
+### Breaking Changes
+
+the full-text index format is 5, which records the
+chunks read by OCR. An index built by an earlier nooma is rebuilt on the
+next update, and where there is OCR every PDF is read again. In
+nooma-core DocKind has Image, Chunk and Paged carry recognized, Unread
+has NoText, Opened has unrecognized and UpdateReport carries recognized
+and unrecognized. The JSON of index prints recognized and unrecognized,
+and a hit's kind may be image, with recognized when OCR read it.
+
 ## [0.11.0] - 2026-10-21
 
 ### Bug Fixes
