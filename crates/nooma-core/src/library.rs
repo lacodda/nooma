@@ -68,7 +68,10 @@ pub const SOURCES_FORMAT_VERSION: u32 = 1;
 /// some English words otherwise - `added` is `add`, no longer `ad`; and the
 /// manifest says what each file is, as its bytes told it, and which files
 /// with no extension were looked at and are no documents.
-pub const FULLTEXT_FORMAT_VERSION: u32 = 4;
+///
+/// 5: a chunk says whether its text was read by OCR, and pictures are
+/// documents where their text can be read.
+pub const FULLTEXT_FORMAT_VERSION: u32 = 5;
 
 /// How documents are cut into chunks.
 ///
@@ -107,18 +110,31 @@ struct Manifest {
     indexed_at: Option<i64>,
     /// Every indexed file, by its path as a string.
     files: BTreeMap<String, FileEntry>,
-    /// Files with no extension that were looked at and are no documents, by
-    /// their path: not opened again until they change. A folder of them -
-    /// programs, a camera's dumps - would otherwise be read on every update.
+    /// Files that were looked at and are no documents, by their path: those
+    /// with no extension, and pictures with no text in them. Not opened
+    /// again until they change, or what looked at them does. A folder of
+    /// them - programs, a camera's photos - would otherwise be read on every
+    /// update.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     passed: BTreeMap<String, Passed>,
 }
 
 /// A file looked at and found to be no document, as it was then.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Passed {
     size: u64,
     modified: u64,
+    /// What looked for text in it, for a picture: see [`reading::reader`].
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    reader: String,
+}
+
+impl Passed {
+    /// Whether the file would be passed over as it was, were it looked at
+    /// now: unchanged, and a picture looked at by what reads pictures now.
+    fn still(&self, file: &WalkedFile) -> bool {
+        self.size == file.size && self.modified == file.modified && (self.reader.is_empty() || reading::reads_the_same(DocKind::Image, &self.reader))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -169,9 +185,16 @@ pub struct UpdateReport {
     /// Files that were found and could not be read, with the reason.
     pub skipped: Vec<Skipped>,
     /// PDFs, Word documents and books read in this update that hold no
-    /// text: scans, most likely. They are in the index, found by their names
-    /// alone.
+    /// text: scans, most likely, where there is no OCR to read them. They
+    /// are in the index, found by their names alone.
     pub textless: Vec<PathBuf>,
+    /// Pictures and PDFs read in this update whose text was read, in whole
+    /// or in part, by OCR.
+    pub recognized: Vec<PathBuf>,
+    /// Files read in this update with pages that are pictures of text OCR
+    /// could not read, with why. They are in the index by what else they
+    /// hold.
+    pub unrecognized: Vec<Skipped>,
     /// Text files read in this update whose encoding was not UTF-8 and was
     /// guessed, with the guess: a wrong one reads as gibberish, and is seen
     /// here rather than wondered at.
@@ -244,6 +267,10 @@ pub struct Hit {
     /// The page the matching chunk is on, in a PDF.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<u32>,
+    /// Whether the matching chunk's text was read by OCR out of a picture,
+    /// and so may hold misread words.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub recognized: bool,
     /// A piece of the matching chunk around the words that matched.
     pub fragment: String,
     /// Where in `fragment` the matching words are, as byte ranges.
@@ -548,19 +575,8 @@ impl Library {
             }
             for file in walk(source, &mut report.skipped)? {
                 let key = file.path.to_string_lossy().into_owned();
-                if manifest.passed.get(&key)
-                    == Some(&Passed {
-                        size: file.size,
-                        modified: file.modified,
-                    })
-                {
-                    passed.insert(
-                        key,
-                        Passed {
-                            size: file.size,
-                            modified: file.modified,
-                        },
-                    );
+                if let Some(still) = manifest.passed.get(&key).filter(|passed| passed.still(&file)) {
+                    passed.insert(key, still.clone());
                     continue;
                 }
                 let unchanged = manifest
@@ -625,9 +641,18 @@ impl Library {
                     entry.modified = file.modified;
                     entries.insert(key, entry);
                 }
-                Ok(Read::Changed(entry, doc, guessed)) => {
+                Ok(Read::Changed(entry, doc, guessed, unrecognized)) => {
                     if !entry.kind.has_lines() && doc.chunks.iter().all(|chunk| chunk.text.is_empty()) {
                         report.textless.push(file.path.clone());
+                    }
+                    if doc.chunks.iter().any(|chunk| chunk.recognized) {
+                        report.recognized.push(file.path.clone());
+                    }
+                    if let Some(reason) = unrecognized {
+                        report.unrecognized.push(Skipped {
+                            path: file.path.clone(),
+                            reason,
+                        });
                     }
                     if let Some(encoding) = guessed {
                         report.guessed.push(Guessed {
@@ -639,13 +664,25 @@ impl Library {
                     parsed.insert(key, doc);
                 }
                 // A file whose name never said it was a document is not
-                // reported for not being one.
+                // reported for not being one, and a picture with no text in
+                // it is not reported at all.
                 Err(Unread::NotADocument(_)) if !reading::claims_a_document(&file.path) => {
                     passed.insert(
                         key,
                         Passed {
                             size: file.size,
                             modified: file.modified,
+                            reader: String::new(),
+                        },
+                    );
+                }
+                Err(Unread::NoText(reader)) => {
+                    passed.insert(
+                        key,
+                        Passed {
+                            size: file.size,
+                            modified: file.modified,
+                            reader,
                         },
                     );
                 }
@@ -698,11 +735,15 @@ impl Library {
                 Some(doc) => doc,
                 None => match reading::read_path(Path::new(key)) {
                     Ok(opened) => opened.document,
-                    Err(Unread::NotADocument(reason) | Unread::Failed(reason)) => {
-                        report.skipped.push(Skipped {
-                            path: PathBuf::from(key),
-                            reason,
-                        });
+                    Err(unread) => {
+                        // A picture whose text is gone by now is passed over
+                        // on the next update, without a word.
+                        if let Unread::NotADocument(reason) | Unread::Failed(reason) = unread {
+                            report.skipped.push(Skipped {
+                                path: PathBuf::from(key),
+                                reason,
+                            });
+                        }
                         dropped.push(key.clone());
                         writer.delete_term(Term::from_field_text(fields.path, key));
                         continue;
@@ -957,6 +998,7 @@ impl Finder {
                     headings: all_text(&doc, fields.headings),
                     line: line_of(&doc, fields),
                     page: page_of(&doc, fields),
+                    recognized: recognized_of(&doc, fields),
                     fragment,
                     highlights,
                     closest: None,
@@ -995,6 +1037,7 @@ impl Finder {
                 headings: all_text(&doc, fields.headings),
                 line: starts,
                 page: page_of(&doc, fields),
+                recognized: recognized_of(&doc, fields),
                 fragment: opening(&first_text(&doc, fields.body)),
                 highlights: Vec::new(),
                 closest: None,
@@ -1063,6 +1106,10 @@ fn line_of(doc: &TantivyDocument, fields: &Fields) -> u32 {
 
 fn page_of(doc: &TantivyDocument, fields: &Fields) -> Option<u32> {
     first_u64(doc, fields.page).and_then(|n| u32::try_from(n).ok())
+}
+
+fn recognized_of(doc: &TantivyDocument, fields: &Fields) -> bool {
+    first_u64(doc, fields.recognized) == Some(1)
 }
 
 fn modified_of(doc: &TantivyDocument, fields: &Fields) -> i64 {
@@ -1178,6 +1225,9 @@ fn add_document(writer: &IndexWriter, fields: &Fields, key: &str, entry: &FileEn
         if let Some(page) = chunk.page {
             out.add_u64(fields.page, u64::from(page));
         }
+        if chunk.recognized {
+            out.add_u64(fields.recognized, 1);
+        }
         out.add_u64(fields.modified, entry.modified / 1_000_000_000);
         writer.add_document(out).map_err(Error::fulltext)?;
     }
@@ -1224,9 +1274,10 @@ enum Found {
 enum Read {
     /// The bytes hash as before.
     Same(FileEntry),
-    /// New or changed: the fresh entry, the parsed document, and the
-    /// encoding of a text whose encoding was guessed.
-    Changed(FileEntry, Document, Option<&'static str>),
+    /// New or changed: the fresh entry, the parsed document, the encoding
+    /// of a text whose encoding was guessed, and why pictures of text in it
+    /// could not be read, if they could not.
+    Changed(FileEntry, Document, Option<&'static str>, Option<String>),
 }
 
 fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> {
@@ -1304,7 +1355,7 @@ fn read_file(file: &WalkedFile, previous: Option<&FileEntry>) -> std::result::Re
     // `[[manual]]` is not.
     let inside = match opened.kind {
         DocKind::Markdown => inside.with_extension(""),
-        DocKind::Text | DocKind::Pdf | DocKind::Docx | DocKind::Epub => inside.to_path_buf(),
+        DocKind::Text | DocKind::Pdf | DocKind::Docx | DocKind::Epub | DocKind::Image => inside.to_path_buf(),
     };
     let rel = inside.to_string_lossy().replace('\\', "/").to_lowercase();
     let doc = opened.document;
@@ -1321,7 +1372,7 @@ fn read_file(file: &WalkedFile, previous: Option<&FileEntry>) -> std::result::Re
         chunks: doc.chunks.len(),
         reader: opened.reader,
     };
-    Ok(Read::Changed(entry, doc, opened.guessed))
+    Ok(Read::Changed(entry, doc, opened.guessed, opened.unrecognized))
 }
 
 /// Fill in each entry's backlinks from every other entry's links.

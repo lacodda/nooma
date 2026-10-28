@@ -1,0 +1,6 @@
+/* An A4 page at 200 dots an inch: 1654 by 2339 pixels, 11-point type. */
+html { background: #fff; }
+body { margin: 0; padding: 160px 170px; font: 31px/1.45 "Times New Roman", serif; color: #111; }
+h1 { font-size: 44px; margin: 0 0 40px; }
+p { margin: 0 0 34px; text-align: justify; }
+.meta { font-size: 27px; color: #333; margin-bottom: 60px; }

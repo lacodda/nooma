@@ -206,6 +206,23 @@ describe('App', () => {
     expect(chapter.textContent).not.toContain('line 21')
   })
 
+  it('says a row read by OCR was, for a picture and for a scanned page', async () => {
+    const shot: Ranked = { ...supply, path: '/notes/shots/backup.png', kind: 'image', title: 'backup', headings: [], line: 3, recognized: true }
+    const scan: Ranked = { ...supply, path: '/notes/lease.pdf', kind: 'pdf', title: 'lease', headings: [], line: 40, page: 2, recognized: true }
+    answer(oneSource, ready, { ...whole, hits: [shot, scan, contracts] })
+    render(<App />)
+    await typed('backup drive')
+    const picture = (await screen.findByText('backup')).closest('li') as HTMLElement
+    expect(within(picture).getByText('IMG')).toBeTruthy()
+    expect(within(picture).getByText('OCR').getAttribute('title')).toContain('misread')
+    expect(picture.textContent).not.toContain('line 3')
+    const page = screen.getByText('lease').closest('li') as HTMLElement
+    expect(within(page).getByText('OCR')).toBeTruthy()
+    expect(page.textContent).toContain('p. 2')
+    const note = screen.getByText('Договоры').closest('li') as HTMLElement
+    expect(within(note).queryByText('OCR')).toBeNull()
+  })
+
   it('tells a row found in another language why: the sentence that answered, marked', async () => {
     const english: Ranked = { ...supply, across: true, fragment: 'Terms. The supply agreement renews each year unless cancelled.' }
     answer(oneSource, ready, { ...whole, hits: [contracts, english] })

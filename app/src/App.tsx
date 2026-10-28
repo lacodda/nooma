@@ -606,11 +606,11 @@ function MeaningNotice({
 
 /** The badge before a row's title: what kind of file it is, as its bytes
  * say it - a PDF saved with no extension is a PDF. */
-const KIND_LABELS: Record<Ranked['kind'], string> = { markdown: 'MD', text: 'TXT', pdf: 'PDF', docx: 'DOCX', epub: 'EPUB' }
+const KIND_LABELS: Record<Ranked['kind'], string> = { markdown: 'MD', text: 'TXT', pdf: 'PDF', docx: 'DOCX', epub: 'EPUB', image: 'IMG' }
 
 /** Where in its file a hit is, said for a person: the line a note opens at,
- * the page of a PDF. A Word document or a book is found in by its headings,
- * which the row says already. */
+ * the page of a PDF. A Word document, a book or a picture is found in by its
+ * headings, which the row says already. */
 function placeOf(hit: Ranked, t: (key: string, options: Record<string, unknown>) => string): string | null {
   if (hit.page !== undefined) return t('results.page', { page: hit.page })
   if (hit.kind === 'markdown' || hit.kind === 'text') return t('results.line', { line: hit.line })
@@ -674,6 +674,12 @@ function ResultRow({
         {hit.across && (
           <Badge variant="outline" title={t('results.acrossHint')} className={badge}>
             {t('results.across')}
+          </Badge>
+        )}
+        {/* Text read out of a picture: its words may be misread. */}
+        {hit.recognized === true && (
+          <Badge variant="outline" title={t('results.ocrHint')} className={badge}>
+            {t('results.ocr')}
           </Badge>
         )}
         <span className="ml-auto flex shrink-0 items-center" aria-hidden>

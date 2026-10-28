@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  /* A desktop at 100%: Segoe UI at the size Windows sets its own text in. */
+  html, body { margin: 0; height: 100%; font: 12px/1.4 "Segoe UI", sans-serif; }
+  body { display: grid; grid-template-columns: 1fr 1fr; }
+  section { padding: 18px 22px; }
+  .light { background: #fff; color: #1b1b1b; }
+  .dark { background: #1e1e1e; color: #d4d4d4; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+  p { margin: 0 0 8px; }
+  .error { color: #c42b1c; }
+  .dark .error { color: #f48771; }
+</style>
+<section class="light">
+  <h2>Backup settings</h2>
+  <p>Back up the documents folder every night at two o'clock.</p>
+  <p>Keep the last fourteen copies and remove older ones automatically.</p>
+  <p class="error">The backup drive was not found. Connect the drive labelled Archive and try again.</p>
+</section>
+<section class="dark">
+  <h2>Build output</h2>
+  <p>Compiling the inventory service in release mode.</p>
+  <p>Finished in forty two seconds with three warnings.</p>
+  <p class="error">error: the configuration file names a database that does not exist</p>
+</section>

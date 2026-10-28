@@ -44,6 +44,13 @@
 //! do. Neither has lines or pages a reader is told about; where a chunk is,
 //! to a person, is the headings above it. The text comes from
 //! [`crate::docx`] and [`crate::epub`].
+//!
+//! # Pictures and scans
+//!
+//! A picture's text - a screenshot, a photo of a page - is read by OCR
+//! ([`crate::ocr`]) and cut as plain text is, by its paragraphs. So is a
+//! page of a PDF that is a picture of text, inside the PDF's pages. A chunk
+//! read so says it was: its words may be misread, and a reader is told.
 
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization as _;
@@ -72,6 +79,8 @@ pub enum DocKind {
     Docx,
     /// A book: chapters in reading order, under its contents.
     Epub,
+    /// A picture: its text, read by OCR.
+    Image,
 }
 
 impl DocKind {
@@ -83,12 +92,13 @@ impl DocKind {
             Self::Pdf => "pdf",
             Self::Docx => "docx",
             Self::Epub => "epub",
+            Self::Image => "image",
         }
     }
 
     /// The kind a name from [`DocKind::name`] names.
     pub fn from_name(name: &str) -> Option<Self> {
-        [Self::Markdown, Self::Text, Self::Pdf, Self::Docx, Self::Epub]
+        [Self::Markdown, Self::Text, Self::Pdf, Self::Docx, Self::Epub, Self::Image]
             .into_iter()
             .find(|kind| kind.name() == name)
     }
@@ -97,18 +107,20 @@ impl DocKind {
     ///
     /// A text file of 16 MB is a log or a dump, and reading it would hold up
     /// every file behind it. A PDF, a Word document or a book that size is
-    /// ordinary: their bytes are mostly pictures, which are not read, and
-    /// their text is a fraction of them.
+    /// ordinary: their bytes are mostly pictures, and their text is a
+    /// fraction of them. A picture of 64 MB is a poster or a scan at a
+    /// resolution no text needs, and is decoded whole to be read.
     pub const fn max_bytes(self) -> u64 {
         match self {
             Self::Markdown | Self::Text => 16 * 1024 * 1024,
+            Self::Image => 64 * 1024 * 1024,
             Self::Pdf | Self::Docx | Self::Epub => 256 * 1024 * 1024,
         }
     }
 
     /// Whether a person is told the line a chunk starts on: in a file they
     /// open in an editor, and nowhere else. A PDF is read by its pages, and a
-    /// Word document or a book has no lines a reader sees.
+    /// Word document, a book or a picture has no lines a reader sees.
     pub const fn has_lines(self) -> bool {
         matches!(self, Self::Markdown | Self::Text)
     }
@@ -146,6 +158,9 @@ pub struct Chunk {
     pub line: u32,
     /// The 1-based page the chunk is on: in a PDF, and nowhere else.
     pub page: Option<u32>,
+    /// Whether its text was read by OCR out of a picture - a picture file,
+    /// or a PDF page that is one - and so may hold misread words.
+    pub recognized: bool,
 }
 
 /// A paged document's text, as read out of it.
@@ -158,6 +173,8 @@ pub struct Paged {
     pub bookmarks: Vec<Bookmark>,
     /// The title its metadata gives, if any.
     pub title: Option<String>,
+    /// The 1-based pages whose text was read by OCR, being pictures of text.
+    pub recognized: Vec<u32>,
 }
 
 /// A document read out of a container - a Word document, a book - as the
@@ -229,6 +246,7 @@ pub fn read(kind: DocKind, stem: &str, text: &str) -> Document {
         DocKind::Markdown => read_markdown(stem, text),
         DocKind::Text | DocKind::Docx | DocKind::Epub => read_plain(stem, text),
         DocKind::Pdf => read_paged(stem, &Paged::from_text(text)),
+        DocKind::Image => read_picture(stem, text),
     }
 }
 
@@ -299,7 +317,7 @@ pub fn read_paged(stem: &str, paged: &Paged) -> Document {
             headings = &bookmark.path;
             next_bookmark += 1;
         }
-        builder.start_page(number, headings);
+        builder.start_page(number, headings, paged.recognized.contains(&number));
         for text in clean_page(page).lines() {
             if text.trim().is_empty() {
                 builder.end_paragraph();
@@ -317,6 +335,16 @@ pub fn read_paged(stem: &str, paged: &Paged) -> Document {
     };
     if let Some(title) = paged.title.as_deref().map(str::trim).filter(|title| names_a_document(title, stem)) {
         document.aliases.push(title.to_string());
+    }
+    document
+}
+
+/// Read a picture's text, as OCR read it: its paragraphs, under no heading,
+/// every chunk said to be recognized. Its title is the file name.
+pub fn read_picture(stem: &str, text: &str) -> Document {
+    let mut document = read_plain(stem, &clean_page(text));
+    for chunk in &mut document.chunks {
+        chunk.recognized = true;
     }
     document
 }
@@ -451,6 +479,7 @@ fn non_empty(chunks: Vec<Chunk>, page: Option<u32>) -> Vec<Chunk> {
             text: String::new(),
             line: 1,
             page,
+            recognized: false,
         }]
     } else {
         chunks
@@ -475,6 +504,8 @@ struct ChunkBuilder {
     paragraph_line: u32,
     /// The page being read, in a paged document.
     page: Option<u32>,
+    /// Whether the page being read was read by OCR.
+    recognized: bool,
 }
 
 impl ChunkBuilder {
@@ -545,14 +576,16 @@ impl ChunkBuilder {
             text,
             line: self.current_line,
             page: self.page,
+            recognized: self.recognized,
         });
     }
 
     /// A new page ends the chunk before it, as a heading does, and puts the
     /// chunks after it under these headings.
-    fn start_page(&mut self, page: u32, headings: &[String]) {
+    fn start_page(&mut self, page: u32, headings: &[String], recognized: bool) {
         self.start_part(headings);
         self.page = Some(page);
+        self.recognized = recognized;
     }
 
     /// A new part - a page, a book's page - ends the chunk before it and

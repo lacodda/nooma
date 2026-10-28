@@ -269,6 +269,7 @@ mod tests {
             headings: Vec::new(),
             line: 1,
             page: None,
+            recognized: false,
             fragment: format!("{name} fragment"),
             highlights: Vec::new(),
             closest: None,

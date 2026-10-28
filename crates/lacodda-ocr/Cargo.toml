@@ -1,0 +1,38 @@
+[package]
+name = "lacodda-ocr"
+# Its own version, not the workspace's: nitid takes this crate too, and a
+# crate that did not change must not make its users move because nooma
+# shipped (docs/adr/0011-lacodda-ocr-in-this-workspace.md). It moves when its
+# API does, or what it reads out of the same picture.
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Text in pictures and in scanned PDF pages, read on the machine by the OCR that ships with Windows"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage = "https://lacodda.github.io/nooma/concepts/pictures/"
+documentation = "https://docs.rs/lacodda-ocr"
+readme = "README.md"
+keywords = ["ocr", "windows", "text-recognition", "scan", "offline"]
+categories = ["text-processing", "multimedia::images", "os::windows-apis"]
+
+[dependencies]
+thiserror.workspace = true
+
+# Windows reads the text: its recognizers, its image decoders, its PDF
+# renderer. Elsewhere the crate builds and says there is no OCR here.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Data_Pdf",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+    "System_UserProfile",
+    "UI",
+    "Win32_Globalization",
+    "Win32_System_Com",
+] }

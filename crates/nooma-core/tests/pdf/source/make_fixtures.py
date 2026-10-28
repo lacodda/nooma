@@ -65,6 +65,16 @@ def main() -> None:
     protected.encrypt(user_password="secret", owner_password="secret", algorithm="AES-256")
     write(protected, "password.pdf")
 
+    # A typed page, then a page that is a picture of text - a letter
+    # scanned into a typed document. The scan is the Russian letter from
+    # lacodda-ocr's pictures (crates/lacodda-ocr/tests/images/scan.pdf).
+    scans = PdfReader(HERE.parents[3] / "lacodda-ocr" / "tests" / "images" / "scan.pdf")
+    half = PdfWriter()
+    half.add_page(reader.pages[0])
+    half.add_page(scans.pages[1])
+    half.add_metadata({"/Producer": "nooma fixtures"})
+    write(half, "half-scanned.pdf")
+
     # Pages with no text on them, as a scan has.
     scan = PdfWriter()
     scan.add_blank_page(width=595, height=842)

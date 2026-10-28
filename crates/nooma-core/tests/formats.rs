@@ -200,8 +200,15 @@ fn a_file_is_what_its_bytes_say_whatever_its_name() {
     assert_eq!(read("kinds/invoice").kind, DocKind::Pdf, "a PDF saved with no extension");
     assert_eq!(read("kinds/report.pdf").kind, DocKind::Docx, "a Word document renamed to .pdf");
     assert_eq!(read("kinds/notes").kind, DocKind::Text, "a note with no extension");
-    assert_eq!(unread("kinds/picture.pdf"), Unread::NotADocument("a PNG image".to_string()));
-    assert_eq!(unread("kinds/photo"), Unread::NotADocument("a PNG image".to_string()));
+    // A picture is a picture whatever it is called: where its text can be
+    // read, one with none is passed over; elsewhere it is no document.
+    let picture = if nooma_core::ocr::available() {
+        Unread::NoText(nooma_core::ocr::reader())
+    } else {
+        Unread::NotADocument("a PNG image".to_string())
+    };
+    assert_eq!(unread("kinds/picture.pdf"), picture);
+    assert_eq!(unread("kinds/photo"), picture);
     assert!(matches!(unread("kinds/archive.epub"), Unread::NotADocument(what) if what.contains("zip archive")));
 }
 
@@ -238,9 +245,12 @@ fn a_library_reports_what_is_not_a_document_only_when_its_name_said_it_was() {
         .iter()
         .map(|skipped| skipped.path.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
-    for name in ["picture.pdf", "archive.epub", "locked.docx", "old-format.docx", "locked.epub", "binary.txt"] {
+    for name in ["archive.epub", "locked.docx", "old-format.docx", "locked.epub", "binary.txt"] {
         assert!(skipped.contains(&name.to_string()), "{name} not in {skipped:?}");
     }
+    // A picture named as a PDF is reported where it is no document; where
+    // pictures are read, it is one with no text, passed over.
+    assert_eq!(skipped.contains(&"picture.pdf".to_string()), !nooma_core::ocr::available(), "{skipped:?}");
     assert!(
         !skipped.contains(&"photo".to_string()),
         "a picture with no extension claimed nothing: {skipped:?}"
@@ -304,8 +314,9 @@ fn a_file_found_to_be_no_document_is_not_opened_again_until_it_changes() {
     let totals = std::sync::Mutex::new(Vec::new());
     library.update_with(&|progress| totals.lock().unwrap().push(progress.total)).unwrap();
     // Only what is reported every time is read every time: the files whose
-    // names claim a document they are not.
-    let reported = 6;
+    // names claim a document they are not - the picture named as a PDF
+    // among them where pictures are not read.
+    let reported = if nooma_core::ocr::available() { 5 } else { 6 };
     let totals = totals.into_inner().unwrap();
     assert_eq!(totals.last(), Some(&reported), "{totals:?}");
 

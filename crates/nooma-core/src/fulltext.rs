@@ -69,6 +69,9 @@ pub struct Fields {
     pub line: Field,
     /// The 1-based page the chunk is on; a PDF's chunks have one, no other.
     pub page: Field,
+    /// 1 when the chunk's text was read by OCR out of a picture; absent
+    /// otherwise.
+    pub recognized: Field,
     /// When the file was last modified, in seconds since the epoch.
     pub modified: Field,
 }
@@ -98,6 +101,7 @@ impl Fields {
             backlink_count: builder.add_u64_field("backlink_count", FAST),
             line: builder.add_u64_field("line", STORED | INDEXED),
             page: builder.add_u64_field("page", STORED),
+            recognized: builder.add_u64_field("recognized", STORED),
             modified: builder.add_u64_field("modified", STORED),
         };
         (builder.build(), fields)
@@ -119,6 +123,7 @@ impl Fields {
             backlink_count: get("backlink_count")?,
             line: get("line")?,
             page: get("page")?,
+            recognized: get("recognized")?,
             modified: get("modified")?,
         })
     }

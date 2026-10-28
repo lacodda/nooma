@@ -54,6 +54,9 @@ quick-xml = { version = "0.42", features = ["escape-html"] }
 # file does not name - the detector Firefox uses for pages that do not.
 encoding_rs = "0.8"
 chardetng = "1"
+# Text in pictures and in scanned PDF pages: the OCR Windows ships with,
+# through the line's crate. Elsewhere it builds and reads nothing.
+lacodda-ocr.workspace = true
 # Embeddings through ONNX Runtime. The runtime is linked statically, fetched
 # by `ort` when it is built - never while nooma runs.
 fastembed = { version = "7.5", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }

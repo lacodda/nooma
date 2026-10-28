@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/nooma", "crates/nooma-core", "crates/nooma-fetch", "app/src-tauri"]
+members = ["crates/nooma", "crates/nooma-core", "crates/nooma-fetch", "crates/lacodda-ocr", "app/src-tauri"]
 resolver = "3"
 
 # Everything published or built from this tree shares one identity. The library
@@ -17,6 +17,8 @@ authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
 [workspace.dependencies]
 nooma-core = { path = "crates/nooma-core", version = "0.11.0" }
 nooma-fetch = { path = "crates/nooma-fetch", version = "0.11.0" }
+# The line's OCR, versioned apart from nooma: nitid takes it too.
+lacodda-ocr = { path = "crates/lacodda-ocr", version = "0.1.0" }
 
 anyhow = "1"
 thiserror = "2"

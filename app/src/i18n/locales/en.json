@@ -19,6 +19,8 @@
     "meaning": "meaning",
     "across": "another language",
     "acrossHint": "Found by meaning in another language than the query. The sentence closest to it is marked.",
+    "ocr": "OCR",
+    "ocrHint": "Read by OCR from a picture: a word here may be misread.",
     "line": "line {{line}}",
     "page": "p. {{page}}",
     "nothing": "Nothing found",

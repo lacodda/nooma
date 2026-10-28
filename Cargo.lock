@@ -3624,6 +3624,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lacodda-ocr"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+ "windows",
+]
+
+[[package]]
 name = "levenshtein_automata"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4063,6 +4071,7 @@ dependencies = [
  "frostem 2.20261016.1",
  "gix",
  "ignore",
+ "lacodda-ocr",
  "office_oxide",
  "ort",
  "pdf_oxide",

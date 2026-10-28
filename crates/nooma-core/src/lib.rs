@@ -27,6 +27,7 @@ pub mod lang;
 pub mod library;
 pub mod model;
 pub mod neutral;
+pub mod ocr;
 pub mod pdf;
 pub mod reading;
 pub mod repo;

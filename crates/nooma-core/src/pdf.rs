@@ -59,6 +59,7 @@ fn read_unguarded(bytes: Vec<u8>) -> Result<Paged, String> {
         pages,
         bookmarks: bookmarks(&doc),
         title: title(&doc),
+        recognized: Vec::new(),
     })
 }
 

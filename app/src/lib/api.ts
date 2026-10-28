@@ -23,7 +23,7 @@ export interface Status {
 export interface Hit {
   path: string
   /** What the file is, as its bytes told it. */
-  kind: 'markdown' | 'text' | 'pdf' | 'docx' | 'epub'
+  kind: 'markdown' | 'text' | 'pdf' | 'docx' | 'epub' | 'image'
   title: string
   headings: string[]
   /** Where the chunk is: a line of a note, and for the other kinds a place
@@ -31,6 +31,9 @@ export interface Hit {
   line: number
   /** The page the chunk is on, from 1; only a PDF's hit has one. */
   page?: number
+  /** Whether the chunk's text was read by OCR out of a picture - a picture
+   * file, or a PDF page that is one - and so may hold misread words. */
+  recognized?: boolean
   fragment: string
   /** Byte offsets into the UTF-8 fragment, `[start, end]`. */
   highlights: [number, number][]

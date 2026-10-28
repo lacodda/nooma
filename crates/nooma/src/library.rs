@@ -247,8 +247,21 @@ fn print_report(report: &UpdateReport) {
     for skipped in &report.skipped {
         println!("skipped {}: {}", skipped.path.display(), skipped.reason);
     }
+    for unrecognized in &report.unrecognized {
+        println!("read without its pictures of text {}: {}", unrecognized.path.display(), unrecognized.reason);
+    }
     for path in &report.textless {
         println!("no text in {} - a scan? found by its name only", path.display());
+    }
+    // Scans that stay nameless for want of OCR say why, once.
+    if !report.textless.is_empty()
+        && let Err(why) = nooma_core::ocr::ocr()
+    {
+        println!("text in scans and pictures is not read: {why}");
+    }
+    if !report.recognized.is_empty() {
+        let files = if report.recognized.len() == 1 { "file" } else { "files" };
+        println!("{} {files} read by OCR, in whole or in part", report.recognized.len());
     }
     print_guessed(report);
 }
@@ -390,6 +403,7 @@ fn read_example(path: &Path) -> Result<String> {
     let opened = nooma_core::reading::read_path(path).map_err(|unread| match unread {
         Unread::NotADocument(what) => anyhow!("not a document nooma reads: {what}"),
         Unread::Failed(why) => anyhow!("{why}"),
+        Unread::NoText(_) => anyhow!("a picture with no text in it"),
     })?;
     Ok(opened.document.chunks.iter().map(|chunk| chunk.text.as_str()).collect::<Vec<_>>().join("\n\n"))
 }
@@ -410,12 +424,14 @@ fn print_ranked(ranked: &Ranked, all_words: bool) {
     }
     println!("{heading} ({})", found_by(ranked, all_words));
     // A line is where an editor opens a note; a PDF is read by its pages; a
-    // Word document or a book is found in by the headings above.
+    // Word document, a book or a picture is found in by the headings above.
+    // Text OCR read is said to be, since its words may be misread.
     let has_lines = DocKind::from_name(&hit.kind).is_some_and(DocKind::has_lines);
+    let ocr = if hit.recognized { " · OCR" } else { "" };
     match hit.page {
-        Some(page) => println!("  {} · p. {page}", hit.path.display()),
-        None if has_lines => println!("  {}:{}", hit.path.display(), hit.line),
-        None => println!("  {}", hit.path.display()),
+        Some(page) => println!("  {} · p. {page}{ocr}", hit.path.display()),
+        None if has_lines => println!("  {}:{}{ocr}", hit.path.display(), hit.line),
+        None => println!("  {}{ocr}", hit.path.display()),
     }
     let fragment = hit.fragment.split_whitespace().collect::<Vec<_>>().join(" ");
     if !fragment.is_empty() {

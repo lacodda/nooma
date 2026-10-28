@@ -82,6 +82,26 @@ jobs:
           key: nooma-models-${{ hashFiles('crates/nooma-core/src/model.rs') }}
       - name: Fetch the model
         run: cargo run -q -p nooma -- model fetch
+      # Pictures and scans are read by the recognizers Windows installs per
+      # language, and the reading kept is judged by the language's spell
+      # checker. The tests read English, Russian and Spanish and do not skip
+      # without them; a runner may have English at most. Both are optional
+      # features of Windows, fetched from Windows Update.
+      - name: Install the OCR languages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($tag in 'en-US', 'ru-RU', 'es-ES') {
+            foreach ($feature in 'OCR', 'Basic') {
+              $name = "Language.$feature~~~$tag~0.0.1.0"
+              if ((Get-WindowsCapability -Online -Name $name).State -ne 'Installed') {
+                Add-WindowsCapability -Online -Name $name | Out-Null
+              }
+            }
+          }
+          # Windows PowerShell, which sees WinRT types; pwsh does not.
+          $list = '$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]; [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages | ForEach-Object LanguageTag'
+          Write-Output "recognizers: $((powershell -NoProfile -Command $list) -join ', ')"
       # The test suite builds git repositories from nothing and runs the binary
       # against them, so git has to be on PATH and the committer has to be
       # named. Both hold on every runner; the tests clear the global config
