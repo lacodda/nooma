@@ -29,10 +29,13 @@ rayon.workspace = true
 directories.workspace = true
 tantivy = "0.27"
 # Snowball stemmers, the ones tantivy itself stems with. Held to one minor:
-# its minor is the date the upstream rules last changed, and a new one stems
-# some words differently - raised together with FULLTEXT_FORMAT_VERSION, or
-# the stored words are looked up by other rules and quietly do not match.
-frostem = { version = "~1.20260821.8", default-features = false, features = ["russian", "english"] }
+# its minor is the date the upstream rules of any language last changed, and
+# a new one may stem Russian or English words differently. Raised after the
+# stems of both are compared on a real vocabulary; when any differ, together
+# with FULLTEXT_FORMAT_VERSION, or the stored words are looked up by other
+# rules and quietly do not match. 2.20261016 added Ukrainian and left both
+# alone: no stem of 51 thousand words moved.
+frostem = { version = "~2.20261016.1", default-features = false, features = ["russian", "english"] }
 # Text out of PDF, page by page, in pure Rust. Without its default features:
 # colour management is for rendering, which nooma does not do; the old RC4
 # cipher stays, since a PDF locked only by an owner password still has to be
@@ -53,7 +56,7 @@ encoding_rs = "0.8"
 chardetng = "1"
 # Embeddings through ONNX Runtime. The runtime is linked statically, fetched
 # by `ort` when it is built - never while nooma runs.
-fastembed = { version = "7.2", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }
+fastembed = { version = "7.5", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }
 # The runtime itself, for the one thing fastembed leaves to its caller: the
 # environment every model is loaded into. Pinned to the version fastembed
 # pins, so the two are one crate - a fastembed on another runtime fails to
