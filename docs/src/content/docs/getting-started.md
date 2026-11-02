@@ -21,7 +21,7 @@ nooma searches folders of markdown, text, PDF, Word documents and EPUB books - a
 
 ## Search your folders
 
-In the window, **Add folder** picks one and reads it; after that the field answers as you type, with the exact matches first and the matches by meaning under them. `↑` `↓` move through both, `Enter` opens one, `Ctrl+Enter` shows it in its folder, and `Ctrl+K` puts the cursor back in the field from anywhere.
+In the window, **Add folder** picks one and reads it; after that the field answers as you type, with the exact matches first and the matches by meaning under them. `↑` `↓` move through both, `Enter` opens one, `Ctrl+Enter` shows it in its folder, and `Ctrl+K` puts the cursor back in the field from anywhere. While the window is open it watches the folders: a note saved is found a moment later - see [Keeping up with the folders](/nooma/concepts/keeping-up/). When a file could not be read - under a password, too large - the status line counts it, and the count opens the list of what and why.
 
 Search by meaning needs its model, about half a gigabyte: the first time, the window offers to download it - the one thing nooma ever downloads, and nothing of yours is sent. Then it reads your documents for meaning in the background; the status line counts the passages and the time left, and search by meaning answers over what is read so far. Paste a paragraph into the field and the window finds the documents that say the same.
 
@@ -38,7 +38,7 @@ Appliance receipts · March
   Filed the warranty claim for the espresso machine…
 ```
 
-`find` reads whatever changed since the last time before it answers, so there is no separate step to remember.
+`find` reads whatever changed since the last time before it answers, so there is no separate step to remember. `nooma index --watch` keeps the index up to date as files change, the way the window does, and `nooma health` says what could not be read, and why.
 
 For the half by meaning, fetch the model once and let `index` read the folder with it - the first time, an hour or so for a few thousand notes; after that, seconds for what changed:
 

@@ -1,9 +1,9 @@
 ---
-title: find, similar, index, source
-description: Search your folders by the words in them and by what they mean - sources, the index, the vectors, a query and a passage.
+title: find, similar, index, health, source
+description: Search your folders by the words in them and by what they mean - sources, the index and keeping it up to date, what it could not read, the vectors, a query and a passage.
 ---
 
-Four commands make up document search: `nooma source` says which folders to search, `nooma index` reads them, `nooma find` answers a query and `nooma similar` finds what a passage is like. The window, `nooma-app`, is the same library behind one search field.
+Five commands make up document search: `nooma source` says which folders to search, `nooma index` reads them - and with `--watch` keeps reading them as they change - `nooma health` says what it could not read, `nooma find` answers a query and `nooma similar` finds what a passage is like. The window, `nooma-app`, is the same library behind one search field.
 
 nooma searches in two halves. The half by **words** finds a document because the words of the query occur in it. The half by **meaning** finds it because it is about the same thing, whatever its words - once the [model](/nooma/reference/model/) is on the machine and `nooma index` has read the library with it; how it works is on [Search by meaning](/nooma/concepts/meaning/). `find` asks both and answers with one list, ranked from both - see [One list from two halves](/nooma/concepts/hybrid/).
 
@@ -32,7 +32,7 @@ A **source** is a folder. Everything under it that is a document - markdown and 
 - whatever a `.nooma-ignore` file excludes - the same syntax as `.gitignore`, anywhere in the folder;
 - whatever `--exclude` patterns the source was added with, in the same syntax, relative to the folder;
 - text files larger than 16 MB - a log or a dump, at that size - pictures larger than 64 MB, and PDFs, Word documents and books larger than 256 MB. A book's bytes are mostly pictures, so a book of 50 MB is an ordinary one.
-- a file with no extension that turns out to be no document - a program, an archive - and a picture with no text in it, without a word, and without being opened again until it changes. One whose name claims a document it is not - an old `.doc` renamed to `.docx`, or a picture named `.pdf` where pictures are not read - is skipped, and the report says what it is.
+- a file with no extension that turns out to be no document - a program, an archive - and a picture with no text in it, without a word, and without being opened again until it changes. One whose name claims a document it is not - an old `.doc` renamed to `.docx`, or a picture named `.pdf` where pictures are not read - is skipped, and the report says what it is; so is a file too large, or under a password. Every one of them is kept in [`nooma health`](#health) until it changes.
 
 Two sources may not overlap. A folder inside a source would put its files in the index twice, and a folder around one would make the inner one's exclusions mean nothing; either is refused, naming the source it overlaps.
 
@@ -45,16 +45,20 @@ Adding or removing a source changes nothing in the index until the next `nooma i
 | `sources` | The folders, each with `path` and, if it has any, `exclude`. |
 | `documents` | Documents in the index. |
 | `chunks` | Chunks in the index - see below. |
-| `indexed_at` | When the last update finished, in seconds since the epoch; `null` before the first. |
+| `indexed_at` | When an update last changed the index, in seconds since the epoch; `null` before the first. An update that found nothing changed leaves it. |
 | `stale` | Why the stored index has to be rebuilt before it can be searched, or `null`. |
 
 ## `index`
 
 ```
-nooma index [--json]
+nooma index [--watch] [--json]
 ```
 
-Brings the index up to date with the folders. It reads only what changed: a file whose size and modification time are as they were is not opened, and one whose bytes hash as before is not parsed again. Running it twice in a row reads nothing the second time.
+Brings the index up to date with the folders. It reads only what changed: a file whose size and modification time are as they were is not opened, and one whose bytes hash as before is not parsed again. Running it twice in a row reads nothing the second time, and writes nothing either.
+
+A file that could not be read - too large, under a password, damaged, no document at all though its name says one - is not tried again until it changes, or a new nooma reads it: the report of the update that met it names it, and [`nooma health`](#health) says it from then on; a later report counts them in a line pointing there. A file another program holds, or one nooma is not allowed to read, is the exception: it is tried at every update, since the program may have let it go.
+
+With `--watch`, `index` goes on after the update: it watches the folders and reads what changes as it changes, a burst of changes at a time, until it is stopped with `Ctrl+C`. That work nobody waits for, so it runs as the window runs it: below the other programs on the machine, and holding where it is while a laptop runs on its battery, going on by itself once the power is back. What watching is and what it can miss is on [Keeping up with the folders](/nooma/concepts/keeping-up/). A plain `nooma index` is someone waiting, and it is never held.
 
 A source whose folder cannot be reached - a drive that is not plugged in - keeps its documents in the index as they were, and the report names it. Its files did not go anywhere, and reindexing all of them on every reconnect would be the cost of pretending they had.
 
@@ -86,7 +90,7 @@ Without the model, `index` updates the exact half and says how to fetch the mode
 | `indexed` | Documents read and indexed in this update. |
 | `removed` | Documents that left the index: deleted, excluded, or in a removed source. |
 | `chunks` | Chunks written in this update. |
-| `skipped` | Files found and not read, each with `path` and `reason`. |
+| `skipped` | Files found and not read in this update - and folders that could not be walked into - each with `path`, `why` (see [`health`](#health)), `reason` and, for a file, `size` in bytes. |
 | `textless` | PDFs, Word documents and books read in this update that hold no text - scans where there is no OCR, most likely - by path. They are in the index, found by their names. |
 | `recognized` | Pictures and PDFs read in this update whose text OCR read, in whole or in part, by path. |
 | `unrecognized` | Files read in this update with pages that are pictures of text OCR could not read, each with `path` and `reason`. They are in the index by what else they hold. |
@@ -108,6 +112,50 @@ Without the model, `index` updates the exact half and says how to fetch the mode
 | `rebuilt` | Why the store of vectors was started again, or `null`. |
 | `took_ms` | How long the update of the vectors took. |
 | `embed_ms` | How much of it the model spent reading. |
+
+With `--watch --json`, every update - the first and each one after - is one such document on a line of its own; an update that changed nothing prints nothing.
+
+## `health`
+
+```
+nooma health [--json]
+```
+
+Says what the index lacks of the files under the folders, and what it holds of them only in part, as the updates that read them left it - the answer to "why is this document not found". It reads nothing on disk but the folders' presence, and changes nothing.
+
+```console
+$ nooma health
+not read: 2
+  under a password or DRM
+    /home/you/Archive/tax-return-2024.pdf - protected by a password
+  too large
+    /home/you/Notes/server.log.txt - larger than 16 MB (212 MB)
+read in a guessed encoding: 1
+    /home/you/Notes/old/letter.txt - windows-1251
+```
+
+With nothing to say, it says `every file found was read`. The window's status line shows the same as a count, and opens the same list.
+
+`health --json` prints:
+
+| Field | Meaning |
+| --- | --- |
+| `skipped` | Files found and not read, sorted by `why` and then by path, each with `path`, `why`, `reason` - what the reader said, for a person - and `size` in bytes, for a file. |
+| `textless` | PDFs, Word documents and books with no text in them, by path: scans, where there is no OCR to read them. They are found by their names. |
+| `no_ocr` | Why text in scans and pictures is not read on this machine, when it is not and `textless` is not empty. |
+| `unrecognized` | Documents read without their pages that are pictures of text, each with `path` and `reason`. |
+| `guessed` | Text files read in a guessed encoding, each with `path` and `encoding`. |
+| `unavailable` | Sources whose folder cannot be reached now; their documents are kept as they were. |
+
+`why` is one of:
+
+| `why` | The file |
+| --- | --- |
+| `not_a_document` | Is not a document nooma reads, though its name says one: an archive, a recording, an old Office file. |
+| `too_large` | Is larger than a document of its kind is read at. |
+| `locked` | Is under a password, or DRM. |
+| `unopened` | Could not be opened - held by another program, or not allowed to be read - or is a folder the walk could not go into. Tried again at every update. |
+| `damaged` | Is a document its reader could not make sense of: cut off, damaged, or written in a way the reader does not follow. |
 
 ## `find`
 
