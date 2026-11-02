@@ -5,7 +5,9 @@
 //! `docs/adr/0001-hybrid-index.md`.
 //!
 //! `nooma index` reads the folders added with `nooma source add` into both
-//! halves; `nooma find` searches them by the words of a query and by its
+//! halves, and with `--watch` keeps them up to date as files change; `nooma
+//! health` says what it could not read; `nooma find` searches them by the
+//! words of a query and by its
 //! meaning, side by side, and `nooma similar` by the meaning of a whole
 //! passage. `nooma model` fetches the embedding model the vector half runs,
 //! and `nooma eval` measures both halves against questions with known
@@ -41,6 +43,8 @@ enum Command {
     Index(library::IndexArgs),
     /// Add, remove and list the folders nooma searches
     Source(library::SourceArgs),
+    /// Say what the index could not read, and why
+    Health(library::HealthArgs),
     /// List, fetch and remove the embedding models
     Model(model::ModelArgs),
     /// Measure search against questions whose answers are known
@@ -56,6 +60,7 @@ fn main() -> std::process::ExitCode {
         Command::Similar(args) => library::similar(args),
         Command::Index(args) => library::index(args),
         Command::Source(args) => library::source(args),
+        Command::Health(args) => library::health(args),
         Command::Model(args) => model::run(args),
         Command::Eval(args) => eval::run(args),
         Command::Repo(args) => repo::run(args),

@@ -11,6 +11,7 @@
 //!
 //! [`rigger`]: https://github.com/lacodda/rigger
 
+pub mod background;
 pub mod document;
 pub mod docx;
 pub mod embed;
@@ -36,6 +37,7 @@ pub mod summary;
 pub mod symbols;
 #[cfg(feature = "semantic")]
 pub mod vectors;
+pub mod watch;
 pub mod why;
 
 pub use error::{Error, Result};
@@ -58,11 +60,13 @@ pub use hybrid::{Answer, Place, Ranked};
 pub use incremental::Update;
 pub use index::{FileIndex, Import, RepoIndex, Revision, Symbol, SymbolKind};
 pub use lang::Language;
-pub use library::{Finder, Hit, Library, Matched, Progress, Skipped, Source, Status, UpdateReport, WordHit};
+pub use library::{Finder, Guessed, Health, Hit, Library, Matched, Pace, Progress, Scope, Skipped, Source, Status, Unrecognized, UpdateReport, WordHit};
 pub use model::{ModelSpec, Pooling};
 pub use neutral::LanguageAxes;
+pub use reading::Why;
 pub use repo::Repo;
 pub use store::Store;
 pub use summary::{ModuleSummary, SummaryEntry};
 #[cfg(feature = "semantic")]
 pub use vectors::{SemanticHit, SemanticIndex, VectorReport};
+pub use watch::Watcher;

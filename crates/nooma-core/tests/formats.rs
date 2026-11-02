@@ -100,7 +100,7 @@ fn a_word_document_reads_as_it_stands() {
 
 #[test]
 fn a_word_document_under_a_password_says_so() {
-    assert_eq!(unread("locked.docx"), Unread::Failed("protected by a password".to_string()));
+    assert_eq!(unread("locked.docx"), Unread::Locked("protected by a password".to_string()));
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn a_book_without_contents_is_headed_by_its_own_headings() {
 
 #[test]
 fn a_book_locked_by_drm_says_so_and_obfuscated_fonts_do_not() {
-    assert_eq!(unread("locked.epub"), Unread::Failed("protected by DRM".to_string()));
+    assert_eq!(unread("locked.epub"), Unread::Locked("protected by DRM".to_string()));
     let doc = read("fonts.epub").document;
     assert!(text(&doc).contains("twice a minute"));
 }
@@ -313,12 +313,13 @@ fn a_file_found_to_be_no_document_is_not_opened_again_until_it_changes() {
     library.update().unwrap();
     let totals = std::sync::Mutex::new(Vec::new());
     library.update_with(&|progress| totals.lock().unwrap().push(progress.total)).unwrap();
-    // Only what is reported every time is read every time: the files whose
-    // names claim a document they are not - the picture named as a PDF
-    // among them where pictures are not read.
-    let reported = if nooma_core::ocr::available() { 5 } else { 6 };
+    // Nothing is read again: not the files passed over, nor those whose
+    // names claim a document they are not - kept in the index's health with
+    // why, until they change.
     let totals = totals.into_inner().unwrap();
-    assert_eq!(totals.last(), Some(&reported), "{totals:?}");
+    assert_eq!(totals.last(), Some(&0), "{totals:?}");
+    let refused = if nooma_core::ocr::available() { 5 } else { 6 };
+    assert_eq!(library.health().unwrap().skipped.len(), refused);
 
     // A picture with no extension that becomes a note is read as one.
     let photo = dir.path().join("files/kinds/photo");

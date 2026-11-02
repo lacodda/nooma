@@ -1,5 +1,5 @@
-//! `nooma source`, `nooma index`, `nooma find` and `nooma similar` — the
-//! document library on the command line.
+//! `nooma source`, `nooma index`, `nooma health`, `nooma find` and `nooma
+//! similar` — the document library on the command line.
 //!
 //! What `--json` prints is a contract, as it is for `nooma repo`: `rigger`
 //! and scripts read it, so fields are added, never renamed or dropped without
@@ -7,13 +7,15 @@
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Args, Subcommand};
 use nooma_core::document::DocKind;
+use nooma_core::embed::OnnxEmbedder;
 use nooma_core::model::ModelSpec;
 use nooma_core::reading::Unread;
-use nooma_core::{Error, Library, Ranked, UpdateReport, VectorReport};
+use nooma_core::{Error, Health, Library, Pace, Ranked, UpdateReport, VectorReport, Why, background};
 
 use crate::meaning::{self, State};
 use crate::model::ModelsArgs;
@@ -70,13 +72,28 @@ enum SourceCommand {
 /// Bring the index up to date with the folders.
 #[derive(Debug, Args)]
 pub struct IndexArgs {
+    /// Print machine-readable JSON instead of a report; with --watch, one
+    /// line of it for every update
+    #[arg(long)]
+    json: bool,
+    /// Then keep the index up to date as files change, until stopped:
+    /// below other programs, and waiting while the machine is on battery
+    #[arg(long)]
+    watch: bool,
+    #[command(flatten)]
+    store: StoreArgs,
+    #[command(flatten)]
+    models: ModelsArgs,
+}
+
+/// Say what the index could not read, and why.
+#[derive(Debug, Args)]
+pub struct HealthArgs {
     /// Print machine-readable JSON instead of a report
     #[arg(long)]
     json: bool,
     #[command(flatten)]
     store: StoreArgs,
-    #[command(flatten)]
-    models: ModelsArgs,
 }
 
 /// Find documents by the words of a query, and by what it means.
@@ -170,27 +187,107 @@ pub fn index(args: IndexArgs) -> Result<()> {
     let report = library.update()?;
     if !args.json {
         print_report(&report);
+        print_standing(&library, &report)?;
     }
-    let vectors = update_vectors(&library, &args.models.dir()?)?;
+    let mut embedder = meaning::load(&args.models.dir()?)?;
+    let vectors = update_vectors(
+        &library,
+        embedder.as_mut(),
+        Pace::foreground(&meaning::progress_for(ModelSpec::default_model().id)),
+    )?;
     if args.json {
-        let mut out = serde_json::to_value(&report)?;
-        out["vectors"] = match &vectors {
-            Vectors::Updated(report) => serde_json::to_value(report)?,
-            Vectors::NoModel | Vectors::Busy => serde_json::Value::Null,
-        };
-        println!("{}", serde_json::to_string_pretty(&out)?);
-        return Ok(());
-    }
-    match &vectors {
-        Vectors::Updated(report) => print_vectors(report),
-        Vectors::NoModel => {
-            let spec = ModelSpec::default_model();
-            println!(
-                "search by meaning needs its model: `nooma model fetch` ({}, the one download nooma makes)",
-                crate::model::size(spec.bytes())
-            );
+        let out = json_of(&report, &vectors)?;
+        match args.watch {
+            true => println!("{}", serde_json::to_string(&out)?),
+            false => println!("{}", serde_json::to_string_pretty(&out)?),
         }
-        Vectors::Busy => println!("another nooma is computing the vectors of this library; they are left to it"),
+    } else {
+        match &vectors {
+            Vectors::Updated(report) => print_vectors(report),
+            Vectors::NoModel => {
+                let spec = ModelSpec::default_model();
+                println!(
+                    "search by meaning needs its model: `nooma model fetch` ({}, the one download nooma makes)",
+                    crate::model::size(spec.bytes())
+                );
+            }
+            Vectors::Busy => println!("another nooma is computing the vectors of this library; they are left to it"),
+        }
+    }
+    if args.watch {
+        keep_up(&library, embedder.as_mut(), args.json)?;
+    }
+    Ok(())
+}
+
+/// An update's report with its vectors', as `--json` prints it.
+fn json_of(report: &UpdateReport, vectors: &Vectors) -> Result<serde_json::Value> {
+    let mut out = serde_json::to_value(report)?;
+    out["vectors"] = match vectors {
+        Vectors::Updated(report) => serde_json::to_value(report)?,
+        Vectors::NoModel | Vectors::Busy => serde_json::Value::Null,
+    };
+    Ok(out)
+}
+
+/// Keep the index up to date with the folders as files change, until the
+/// process is stopped: the work nobody waits for, run as the window runs it -
+/// below other programs, holding while the machine is on its battery.
+fn keep_up(library: &Library, mut embedder: Option<&mut OnnxEmbedder>, json: bool) -> Result<()> {
+    background::lower_this_thread();
+    let (told, heard) = mpsc::channel();
+    let watcher = library.watch(move |scope| {
+        // The receiver goes only when the process does.
+        let _ = told.send(scope);
+    })?;
+    for (path, why) in watcher.unwatched() {
+        eprintln!("nooma: not watching {}: {why}", path.display());
+    }
+    eprintln!(
+        "nooma: watching {} for changes; Ctrl+C stops",
+        if library.sources().len() == 1 {
+            "the folder".to_string()
+        } else {
+            format!("{} folders", library.sources().len())
+        }
+    );
+    let held = || eprintln!("nooma: on battery - indexing waits for the power");
+    let hold = || background::hold(&held);
+    let quiet = |_| {};
+    while let Ok(mut scope) = heard.recv() {
+        // What changed while the last update ran is one update.
+        while let Ok(more) = heard.try_recv() {
+            scope = scope.and(more);
+        }
+        let report = match library.update_scoped(&scope, Pace::background(&quiet, &hold)) {
+            Ok(report) => report,
+            Err(Error::Busy) => {
+                eprintln!("nooma: another nooma is indexing; its update covers this change");
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let changed = report.indexed > 0 || report.removed > 0 || !report.skipped.is_empty() || report.rebuilt.is_some();
+        // The vectors follow the chunks, and the chunks moved only if a
+        // document was read or removed.
+        let vectors = match report.indexed > 0 || report.removed > 0 {
+            true => update_vectors(library, embedder.as_deref_mut(), Pace::background(&quiet, &hold))?,
+            false => Vectors::NoModel,
+        };
+        let embedded = matches!(&vectors, Vectors::Updated(vectors) if vectors.embedded > 0);
+        if !changed && !embedded {
+            continue;
+        }
+        if json {
+            println!("{}", serde_json::to_string(&json_of(&report, &vectors)?)?);
+            continue;
+        }
+        print_report(&report);
+        if let Vectors::Updated(vectors) = &vectors
+            && vectors.embedded > 0
+        {
+            print_vectors(vectors);
+        }
     }
     Ok(())
 }
@@ -204,14 +301,102 @@ enum Vectors {
     Busy,
 }
 
-fn update_vectors(library: &Library, models: &Path) -> Result<Vectors> {
-    let Some(mut embedder) = meaning::load(models)? else {
+fn update_vectors(library: &Library, embedder: Option<&mut OnnxEmbedder>, pace: Pace<'_>) -> Result<Vectors> {
+    let Some(embedder) = embedder else {
         return Ok(Vectors::NoModel);
     };
-    match library.update_vectors(&mut embedder, &meaning::progress_for(ModelSpec::default_model().id)) {
+    match library.update_vectors_paced(embedder, pace) {
         Ok(report) => Ok(Vectors::Updated(report)),
         Err(Error::Busy) => Ok(Vectors::Busy),
         Err(error) => Err(error.into()),
+    }
+}
+
+/// The files the index lacks beyond those this update named: a file refused
+/// once is not tried again until it changes, and is said here so it is not
+/// forgotten.
+fn print_standing(library: &Library, report: &UpdateReport) -> Result<()> {
+    let standing = library.health()?.skipped.len();
+    if standing > report.skipped.len() {
+        let files = if standing == 1 { "file is" } else { "files are" };
+        println!("{standing} {files} not in the index: `nooma health` says which and why");
+    }
+    Ok(())
+}
+
+pub fn health(args: HealthArgs) -> Result<()> {
+    let library = args.store.open()?;
+    let health = library.health()?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&health)?);
+        return Ok(());
+    }
+    if library.sources().is_empty() {
+        println!("no sources yet: `nooma source add <folder>`");
+        return Ok(());
+    }
+    print_health(&health);
+    Ok(())
+}
+
+/// What a reason is called, heading the files not read for it.
+fn why_heading(why: Why) -> &'static str {
+    match why {
+        Why::NotADocument => "not documents nooma reads",
+        Why::TooLarge => "too large",
+        Why::Locked => "under a password or DRM",
+        Why::Unopened => "could not be opened - tried again at every update",
+        Why::Damaged => "damaged, or not readable by their reader",
+    }
+}
+
+fn print_health(health: &Health) {
+    if health.count() == 0 {
+        println!("every file found was read");
+        return;
+    }
+    if !health.skipped.is_empty() {
+        println!("not read: {}", health.skipped.len());
+        let mut last = None;
+        for skipped in &health.skipped {
+            if last != Some(skipped.why) {
+                println!("  {}", why_heading(skipped.why));
+                last = Some(skipped.why);
+            }
+            let size = match (skipped.why, skipped.size) {
+                // In the megabytes the limit is said in.
+                (Why::TooLarge, Some(size)) => format!(" ({:.0} MB)", size as f64 / 1024.0 / 1024.0),
+                _ => String::new(),
+            };
+            println!("    {} - {}{size}", skipped.path.display(), skipped.reason);
+        }
+    }
+    if !health.textless.is_empty() {
+        println!("found by their names only, with no text in them: {}", health.textless.len());
+        if let Some(why) = &health.no_ocr {
+            println!("  text in scans and pictures is not read: {why}");
+        }
+        for path in &health.textless {
+            println!("    {}", path.display());
+        }
+    }
+    if !health.unrecognized.is_empty() {
+        println!("read without their pictures of text: {}", health.unrecognized.len());
+        for unrecognized in &health.unrecognized {
+            println!("    {} - {}", unrecognized.path.display(), unrecognized.reason);
+        }
+    }
+    if !health.guessed.is_empty() {
+        println!("read in a guessed encoding: {}", health.guessed.len());
+        for guessed in &health.guessed {
+            println!("    {} - {}", guessed.path.display(), guessed.encoding);
+        }
+    }
+    if !health.unavailable.is_empty() {
+        println!("folders out of reach, their documents kept as they were: {}", health.unavailable.len());
+        for path in &health.unavailable {
+            println!("    {}", path.display());
+        }
     }
 }
 
@@ -402,7 +587,7 @@ pub fn similar(args: SimilarArgs) -> Result<()> {
 fn read_example(path: &Path) -> Result<String> {
     let opened = nooma_core::reading::read_path(path).map_err(|unread| match unread {
         Unread::NotADocument(what) => anyhow!("not a document nooma reads: {what}"),
-        Unread::Failed(why) => anyhow!("{why}"),
+        Unread::TooLarge(why) | Unread::Locked(why) | Unread::Unopened(why) | Unread::Failed(why) => anyhow!("{why}"),
         Unread::NoText(_) => anyhow!("a picture with no text in it"),
     })?;
     Ok(opened.document.chunks.iter().map(|chunk| chunk.text.as_str()).collect::<Vec<_>>().join("\n\n"))

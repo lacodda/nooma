@@ -28,10 +28,30 @@
 //! reach it; removing them would make every reconnect a full reindex, and a
 //! search in between would not find what it found yesterday for no reason the
 //! reader could see.
+//!
+//! # Only what changed
+//!
+//! An update looks at every file under every source, or - when a watcher
+//! ([`crate::watch`]) saw which paths changed - at those paths alone: the
+//! folders above them are walked down to them, so every rule that leaves a
+//! file out applies as it does on a whole walk, and the rest of the index is
+//! kept as it is. It is one update either way, the same code deciding what
+//! a file is; what the watcher says only narrows where it looks. An update
+//! that found nothing changed writes nothing: a watcher wakes it for every
+//! file saved anywhere in a source, most of them no documents.
+//!
+//! # What could not be read
+//!
+//! A file found and not read - too large, under a password, damaged - is
+//! kept in the manifest with why, as a read one is with what it holds: it is
+//! not tried again until it changes, and the index can say at any time what
+//! it lacks ([`Library::health`]), not only in the report of the update that
+//! met it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -46,7 +66,7 @@ use tantivy::{DocAddress, DocId, Index, IndexWriter, Score, SegmentReader, Tanti
 use crate::document::{self, DocKind, Document};
 use crate::error::{Error, Result};
 use crate::fulltext::{self, Fields};
-use crate::reading::{self, Unread};
+use crate::reading::{self, Unread, Why};
 
 /// The format of `sources.json`.
 pub const SOURCES_FORMAT_VERSION: u32 = 1;
@@ -71,7 +91,19 @@ pub const SOURCES_FORMAT_VERSION: u32 = 1;
 ///
 /// 5: a chunk says whether its text was read by OCR, and pictures are
 /// documents where their text can be read.
-pub const FULLTEXT_FORMAT_VERSION: u32 = 5;
+///
+/// 6: the manifest keeps what each file could not give - documents with no
+/// text, pictures of text not read, encodings guessed - and the files not
+/// read at all, with why.
+pub const FULLTEXT_FORMAT_VERSION: u32 = 6;
+
+/// The nooma that tried a file it could not read: a later one may read it,
+/// or tell it otherwise, so it tries it again.
+const TRIED_BY: &str = env!("CARGO_PKG_VERSION");
+
+/// The files that say what a folder leaves out: a change to one is a change
+/// to what the whole folder holds.
+const RULE_FILES: [&str; 3] = [".gitignore", ".ignore", ".nooma-ignore"];
 
 /// How documents are cut into chunks.
 ///
@@ -117,6 +149,29 @@ struct Manifest {
     /// update.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     passed: BTreeMap<String, Passed>,
+    /// Files found and not read, by their path, with why.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    skipped: BTreeMap<String, Unreadable>,
+}
+
+/// A file found and not read, as it was then, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Unreadable {
+    /// `None` for a folder that could not be walked into.
+    size: Option<u64>,
+    modified: u64,
+    why: Why,
+    reason: String,
+    /// The nooma that tried it: see [`TRIED_BY`].
+    by: String,
+}
+
+impl Unreadable {
+    /// Whether the file would be refused as it was, were it tried now:
+    /// unchanged, tried by this nooma, and for a reason that lasts.
+    fn still(&self, file: &WalkedFile) -> bool {
+        self.size == Some(file.size) && self.modified == file.modified && self.by == TRIED_BY && self.why.lasts()
+    }
 }
 
 /// A file looked at and found to be no document, as it was then.
@@ -162,6 +217,17 @@ struct FileEntry {
     /// [`reading::reader`]. A file read otherwise now is read again.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     reader: String,
+    /// Whether a PDF, Word document or book holds no text: a scan, most
+    /// likely, where there is no OCR to read it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    textless: bool,
+    /// Why its pages that are pictures of text could not be read, when they
+    /// could not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unrecognized: Option<String>,
+    /// The encoding a text file was read in, when it was guessed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    guessed: Option<String>,
 }
 
 impl FileEntry {
@@ -194,7 +260,7 @@ pub struct UpdateReport {
     /// Files read in this update with pages that are pictures of text OCR
     /// could not read, with why. They are in the index by what else they
     /// hold.
-    pub unrecognized: Vec<Skipped>,
+    pub unrecognized: Vec<Unrecognized>,
     /// Text files read in this update whose encoding was not UTF-8 and was
     /// guessed, with the guess: a wrong one reads as gibberish, and is seen
     /// here rather than wondered at.
@@ -207,13 +273,167 @@ pub struct UpdateReport {
     pub took_ms: u64,
 }
 
-/// A file an update found and could not read.
+/// A file an update found and could not read - or a folder it could not
+/// walk into.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Skipped {
     /// The file.
     pub path: PathBuf,
+    /// Why, as the index's health sorts it.
+    pub why: Why,
     /// Why, said for a person.
     pub reason: String,
+    /// Its size in bytes, when it is a file that was found.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+}
+
+/// A document read without its pages that are pictures of text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Unrecognized {
+    /// The file.
+    pub path: PathBuf,
+    /// Why they could not be read, said for a person.
+    pub reason: String,
+}
+
+/// What the index lacks of the files under its sources, and what it holds of
+/// them only in part: what the updates that read them left in the manifest.
+///
+/// A person asks it when a document they know is there is not found. Every
+/// list is sorted by path, the skipped files by why first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Health {
+    /// Files found and not read: kept so until the file changes, or is read.
+    pub skipped: Vec<Skipped>,
+    /// PDFs, Word documents and books with no text in them - scans, where
+    /// there is no OCR to read them - in the index by their names alone.
+    pub textless: Vec<PathBuf>,
+    /// Why text in scans and pictures is not read on this machine, when it
+    /// is not and there are scans in the library.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_ocr: Option<String>,
+    /// Documents read without their pages that are pictures of text.
+    pub unrecognized: Vec<Unrecognized>,
+    /// Text files read in an encoding that was guessed: a wrong guess reads
+    /// as gibberish.
+    pub guessed: Vec<Guessed>,
+    /// Sources whose folder cannot be reached now; their documents are kept
+    /// as they were.
+    pub unavailable: Vec<PathBuf>,
+}
+
+impl Health {
+    /// How many files and folders there are to look at.
+    pub fn count(&self) -> usize {
+        self.skipped.len() + self.textless.len() + self.unrecognized.len() + self.guessed.len() + self.unavailable.len()
+    }
+}
+
+/// What an update looks at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Scope {
+    /// Every file under every source.
+    Everything,
+    /// These paths and everything under them: files and folders a watcher
+    /// saw change, some of them gone by now. The rest of the index is kept
+    /// as it is.
+    Paths(BTreeSet<PathBuf>),
+}
+
+impl Scope {
+    /// One scope that covers this one and another.
+    #[must_use]
+    pub fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Paths(mut these), Self::Paths(those)) => {
+                these.extend(those);
+                Self::Paths(these)
+            }
+            _ => Self::Everything,
+        }
+    }
+
+    /// The part of the scope under a source.
+    fn within(&self, source: &Path) -> Within {
+        let Self::Paths(paths) = self else { return Within::All };
+        let mut under = Vec::new();
+        for path in paths.iter().filter(|path| path.starts_with(source)) {
+            // A rule file decides what its whole folder holds.
+            let path = match path.file_name().and_then(|name| name.to_str()) {
+                Some(name) if RULE_FILES.contains(&name) => path.parent().unwrap_or(path),
+                _ => path.as_path(),
+            };
+            if path == source {
+                return Within::All;
+            }
+            under.push(path.to_path_buf());
+        }
+        if under.is_empty() { Within::Nothing } else { Within::Paths(Arc::new(under)) }
+    }
+}
+
+/// The part of a scope under one source.
+#[derive(Debug, Clone)]
+enum Within {
+    All,
+    Nothing,
+    Paths(Arc<Vec<PathBuf>>),
+}
+
+impl Within {
+    /// Whether a file, or a folder and all it holds, is looked at.
+    fn covers(&self, path: &Path) -> bool {
+        match self {
+            Self::All => true,
+            Self::Nothing => false,
+            Self::Paths(paths) => paths.iter().any(|changed| path.starts_with(changed)),
+        }
+    }
+
+    /// Whether a walk goes into a folder: one a changed path is in, or one
+    /// inside a changed folder.
+    fn reaches(&self, dir: &Path) -> bool {
+        match self {
+            Self::All => true,
+            Self::Nothing => false,
+            Self::Paths(paths) => paths.iter().any(|changed| changed.starts_with(dir) || dir.starts_with(changed)),
+        }
+    }
+}
+
+/// How an update keeps pace with the machine it runs on.
+#[derive(Clone, Copy)]
+pub struct Pace<'a> {
+    /// Told how far the update has got.
+    pub progress: &'a (dyn Fn(Progress) + Sync),
+    /// Set for an update nobody is waiting for: its threads run below the
+    /// person's programs, and it calls this before each file it reads and
+    /// each batch of passages it embeds, going on when it returns -
+    /// [`crate::background::hold`] holds it while the machine runs on its
+    /// battery.
+    pub background: Option<&'a (dyn Fn() + Sync)>,
+}
+
+impl<'a> Pace<'a> {
+    /// An update someone asked for and waits on.
+    pub fn foreground(progress: &'a (dyn Fn(Progress) + Sync)) -> Self {
+        Self { progress, background: None }
+    }
+
+    /// An update nobody is waiting for: see [`Pace::background`].
+    pub fn background(progress: &'a (dyn Fn(Progress) + Sync), hold: &'a (dyn Fn() + Sync)) -> Self {
+        Self {
+            progress,
+            background: Some(hold),
+        }
+    }
+
+    pub(crate) fn hold(&self) {
+        if let Some(hold) = self.background {
+            hold();
+        }
+    }
 }
 
 /// A text file whose encoding an update guessed.
@@ -243,8 +463,8 @@ pub struct Status {
     pub documents: usize,
     /// Chunks in the index.
     pub chunks: usize,
-    /// When the last update finished, as seconds since the epoch; `None`
-    /// before the first.
+    /// When an update last changed the index, as seconds since the epoch;
+    /// `None` before the first. One that found nothing changed leaves it.
     pub indexed_at: Option<i64>,
     /// Why the stored index cannot be searched until the next update, if it
     /// cannot.
@@ -517,6 +737,15 @@ impl Library {
     /// library; the index it would have written is the one that process is
     /// already writing.
     pub fn update_with(&self, progress: &(dyn Fn(Progress) + Sync)) -> Result<UpdateReport> {
+        self.update_scoped(&Scope::Everything, Pace::foreground(progress))
+    }
+
+    /// Bring the index up to date with what is in a scope of the folders, at
+    /// a pace: see [`Scope`] and [`Pace`].
+    ///
+    /// An index that has to be built again is built from everything, whatever
+    /// the scope. Fails with [`Error::Busy`] as [`Library::update_with`] does.
+    pub fn update_scoped(&self, scope: &Scope, pace: Pace<'_>) -> Result<UpdateReport> {
         let started = Instant::now();
         let mut report = UpdateReport::default();
 
@@ -558,25 +787,61 @@ impl Library {
         if start_over {
             writer.delete_all_documents().map_err(Error::fulltext)?;
         }
+        let scope = if start_over { &Scope::Everything } else { scope };
 
-        // Walk every source: what is there now, and what can be skipped
-        // without opening it.
+        // Walk every source, as far as the scope reaches: what is there now,
+        // and what can be skipped without opening it. What the walk does not
+        // look at is kept as it was - all of a source it cannot reach or was
+        // not asked about, and the rest of one it was asked about in part.
         let mut found: BTreeMap<String, Found> = BTreeMap::new();
         let mut passed: BTreeMap<String, Passed> = BTreeMap::new();
+        let mut skipped: BTreeMap<String, Unreadable> = BTreeMap::new();
         for source in &self.sources {
-            if !source.path.is_dir() {
+            let reachable = source.path.is_dir();
+            if !reachable {
                 report.unavailable.push(source.path.clone());
-                for (key, entry) in &manifest.files {
-                    if entry.source == source.path {
-                        found.insert(key.clone(), Found::Kept(entry.clone()));
-                    }
+            }
+            let within = if reachable { scope.within(&source.path) } else { Within::Nothing };
+            let kept = |key: &String| Path::new(key).starts_with(&source.path) && !within.covers(Path::new(key));
+            for (key, entry) in &manifest.files {
+                if entry.source == source.path && !within.covers(Path::new(key)) {
+                    found.insert(key.clone(), Found::Kept(entry.clone()));
                 }
+            }
+            passed.extend(manifest.passed.iter().filter(|(key, _)| kept(key)).map(|(key, p)| (key.clone(), p.clone())));
+            skipped.extend(manifest.skipped.iter().filter(|(key, _)| kept(key)).map(|(key, s)| (key.clone(), s.clone())));
+            if matches!(within, Within::Nothing) {
                 continue;
             }
-            for file in walk(source, &mut report.skipped)? {
+
+            let mut unwalked = Vec::new();
+            let files = walk(source, &within, &mut unwalked)?;
+            for (path, reason) in unwalked {
+                skipped.insert(
+                    path.to_string_lossy().into_owned(),
+                    Unreadable {
+                        size: None,
+                        modified: 0,
+                        why: Why::Unopened,
+                        reason: reason.clone(),
+                        by: TRIED_BY.to_string(),
+                    },
+                );
+                report.skipped.push(Skipped {
+                    path,
+                    why: Why::Unopened,
+                    reason,
+                    size: None,
+                });
+            }
+            for file in files {
                 let key = file.path.to_string_lossy().into_owned();
                 if let Some(still) = manifest.passed.get(&key).filter(|passed| passed.still(&file)) {
                     passed.insert(key, still.clone());
+                    continue;
+                }
+                if let Some(still) = manifest.skipped.get(&key).filter(|refused| refused.still(&file)) {
+                    skipped.insert(key, still.clone());
                     continue;
                 }
                 let unchanged = manifest
@@ -602,23 +867,30 @@ impl Library {
             .collect();
         let total = candidates.len();
         let done = AtomicUsize::new(0);
-        progress(Progress { done: 0, total });
+        (pace.progress)(Progress { done: 0, total });
         // On as many threads as the writer gets, not every core: a PDF is
         // parsed, not just read, and a folder of books would otherwise take
         // the whole machine - and hold a file's bytes per core.
+        let background = pace.background.is_some();
         let readers = rayon::ThreadPoolBuilder::new()
             .num_threads(indexing_threads())
+            .start_handler(move |_| {
+                if background {
+                    crate::background::lower_this_thread();
+                }
+            })
             .build()
             .map_err(|e| Error::io(&self.root, std::io::Error::other(e)))?;
         let read: Vec<(String, std::result::Result<Read, Unread>)> = readers.install(|| {
             candidates
                 .par_iter()
                 .map(|file| {
+                    pace.hold();
                     let key = file.path.to_string_lossy().into_owned();
                     let previous = manifest.files.get(&key);
                     let result = read_file(file, previous);
                     let done = done.fetch_add(1, Ordering::Relaxed) + 1;
-                    progress(Progress { done, total });
+                    (pace.progress)(Progress { done, total });
                     (key, result)
                 })
                 .collect()
@@ -641,55 +913,57 @@ impl Library {
                     entry.modified = file.modified;
                     entries.insert(key, entry);
                 }
-                Ok(Read::Changed(entry, doc, guessed, unrecognized)) => {
-                    if !entry.kind.has_lines() && doc.chunks.iter().all(|chunk| chunk.text.is_empty()) {
+                Ok(Read::Changed(entry, doc)) => {
+                    if entry.textless {
                         report.textless.push(file.path.clone());
                     }
                     if doc.chunks.iter().any(|chunk| chunk.recognized) {
                         report.recognized.push(file.path.clone());
                     }
-                    if let Some(reason) = unrecognized {
-                        report.unrecognized.push(Skipped {
+                    if let Some(reason) = &entry.unrecognized {
+                        report.unrecognized.push(Unrecognized {
                             path: file.path.clone(),
-                            reason,
+                            reason: reason.clone(),
                         });
                     }
-                    if let Some(encoding) = guessed {
+                    if let Some(encoding) = &entry.guessed {
                         report.guessed.push(Guessed {
                             path: file.path.clone(),
-                            encoding: encoding.to_string(),
+                            encoding: encoding.clone(),
                         });
                     }
                     entries.insert(key.clone(), entry);
                     parsed.insert(key, doc);
                 }
-                // A file whose name never said it was a document is not
-                // reported for not being one, and a picture with no text in
-                // it is not reported at all.
-                Err(Unread::NotADocument(_)) if !reading::claims_a_document(&file.path) => {
-                    passed.insert(
-                        key,
-                        Passed {
-                            size: file.size,
-                            modified: file.modified,
-                            reader: String::new(),
-                        },
-                    );
-                }
-                Err(Unread::NoText(reader)) => {
-                    passed.insert(
-                        key,
-                        Passed {
-                            size: file.size,
-                            modified: file.modified,
-                            reader,
-                        },
-                    );
-                }
-                Err(Unread::NotADocument(reason) | Unread::Failed(reason)) => report.skipped.push(Skipped {
-                    path: file.path.clone(),
-                    reason,
-                }),
+                // A picture with no text in it is not reported at all, and a
+                // file whose name never said it was a document is not
+                // reported for not being one: both are passed over until
+                // they change.
+                Err(unread) => match unread.why().filter(|_| unread.is_said(&file.path)) {
+                    Some((why, reason)) => {
+                        skipped.insert(key, Unreadable::of(file, why, reason));
+                        report.skipped.push(Skipped {
+                            path: file.path.clone(),
+                            why,
+                            reason: reason.to_string(),
+                            size: Some(file.size),
+                        });
+                    }
+                    None => {
+                        let reader = match unread {
+                            Unread::NoText(reader) => reader,
+                            _ => String::new(),
+                        };
+                        passed.insert(
+                            key,
+                            Passed {
+                                size: file.size,
+                                modified: file.modified,
+                                reader,
+                            },
+                        );
+                    }
+                },
             }
         }
 
@@ -723,6 +997,17 @@ impl Library {
             }
         }
 
+        // An update that found nothing changed leaves the index and the
+        // manifest as they are: a watcher wakes one for every file saved
+        // anywhere under a source, and most of them are no documents.
+        let touches_index = start_over || !removed.is_empty() || !reindex.is_empty();
+        if !touches_index && entries == manifest.files && passed == manifest.passed && skipped == manifest.skipped {
+            drop(writer);
+            report.documents = entries.len();
+            report.took_ms = millis_since(started);
+            return Ok(report);
+        }
+
         for key in &removed {
             writer.delete_term(Term::from_field_text(fields.path, key));
         }
@@ -733,22 +1018,27 @@ impl Library {
             let Some(entry) = entries.get(key) else { continue };
             let doc = match parsed.remove(key) {
                 Some(doc) => doc,
-                None => match reading::read_path(Path::new(key)) {
-                    Ok(opened) => opened.document,
-                    Err(unread) => {
-                        // A picture whose text is gone by now is passed over
-                        // on the next update, without a word.
-                        if let Unread::NotADocument(reason) | Unread::Failed(reason) = unread {
-                            report.skipped.push(Skipped {
-                                path: PathBuf::from(key),
-                                reason,
-                            });
+                None => {
+                    pace.hold();
+                    match reading::read_path(Path::new(key)) {
+                        Ok(opened) => opened.document,
+                        Err(unread) => {
+                            // A picture whose text is gone by now is passed
+                            // over on the next update, without a word.
+                            if let Some((why, reason)) = unread.why().filter(|_| unread.is_said(Path::new(key))) {
+                                report.skipped.push(Skipped {
+                                    path: PathBuf::from(key),
+                                    why,
+                                    reason: reason.to_string(),
+                                    size: Some(entry.size),
+                                });
+                            }
+                            dropped.push(key.clone());
+                            writer.delete_term(Term::from_field_text(fields.path, key));
+                            continue;
                         }
-                        dropped.push(key.clone());
-                        writer.delete_term(Term::from_field_text(fields.path, key));
-                        continue;
                     }
-                },
+                }
             };
             writer.delete_term(Term::from_field_text(fields.path, key));
             let backlink_titles: Vec<&str> = entry.backlinks.iter().filter_map(|k| entries.get(k)).map(|e| e.title.as_str()).collect();
@@ -759,13 +1049,16 @@ impl Library {
             entries.remove(&key);
         }
 
-        writer.commit().map_err(Error::fulltext)?;
+        if touches_index {
+            writer.commit().map_err(Error::fulltext)?;
+        }
 
         manifest.format_version = FULLTEXT_FORMAT_VERSION;
         manifest.chunker_version = DOC_CHUNKER_VERSION;
         manifest.indexed_at = Some(unix_now());
         manifest.files = entries;
         manifest.passed = passed;
+        manifest.skipped = skipped;
         let bytes = serde_json::to_vec(&manifest).expect("manifest serializes");
         write_atomically(&self.manifest_path(), &bytes)?;
         // The writer holds tantivy's lock; dropping it only after the manifest
@@ -775,8 +1068,54 @@ impl Library {
         self.remove_other_formats();
 
         report.documents = manifest.files.len();
-        report.took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        report.took_ms = millis_since(started);
         Ok(report)
+    }
+
+    /// What the index lacks of the files under its sources, and what it
+    /// holds of them only in part, read without changing anything: see
+    /// [`Health`].
+    pub fn health(&self) -> Result<Health> {
+        let manifest = self.load_manifest()?.unwrap_or_default();
+        let under_a_source = |key: &str| self.sources.iter().any(|source| Path::new(key).starts_with(&source.path));
+        let mut health = Health::default();
+        for (key, refused) in manifest.skipped.iter().filter(|(key, _)| under_a_source(key)) {
+            health.skipped.push(Skipped {
+                path: PathBuf::from(key),
+                why: refused.why,
+                reason: refused.reason.clone(),
+                size: refused.size,
+            });
+        }
+        health.skipped.sort_by(|a, b| a.why.cmp(&b.why).then_with(|| a.path.cmp(&b.path)));
+        for (key, entry) in manifest.files.iter().filter(|(key, _)| under_a_source(key)) {
+            let path = PathBuf::from(key);
+            if entry.textless {
+                health.textless.push(path.clone());
+            }
+            if let Some(reason) = &entry.unrecognized {
+                health.unrecognized.push(Unrecognized {
+                    path: path.clone(),
+                    reason: reason.clone(),
+                });
+            }
+            if let Some(encoding) = &entry.guessed {
+                health.guessed.push(Guessed {
+                    path,
+                    encoding: encoding.clone(),
+                });
+            }
+        }
+        if !health.textless.is_empty() {
+            health.no_ocr = crate::ocr::ocr().err().map(str::to_string);
+        }
+        health.unavailable = self
+            .sources
+            .iter()
+            .filter(|source| !source.path.is_dir())
+            .map(|source| source.path.clone())
+            .collect();
+        Ok(health)
     }
 
     /// Find the documents that contain the words of a query.
@@ -1242,6 +1581,11 @@ pub fn indexing_threads() -> usize {
     (cores / 2).clamp(1, 4)
 }
 
+/// Milliseconds since an instant, for a report.
+fn millis_since(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
 /// The time now, in seconds since the epoch.
 pub(crate) fn unix_now() -> i64 {
     SystemTime::now()
@@ -1274,13 +1618,25 @@ enum Found {
 enum Read {
     /// The bytes hash as before.
     Same(FileEntry),
-    /// New or changed: the fresh entry, the parsed document, the encoding
-    /// of a text whose encoding was guessed, and why pictures of text in it
-    /// could not be read, if they could not.
-    Changed(FileEntry, Document, Option<&'static str>, Option<String>),
+    /// New or changed: the fresh entry and the parsed document.
+    Changed(FileEntry, Document),
 }
 
-fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> {
+impl Unreadable {
+    fn of(file: &WalkedFile, why: Why, reason: &str) -> Self {
+        Self {
+            size: Some(file.size),
+            modified: file.modified,
+            why,
+            reason: reason.to_string(),
+            by: TRIED_BY.to_string(),
+        }
+    }
+}
+
+/// The files under a source, as far as the scope reaches; what could not be
+/// walked into goes to `unwalked`, with why.
+fn walk(source: &Source, within: &Within, unwalked: &mut Vec<(PathBuf, String)>) -> Result<Vec<WalkedFile>> {
     let mut overrides = ignore::overrides::OverrideBuilder::new(&source.path);
     for pattern in &source.exclude {
         overrides
@@ -1289,25 +1645,31 @@ fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> 
     }
     let overrides = overrides.build().map_err(|e| Error::BadPattern(source.exclude.join(", "), e.to_string()))?;
 
-    let walker = ignore::WalkBuilder::new(&source.path)
+    let mut walker = ignore::WalkBuilder::new(&source.path);
+    walker
         .hidden(true)
         .git_ignore(true)
         .git_exclude(true)
         .git_global(false)
         .add_custom_ignore_filename(".nooma-ignore")
         .overrides(overrides)
-        .follow_links(false)
-        .build();
+        .follow_links(false);
+    // Down to the changed paths and into them, every rule applying on the
+    // way as it does on a whole walk.
+    if let Within::Paths(_) = within {
+        let within = within.clone();
+        walker.filter_entry(move |entry| match entry.file_type().is_some_and(|kind| kind.is_dir()) {
+            true => within.reaches(entry.path()),
+            false => within.covers(entry.path()),
+        });
+    }
 
     let mut files = Vec::new();
-    for entry in walker {
+    for entry in walker.build() {
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
-                skipped.push(Skipped {
-                    path: source.path.clone(),
-                    reason: error.to_string(),
-                });
+                unwalked.push((path_of(&error).unwrap_or(&source.path).to_path_buf(), error.to_string()));
                 continue;
             }
         };
@@ -1320,10 +1682,7 @@ fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> 
         let metadata = match entry.metadata() {
             Ok(metadata) => metadata,
             Err(error) => {
-                skipped.push(Skipped {
-                    path: entry.path().to_path_buf(),
-                    reason: error.to_string(),
-                });
+                unwalked.push((entry.path().to_path_buf(), error.to_string()));
                 continue;
             }
         };
@@ -1340,6 +1699,17 @@ fn walk(source: &Source, skipped: &mut Vec<Skipped>) -> Result<Vec<WalkedFile>> 
         });
     }
     Ok(files)
+}
+
+/// The path a walk failed at, when the error names one.
+fn path_of(error: &ignore::Error) -> Option<&Path> {
+    match error {
+        ignore::Error::WithPath { path, .. } => Some(path),
+        ignore::Error::Loop { child, .. } => Some(child),
+        ignore::Error::WithDepth { err, .. } | ignore::Error::WithLineNumber { err, .. } => path_of(err),
+        ignore::Error::Partial(errors) => errors.iter().find_map(path_of),
+        _ => None,
+    }
 }
 
 fn read_file(file: &WalkedFile, previous: Option<&FileEntry>) -> std::result::Result<Read, Unread> {
@@ -1359,6 +1729,7 @@ fn read_file(file: &WalkedFile, previous: Option<&FileEntry>) -> std::result::Re
     };
     let rel = inside.to_string_lossy().replace('\\', "/").to_lowercase();
     let doc = opened.document;
+    let textless = !opened.kind.has_lines() && doc.chunks.iter().all(|chunk| chunk.text.is_empty());
     let entry = FileEntry {
         source: file.source.clone(),
         size: file.size,
@@ -1371,8 +1742,11 @@ fn read_file(file: &WalkedFile, previous: Option<&FileEntry>) -> std::result::Re
         backlinks: Vec::new(),
         chunks: doc.chunks.len(),
         reader: opened.reader,
+        textless,
+        unrecognized: opened.unrecognized,
+        guessed: opened.guessed.map(str::to_string),
     };
-    Ok(Read::Changed(entry, doc, opened.guessed, opened.unrecognized))
+    Ok(Read::Changed(entry, doc))
 }
 
 /// Fill in each entry's backlinks from every other entry's links.
@@ -1433,6 +1807,9 @@ mod tests {
             backlinks: Vec::new(),
             chunks: 1,
             reader: String::new(),
+            textless: false,
+            unrecognized: None,
+            guessed: None,
         }
     }
 

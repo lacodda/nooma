@@ -19,7 +19,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(commands::AppState::new())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(true) = event {
+                commands::focused(&window.state::<commands::AppState>());
+            }
+        })
         .setup(|app| {
+            commands::start(app.handle());
             // The window is created hidden and shown by the page once it has
             // painted, so the first thing seen is the field, never a white
             // rectangle. A page that fails to load would leave it hidden, so
@@ -38,7 +44,8 @@ pub fn run() {
             commands::search_hybrid,
             commands::similar,
             commands::explain,
-            commands::update,
+            commands::index_state,
+            commands::health,
             commands::update_vectors,
             commands::meaning_status,
             commands::fetch_model,

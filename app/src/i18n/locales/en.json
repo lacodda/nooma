@@ -67,7 +67,12 @@
     "meaningBusy": "another nooma is reading for meaning",
     "meaningFailed": "reading for meaning failed",
     "meaningBehind_one": "meaning behind by {{count}} document",
-    "meaningBehind_other": "meaning behind by {{count}} documents"
+    "meaningBehind_other": "meaning behind by {{count}} documents",
+    "held": "indexing paused: on battery",
+    "heldHint": "The machine runs on its battery: reading files waits for the power, and goes on by itself once it is back.",
+    "meaningHeld": "meaning paused: on battery",
+    "watchingHint": "Watching the folders: a file saved is found a moment later.",
+    "unwatchedHint": "The folders are not watched: changes are read when the window opens or comes back into focus."
   },
   "actions": {
     "open": "Open",
@@ -85,5 +90,38 @@
     "readingOf": "Reading your documents for meaning: {{done}} of {{total}} passages",
     "notYet": "Nothing has been read for meaning yet.",
     "failed": "Search by meaning failed: {{message}}"
+  },
+  "health": {
+    "chip_one": "{{count}} to check",
+    "chip_other": "{{count}} to check",
+    "title": "What the index lacks",
+    "body": "Files in your folders that are not searched, or searched only in part. A file is tried again when it changes.",
+    "close": "Close",
+    "clear": "Every file found was read.",
+    "reveal": "Show {{name}} in its folder",
+    "megabytes": "{{size}} MB",
+    "why": {
+      "locked": "Under a password or DRM",
+      "damaged": "Damaged or unreadable",
+      "too_large": "Too large",
+      "unopened": "Could not be opened",
+      "not_a_document": "Not documents"
+    },
+    "whyHint": {
+      "locked": "nooma does not open what is locked. A copy saved without the password is found.",
+      "damaged": "Their reader could not make sense of them: cut off, damaged, or written in a way it does not follow. Hover a file for what it said.",
+      "too_large": "Larger than nooma reads a document of their kind.",
+      "unopened": "Held by another program, or not allowed to be read. Tried again at every update.",
+      "not_a_document": "Their names say documents, their contents say otherwise: an archive, a recording, an old Office file."
+    },
+    "textless": "Found by name only",
+    "textlessHint": "PDFs and books with no text in them - scans, most likely. They are found by their names.",
+    "textlessNoOcr": "Scans, found by their names: text in pictures is not read on this machine.",
+    "unrecognized": "Read without their pictures of text",
+    "unrecognizedHint": "Pages that are pictures of text could not be read; the rest of each document is searched.",
+    "guessed": "Read in a guessed encoding",
+    "guessedHint": "Not UTF-8, so the encoding was guessed. A wrong guess reads as gibberish, and such a file is found by nothing.",
+    "unavailable": "Folders out of reach",
+    "unavailableHint": "A drive unplugged, or a folder moved: what was found in it is kept as it was."
   }
 }

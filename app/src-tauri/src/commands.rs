@@ -14,17 +14,27 @@
 //! it, and the words' answer stands in until it comes. A row the meaning found
 //! in another language is then asked why, one at a time: the sentence that
 //! answered, read by the model as a search reads its query.
+//!
+//! The index is kept up to date here, not by the page: one thread of the
+//! window's own runs every update, below the person's programs and holding
+//! while the machine is on its battery. It runs a whole one when the window
+//! opens, when a folder is added and when the window comes back into focus a
+//! while after the last, and one over the changed paths whenever the watcher
+//! names them; asked while it runs, it runs once more after, over everything
+//! it was asked about meanwhile. The page is told how it goes by
+//! `index-state`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use nooma_core::embed::OnnxEmbedder;
 use nooma_core::library::indexing_threads;
 use nooma_core::model::ModelSpec;
 use nooma_core::{
-    Answer, Embedder, Finder, LanguageAxes, Library, Model, Progress, Ranked, Role, SemanticIndex, Status, UpdateReport, VectorReport, hybrid, why,
+    Answer, Embedder, Finder, Health, LanguageAxes, Library, Model, Pace, Progress, Ranked, Role, Scope, SemanticIndex, Status, UpdateReport, VectorReport,
+    Watcher, background, hybrid, why,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager as _, State};
@@ -37,6 +47,12 @@ const MAX_RESULTS: usize = 50;
 /// the model anyway: a guard against a count that never falls, not a pace.
 const YIELD_LIMIT: Duration = Duration::from_secs(5);
 
+/// How long after the last whole update the window coming into focus asks
+/// for another: what a watcher can miss - a burst too large for it, a share
+/// that does not report, a drive plugged back in - is caught when the person
+/// comes back to search, at the cost of a walk.
+const FRESHEN_AFTER: Duration = Duration::from_secs(120);
+
 /// A model, as the window keeps it: loaded once, shared by the background
 /// update and every search.
 type Kept = Box<dyn Embedder + Send>;
@@ -48,7 +64,6 @@ pub struct AppState {
     models: Option<PathBuf>,
     /// Opened on the first search and kept: opening costs more than a search.
     finder: Mutex<Option<Finder>>,
-    updating: AtomicBool,
     /// The model, loaded on first need.
     embedder: Mutex<Option<Kept>>,
     /// Searches waiting for the model, or using it. The background update
@@ -64,6 +79,135 @@ pub struct AppState {
     /// An update of the vectors was asked for while one ran.
     again: AtomicBool,
     fetching: AtomicBool,
+    /// The updates of the index, asked for and run one at a time.
+    indexer: Indexer,
+    /// The folders watched, until the next whole update watches them anew.
+    watcher: Mutex<Option<Watcher>>,
+}
+
+/// What the window's indexing is doing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Indexing {
+    Idle,
+    /// Files read so far, of those this update reads.
+    Running {
+        done: usize,
+        total: usize,
+    },
+    /// Held while the machine runs on its battery.
+    Held,
+    /// Another nooma - the CLI, most likely - is writing this library; its
+    /// update is this one.
+    Busy,
+    Failed {
+        message: String,
+    },
+}
+
+/// The window's indexing, as the `index-state` event carries it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IndexState {
+    #[serde(flatten)]
+    pub indexing: Indexing,
+    /// Updates finished since the window opened: the page reads the status
+    /// and the health again when it moves.
+    pub passes: u64,
+    /// Whether the folders are watched for changes.
+    pub watching: bool,
+    /// Counts every change, so the page keeps the newest of a state it was
+    /// sent and one it asked for.
+    pub seq: u64,
+}
+
+/// The updates of the index the window runs: asked for from anywhere, run
+/// on one thread, one at a time.
+struct Indexer {
+    /// What is asked for and not yet running: everything asked meanwhile,
+    /// joined.
+    asked: Mutex<Option<Scope>>,
+    wake: Condvar,
+    state: Mutex<IndexState>,
+    /// When a whole update was last asked for.
+    whole_asked: Mutex<Option<Instant>>,
+}
+
+impl Indexer {
+    fn new() -> Self {
+        Self {
+            asked: Mutex::new(None),
+            wake: Condvar::new(),
+            state: Mutex::new(IndexState {
+                indexing: Indexing::Idle,
+                passes: 0,
+                watching: false,
+                seq: 0,
+            }),
+            whole_asked: Mutex::new(None),
+        }
+    }
+
+    fn ask(&self, scope: Scope) {
+        if scope == Scope::Everything {
+            *self.whole_asked.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+        }
+        let mut asked = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
+        *asked = Some(match asked.take() {
+            Some(before) => before.and(scope),
+            None => scope,
+        });
+        // An update asked for is under way as far as anyone asking is
+        // concerned: a window opened a moment before its first update starts
+        // is not up to date.
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.indexing == Indexing::Idle {
+            state.indexing = Indexing::Running { done: 0, total: 0 };
+            state.seq += 1;
+        }
+        self.wake.notify_one();
+    }
+
+    /// Ask for a whole update unless one was asked for a moment ago.
+    fn freshen(&self) {
+        let recent = self
+            .whole_asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some_and(|asked| asked.elapsed() < FRESHEN_AFTER);
+        if !recent {
+            self.ask(Scope::Everything);
+        }
+    }
+
+    /// What to update next, waiting until something is asked for.
+    fn next(&self) -> Scope {
+        let mut asked = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if let Some(scope) = asked.take() {
+                return scope;
+            }
+            asked = self.wake.wait(asked).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// What to update next, if anything is asked for: for tests, which run
+    /// updates on their own thread.
+    #[cfg(test)]
+    fn take(&self) -> Option<Scope> {
+        self.asked.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+
+    fn state(&self) -> IndexState {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Change the state, and return it as it is now.
+    fn change(&self, change: impl FnOnce(&mut IndexState)) -> IndexState {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        change(&mut state);
+        state.seq += 1;
+        state.clone()
+    }
 }
 
 impl AppState {
@@ -91,13 +235,14 @@ impl AppState {
             root,
             models,
             finder: Mutex::new(None),
-            updating: AtomicBool::new(false),
             embedder: Mutex::new(embedder),
             searching: AtomicUsize::new(0),
             meaning: Mutex::new(None),
             computing: Mutex::new(None),
             again: AtomicBool::new(false),
             fetching: AtomicBool::new(false),
+            indexer: Indexer::new(),
+            watcher: Mutex::new(None),
         }
     }
 
@@ -454,20 +599,107 @@ impl From<Progress> for ProgressEvent {
     }
 }
 
-/// Bring the index up to date, reporting progress as `index-progress`.
-///
-/// One update at a time: a second call while one runs is answered with
-/// `None` rather than queued, since the running one already covers it.
+/// What the window's indexing is doing now: the page asks once, when it has
+/// begun to listen to `index-state`.
 #[tauri::command]
-pub async fn update(app: AppHandle, state: State<'_, AppState>) -> Result<Option<UpdateReport>, String> {
-    if state.updating.swap(true, Ordering::AcqRel) {
-        return Ok(None);
+pub fn index_state(state: State<'_, AppState>) -> IndexState {
+    state.indexer.state()
+}
+
+/// What the index lacks of the files under the folders, and what it holds
+/// of them only in part.
+#[tauri::command]
+pub fn health(state: State<'_, AppState>) -> Result<Health, String> {
+    health_of(&state)
+}
+
+pub fn health_of(state: &AppState) -> Result<Health, String> {
+    state.library()?.health().map_err(|e| e.to_string())
+}
+
+/// Start keeping the index up to date: the thread that runs every update,
+/// and the first, whole one, when there are folders to read.
+pub fn start(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.library().is_ok_and(|library| !library.sources().is_empty()) {
+        state.indexer.ask(Scope::Everything);
     }
-    let result = update_in(&state, &|progress| {
-        let _ = app.emit("index-progress", ProgressEvent::from(progress));
-    });
-    state.updating.store(false, Ordering::Release);
-    result.map(Some)
+    let app = app.clone();
+    std::thread::Builder::new()
+        .name("nooma-index".to_string())
+        .spawn(move || {
+            background::lower_this_thread();
+            let state = app.state::<AppState>();
+            loop {
+                let scope = state.indexer.next();
+                let tell = |changed: &IndexState| {
+                    let _ = app.emit("index-state", changed);
+                };
+                let result = pass_in(&state, &scope, &tell);
+                let ok = result.is_ok();
+                if ok && scope == Scope::Everything {
+                    let asking = app.clone();
+                    let watching = watch_in(&state, move |changed| asking.state::<AppState>().indexer.ask(changed));
+                    tell(&state.indexer.change(|now| now.watching = watching));
+                }
+                // The vectors follow the chunks: after the first update, in
+                // case they were left behind, and after any that moved them.
+                let first = state.indexer.state().passes == 1;
+                if let Ok(report) = result
+                    && (first || report.indexed > 0 || report.removed > 0)
+                {
+                    start_vectors(&app);
+                }
+            }
+        })
+        .expect("the indexing thread starts");
+}
+
+/// The window came into focus: catch up with what a watcher may have missed,
+/// unless a whole update was asked for a moment ago.
+pub fn focused(state: &AppState) {
+    if state.library().is_ok_and(|library| !library.sources().is_empty()) {
+        state.indexer.freshen();
+    }
+}
+
+/// Watch the library's folders, asking for an update over what changes;
+/// whether any folder is watched.
+pub fn watch_in(state: &AppState, ask: impl Fn(Scope) + Send + 'static) -> bool {
+    let Ok(library) = state.library() else { return false };
+    let mut kept = state.watcher.lock().unwrap_or_else(PoisonError::into_inner);
+    // The old one goes first: two would name every change twice.
+    *kept = None;
+    let Ok(watcher) = library.watch(ask) else { return false };
+    let watching = watcher.unwatched().len() < library.sources().len();
+    *kept = Some(watcher);
+    watching
+}
+
+/// One update of the index, at the window's pace, telling how it goes.
+pub fn pass_in(state: &AppState, scope: &Scope, tell: &(dyn Fn(&IndexState) + Sync)) -> Result<UpdateReport, String> {
+    tell(&state.indexer.change(|now| now.indexing = Indexing::Running { done: 0, total: 0 }));
+    let running = |progress: Progress| {
+        tell(&state.indexer.change(|now| {
+            now.indexing = Indexing::Running {
+                done: progress.done,
+                total: progress.total,
+            };
+        }));
+    };
+    let progress = throttled(&running);
+    let held = || tell(&state.indexer.change(|now| now.indexing = Indexing::Held));
+    let hold = || background::hold(&held);
+    let result = update_in(state, scope, Pace::background(&progress, &hold));
+    tell(&state.indexer.change(|now| {
+        now.passes += 1;
+        now.indexing = match &result {
+            Ok(_) => Indexing::Idle,
+            Err(error) if error == "busy" => Indexing::Busy,
+            Err(error) => Indexing::Failed { message: error.clone() },
+        };
+    }));
+    result
 }
 
 /// A progress callback that passes on a hundredth of the work, the first and
@@ -484,9 +716,9 @@ fn throttled(emit: &(dyn Fn(Progress) + Sync)) -> impl Fn(Progress) + Sync + '_ 
     }
 }
 
-pub fn update_in(state: &AppState, emit: &(dyn Fn(Progress) + Sync)) -> Result<UpdateReport, String> {
+pub fn update_in(state: &AppState, scope: &Scope, pace: Pace<'_>) -> Result<UpdateReport, String> {
     let library = state.library()?;
-    let result = library.update_with(&throttled(emit));
+    let result = library.update_scoped(scope, pace);
     // The kept finder follows commits on its own, but an update may have
     // created the index it could not open before; the next search reopens.
     if let Ok(mut kept) = state.finder.lock() {
@@ -517,7 +749,13 @@ pub struct VectorsDone {
 /// `vectors-done`. Asked again while it runs, it runs once more after,
 /// since the library may have changed under the running one.
 #[tauri::command]
-pub fn update_vectors(app: AppHandle, state: State<'_, AppState>) -> bool {
+pub fn update_vectors(app: AppHandle) -> bool {
+    start_vectors(&app)
+}
+
+/// See [`update_vectors`].
+pub fn start_vectors(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
     if !state.has_model() {
         return false;
     }
@@ -525,13 +763,22 @@ pub fn update_vectors(app: AppHandle, state: State<'_, AppState>) -> bool {
         state.again.store(true, Ordering::Release);
         return true;
     }
+    let app = app.clone();
     std::thread::spawn(move || {
+        background::lower_this_thread();
         let state = app.state::<AppState>();
         loop {
             state.again.store(false, Ordering::Release);
-            let result = vectors_in(&state, &|progress| {
-                let _ = app.emit("vectors-progress", ProgressEvent::from(progress));
-            });
+            let held = || {
+                let _ = app.emit("vectors-held", ());
+            };
+            let result = vectors_in(
+                &state,
+                &|progress| {
+                    let _ = app.emit("vectors-progress", ProgressEvent::from(progress));
+                },
+                &|| background::hold(&held),
+            );
             let done = match result {
                 Ok(report) => VectorsDone {
                     report: Some(report),
@@ -569,8 +816,9 @@ fn end_vectors(state: &AppState) {
     }
 }
 
-/// Bring the vectors up to date with the model the window keeps.
-pub fn vectors_in(state: &AppState, emit: &(dyn Fn(Progress) + Sync)) -> Result<VectorReport, String> {
+/// Bring the vectors up to date with the model the window keeps, holding
+/// before each batch as `hold` says.
+pub fn vectors_in(state: &AppState, emit: &(dyn Fn(Progress) + Sync), hold: &(dyn Fn() + Sync)) -> Result<VectorReport, String> {
     let library = state.library()?;
     // Loaded here, off the page's thread, if no search has loaded it yet.
     let Some(model) = state.with_embedder(|embedder| Ok(Described::of(&*embedder)))? else {
@@ -585,10 +833,11 @@ pub fn vectors_in(state: &AppState, emit: &(dyn Fn(Progress) + Sync)) -> Result<
         }
     };
     let throttled = throttled(emit);
-    let result = library.update_vectors(&mut shared, &|progress| {
+    let progress = |progress: Progress| {
         record(progress);
         throttled(progress);
-    });
+    };
+    let result = library.update_vectors_paced(&mut shared, Pace::background(&progress, hold));
     match result {
         Ok(report) => Ok(report),
         Err(nooma_core::Error::Busy) => Err("busy".to_string()),
@@ -699,10 +948,13 @@ pub fn fetch_model(app: AppHandle, state: State<'_, AppState>) -> Result<bool, S
     Ok(true)
 }
 
-/// Add a folder to search. The window updates the index after.
+/// Add a folder to search, and read it: a whole update is asked for, which
+/// watches it once done.
 #[tauri::command]
 pub fn add_source(state: State<'_, AppState>, path: PathBuf) -> Result<Status, String> {
-    add_source_in(&state, &path)
+    let status = add_source_in(&state, &path)?;
+    state.indexer.ask(Scope::Everything);
+    Ok(status)
 }
 
 pub fn add_source_in(state: &AppState, path: &Path) -> Result<Status, String> {
@@ -749,17 +1001,118 @@ mod tests {
         (store, state)
     }
 
+    /// A whole update someone waits for.
+    fn updated(state: &AppState) -> UpdateReport {
+        update_in(state, &Scope::Everything, Pace::foreground(&|_| {})).unwrap()
+    }
+
     #[test]
     fn a_folder_added_is_searchable_after_an_update() {
         let notes = tempfile::tempdir().unwrap();
         std::fs::write(notes.path().join("a.md"), "# Greenhouse\n\nOpen the vents at noon.\n").unwrap();
         let (_store, state) = library_with(notes.path());
         assert!(search_in(&state, "vents", None).unwrap().hits.is_empty(), "nothing is read before an update");
-        let seen = std::sync::Mutex::new(Vec::new());
-        let report = update_in(&state, &|p| seen.lock().unwrap().push((p.done, p.total))).unwrap();
+        let told = Mutex::new(Vec::new());
+        let report = pass_in(&state, &Scope::Everything, &|state| told.lock().unwrap().push(state.clone())).unwrap();
         assert_eq!(report.documents, 1);
-        assert_eq!(seen.lock().unwrap().last(), Some(&(1, 1)), "the last progress is the whole");
         assert_eq!(search_in(&state, "vent", None).unwrap().hits[0].hit.title, "Greenhouse");
+
+        let told = told.into_inner().unwrap();
+        let kinds: Vec<&Indexing> = told.iter().map(|state| &state.indexing).collect();
+        assert_eq!(kinds.first(), Some(&&Indexing::Running { done: 0, total: 0 }));
+        assert_eq!(
+            kinds[kinds.len() - 2],
+            &Indexing::Running { done: 1, total: 1 },
+            "the last progress is the whole: {kinds:?}"
+        );
+        assert_eq!(told.last().map(|state| (&state.indexing, state.passes)), Some((&Indexing::Idle, 1)));
+        assert!(told.windows(2).all(|pair| pair[0].seq < pair[1].seq), "every change is counted");
+        assert_eq!(state.indexer.state(), *told.last().unwrap());
+    }
+
+    #[test]
+    fn what_is_asked_while_an_update_runs_is_one_update_after() {
+        let store = tempfile::tempdir().unwrap();
+        let state = AppState::at(store.path());
+        let paths = |names: &[&str]| Scope::Paths(names.iter().map(PathBuf::from).collect());
+        assert_eq!(state.indexer.take(), None);
+        assert_eq!(state.indexer.state().indexing, Indexing::Idle);
+        state.indexer.ask(paths(&["a.md"]));
+        assert_eq!(
+            state.indexer.state().indexing,
+            Indexing::Running { done: 0, total: 0 },
+            "an update asked for is under way"
+        );
+        state.indexer.ask(paths(&["b.md"]));
+        assert_eq!(state.indexer.take(), Some(paths(&["a.md", "b.md"])));
+        state.indexer.ask(paths(&["a.md"]));
+        state.indexer.ask(Scope::Everything);
+        assert_eq!(state.indexer.take(), Some(Scope::Everything));
+
+        // Coming into focus a moment after a whole update asks for nothing;
+        // a while after, it asks for another.
+        state.indexer.freshen();
+        assert_eq!(state.indexer.take(), None);
+        *state.indexer.whole_asked.lock().unwrap() = Some(Instant::now() - FRESHEN_AFTER);
+        state.indexer.freshen();
+        assert_eq!(state.indexer.take(), Some(Scope::Everything));
+    }
+
+    #[test]
+    fn a_failed_update_says_why_and_counts_as_one() {
+        let store = tempfile::tempdir().unwrap();
+        // A library whose sources file is not one cannot be opened.
+        std::fs::write(store.path().join("sources.json"), "not json").unwrap();
+        let state = AppState::at(store.path());
+        assert!(pass_in(&state, &Scope::Everything, &|_| {}).is_err());
+        let now = state.indexer.state();
+        assert!(matches!(now.indexing, Indexing::Failed { .. }), "{now:?}");
+        assert_eq!(now.passes, 1);
+    }
+
+    /// The watcher asks the indexer, and the update over what it named finds
+    /// the note saved: the window's path, end to end, without the window.
+    #[test]
+    fn a_note_saved_in_a_watched_folder_is_found_after_the_update_it_asks_for() {
+        let notes = tempfile::tempdir().unwrap();
+        std::fs::write(notes.path().join("a.md"), "# Greenhouse\n\nOpen the vents at noon.\n").unwrap();
+        let (_store, state) = library_with(notes.path());
+        updated(&state);
+        let state = std::sync::Arc::new(state);
+        let asking = std::sync::Arc::clone(&state);
+        assert!(watch_in(&state, move |scope| asking.indexer.ask(scope)));
+        std::thread::sleep(Duration::from_millis(500));
+
+        let roses = notes.path().join("roses.md");
+        std::fs::write(&roses, "# Roses\n\nPrune the roses in February.\n").unwrap();
+        let asked = Instant::now();
+        let scope = loop {
+            match state.indexer.take() {
+                Some(Scope::Paths(paths)) if paths.contains(&roses) => break Scope::Paths(paths),
+                Some(Scope::Everything) => panic!("the watcher lost count of a single save"),
+                _ => {}
+            }
+            assert!(asked.elapsed() < Duration::from_secs(20), "the watcher asked for nothing");
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        let report = pass_in(&state, &scope, &|_| {}).unwrap();
+        assert_eq!((report.indexed, report.documents), (1, 2));
+        assert_eq!(search_in(&state, "prune roses", None).unwrap().hits[0].hit.title, "Roses");
+        // Watched anew, the old watcher is gone: one save is asked for once.
+        let asking = std::sync::Arc::clone(&state);
+        assert!(watch_in(&state, move |scope| asking.indexer.ask(scope)));
+        *state.watcher.lock().unwrap() = None;
+    }
+
+    #[test]
+    fn the_health_is_what_the_library_says() {
+        let notes = tempfile::tempdir().unwrap();
+        std::fs::write(notes.path().join("damaged.pdf"), "%PDF-1.7\nnot really").unwrap();
+        let (_store, state) = library_with(notes.path());
+        updated(&state);
+        let health = health_of(&state).unwrap();
+        assert_eq!(health.skipped.len(), 1);
+        assert_eq!(health.skipped[0].why, nooma_core::Why::Damaged);
     }
 
     #[test]
@@ -783,7 +1136,7 @@ mod tests {
             std::fs::write(notes.path().join(format!("{i}.txt")), "shared word\n").unwrap();
         }
         let (_store, state) = library_with(notes.path());
-        update_in(&state, &|_| {}).unwrap();
+        updated(&state);
         assert_eq!(search_in(&state, "shared", Some(1000)).unwrap().hits.len(), MAX_RESULTS);
     }
 
@@ -840,7 +1193,7 @@ mod tests {
         let store = tempfile::tempdir().unwrap();
         let state = AppState::with_model(store.path(), Box::new(Hashing { delay }));
         add_source_in(&state, notes).unwrap();
-        update_in(&state, &|_| {}).unwrap();
+        updated(&state);
         (store, state)
     }
 
@@ -854,7 +1207,7 @@ mod tests {
         assert!(meaning_in(&state, "descale kettle", Role::Query, None).unwrap().is_none(), "no vectors yet");
         assert_eq!(meaning_status_of(&state).unwrap().passages, None);
 
-        let report = vectors_in(&state, &|_| {}).unwrap();
+        let report = vectors_in(&state, &|_| {}, &|| {}).unwrap();
         assert_eq!(report.embedded, 2);
         let found = meaning_in(&state, "descale kettle", Role::Query, None).unwrap().unwrap();
         assert_eq!(found.hits[0].hit.title, "Kettle");
@@ -880,7 +1233,7 @@ mod tests {
         std::fs::write(notes.path().join("kettle.md"), "# Kettle\n\nDescale the kettle with citric acid.\n").unwrap();
         std::fs::write(notes.path().join("bike.md"), "# Bicycle\n\nOil the chain after rain.\n").unwrap();
         let (_store, state) = library_with_model(notes.path(), Duration::ZERO);
-        vectors_in(&state, &|_| {}).unwrap();
+        vectors_in(&state, &|_| {}, &|| {}).unwrap();
 
         let words = search_in(&state, "descale kettle", None).unwrap();
         assert!(!words.by_meaning);
@@ -914,7 +1267,7 @@ The espresso grinder sits on the left. Wipe the drip tray on Fridays. Descale th
             explain_in(&state, "descale kettle", Role::Query, &kitchen, 3).unwrap().is_none(),
             "no vectors yet"
         );
-        vectors_in(&state, &|_| {}).unwrap();
+        vectors_in(&state, &|_| {}, &|| {}).unwrap();
 
         let path = indexed_path(&state, &kitchen).unwrap();
         let told = explain_in(&state, "descale kettle citric", Role::Query, &path, 3).unwrap().expect("a sentence");
@@ -961,7 +1314,7 @@ The espresso grinder sits on the left. Wipe the drip tray on Fridays. Descale th
         let notes = tempfile::tempdir().unwrap();
         std::fs::write(notes.path().join("kettle.md"), "# Kettle\n\nDescale the kettle with citric acid.\n").unwrap();
         let (_store, state) = library_with_model(notes.path(), Duration::ZERO);
-        vectors_in(&state, &|_| {}).unwrap();
+        vectors_in(&state, &|_| {}, &|| {}).unwrap();
         let held = state.embedder.lock().unwrap();
         std::thread::scope(|scope| {
             let search = scope.spawn(|| meaning_in(&state, "descale kettle", Role::Query, None).unwrap());
@@ -992,17 +1345,17 @@ The espresso grinder sits on the left. Wipe the drip tray on Fridays. Descale th
         // 81 passages in batches of 16: six batches of 300 ms, about two
         // seconds in all.
         let (_store, state) = library_with_model(notes.path(), Duration::from_millis(300));
-        vectors_in(&state, &|_| {}).unwrap();
+        vectors_in(&state, &|_| {}, &|| {}).unwrap();
         // Then 200 more: thirteen batches, about four seconds of reading in
         // the background, against the one batch of 300 ms a search may have
         // to wait out.
         for i in 0..200 {
             std::fs::write(notes.path().join(format!("more-{i:03}.md")), format!("# More {i}\n\nAnother note, {i}.\n")).unwrap();
         }
-        update_in(&state, &|_| {}).unwrap();
+        updated(&state);
 
         std::thread::scope(|scope| {
-            let background = scope.spawn(|| vectors_in(&state, &|_| {}).unwrap());
+            let background = scope.spawn(|| vectors_in(&state, &|_| {}, &|| {}).unwrap());
             std::thread::sleep(Duration::from_millis(400));
             assert!(state.computing.lock().unwrap().is_none(), "vectors_in alone does not claim the window's update");
             let asked = Instant::now();

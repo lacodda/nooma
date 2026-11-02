@@ -23,6 +23,8 @@ use std::io::{Cursor, Read as _};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::document::{self, DocKind, Document};
 use crate::encoding;
 
@@ -56,16 +58,80 @@ pub struct Opened {
 /// Why a file was not read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unread {
-    /// It is not a document nooma reads, or too large to be one: what it is,
-    /// said for a person. Reported when the file's name claimed a document.
+    /// It is not a document nooma reads: what it is, said for a person.
+    /// Reported when the file's name claimed a document.
     NotADocument(String),
-    /// It is a document, and it could not be read: why, said for a person.
-    /// Always reported.
+    /// It is larger than a document of its kind is read at: the limit, said
+    /// for a person. Reported as [`Unread::NotADocument`] is: a log of
+    /// gigabytes with no extension is passed over without a word.
+    TooLarge(String),
+    /// It is a document under a password or DRM. Always reported.
+    Locked(String),
+    /// It could not be opened or read off the disk: no permission, held by
+    /// another program, a device that failed. Always reported, and tried
+    /// again at every update - the program may have let go of it.
+    Unopened(String),
+    /// It is a document its reader could not make sense of: damaged, cut
+    /// off, or written in a way the reader does not follow. Always reported.
     Failed(String),
     /// It is a picture with no text in it: nothing to index and nothing to
     /// report. What looked at it is kept, so it is looked at again when that
     /// changes - see [`reader`].
     NoText(String),
+}
+
+impl Unread {
+    /// Why, as the index's health sorts it, and why said for a person;
+    /// `None` for a picture with no text in it, which is no trouble.
+    pub fn why(&self) -> Option<(Why, &str)> {
+        match self {
+            Self::NotADocument(reason) => Some((Why::NotADocument, reason)),
+            Self::TooLarge(reason) => Some((Why::TooLarge, reason)),
+            Self::Locked(reason) => Some((Why::Locked, reason)),
+            Self::Unopened(reason) => Some((Why::Unopened, reason)),
+            Self::Failed(reason) => Some((Why::Damaged, reason)),
+            Self::NoText(_) => None,
+        }
+    }
+
+    /// Whether a file not read for this reason is said to be whatever its
+    /// name: one that is no document, or too large to be one, is said to be
+    /// only when its name claimed a document.
+    pub fn is_said(&self, path: &Path) -> bool {
+        match self {
+            Self::NotADocument(_) | Self::TooLarge(_) => claims_a_document(path),
+            Self::NoText(_) => false,
+            Self::Locked(_) | Self::Unopened(_) | Self::Failed(_) => true,
+        }
+    }
+}
+
+/// Why a file the library found is not in its index, as the index's health
+/// sorts it: a person asks "what is wrong with these", and the answer for a
+/// file under a password is not the answer for one too large.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Why {
+    /// Not a document nooma reads, though its name says it is one: an
+    /// archive, a recording, an old Office file.
+    NotADocument,
+    /// Larger than a document of its kind is read at.
+    TooLarge,
+    /// Under a password or DRM.
+    Locked,
+    /// The file or its folder could not be opened.
+    Unopened,
+    /// A document its reader could not make sense of.
+    Damaged,
+}
+
+impl Why {
+    /// Whether a file not read for this reason stays unread until it changes,
+    /// or nooma does. One that could not be opened may open next time: held
+    /// by a program that has let it go, on a drive that is back.
+    pub fn lasts(self) -> bool {
+        !matches!(self, Self::Unopened)
+    }
 }
 
 /// Whether a file is offered to be read as a document: its extension is one
@@ -112,7 +178,7 @@ pub fn reads_the_same(kind: DocKind, recorded: &str) -> bool {
 /// A file's bytes, once its first ones say it may be a document and its
 /// size that it is not too large to be the one they say.
 pub fn load(path: &Path) -> Result<Vec<u8>, Unread> {
-    let failed = |error: std::io::Error| Unread::Failed(error.to_string());
+    let failed = |error: std::io::Error| Unread::Unopened(error.to_string());
     let mut file = std::fs::File::open(path).map_err(failed)?;
     let size = file.metadata().map_err(failed)?.len();
     let mut bytes = Vec::with_capacity(usize::try_from(size.min(HEAD_BYTES as u64)).unwrap_or(HEAD_BYTES));
@@ -132,7 +198,7 @@ pub fn load(path: &Path) -> Result<Vec<u8>, Unread> {
         Format::Not(what) => return Err(Unread::NotADocument(what.to_string())),
     };
     if size > limit {
-        return Err(Unread::NotADocument(format!("larger than {} MB", limit / 1024 / 1024)));
+        return Err(Unread::TooLarge(format!("larger than {} MB", limit / 1024 / 1024)));
     }
     file.read_to_end(&mut bytes).map_err(failed)?;
     Ok(bytes)
@@ -162,7 +228,7 @@ pub fn read(path: &Path, bytes: Vec<u8>) -> Result<Opened, Unread> {
     };
     match format_of(&bytes) {
         Format::Pdf => {
-            let mut paged = crate::pdf::read(bytes).map_err(Unread::Failed)?;
+            let mut paged = crate::pdf::read(bytes)?;
             let unrecognized = recognize_pictured_pages(path, &mut paged).err();
             Ok(Opened {
                 unrecognized,
@@ -175,17 +241,11 @@ pub fn read(path: &Path, bytes: Vec<u8>) -> Result<Opened, Unread> {
             None => Err(Unread::NoText(reader(DocKind::Image, false))),
         },
         Format::Zip => match container_of(&bytes) {
-            Some(DocKind::Docx) => Ok(opened(
-                DocKind::Docx,
-                document::read_blocks(&stem, &crate::docx::read(bytes).map_err(Unread::Failed)?),
-            )),
-            Some(DocKind::Epub) => Ok(opened(
-                DocKind::Epub,
-                document::read_blocks(&stem, &crate::epub::read(bytes).map_err(Unread::Failed)?),
-            )),
+            Some(DocKind::Docx) => Ok(opened(DocKind::Docx, document::read_blocks(&stem, &crate::docx::read(bytes)?))),
+            Some(DocKind::Epub) => Ok(opened(DocKind::Epub, document::read_blocks(&stem, &crate::epub::read(bytes)?))),
             _ => Err(Unread::NotADocument("a zip archive, not a Word document or a book".to_string())),
         },
-        Format::Ole if holds_an_encrypted_package(&bytes) => Err(Unread::Failed("protected by a password".to_string())),
+        Format::Ole if holds_an_encrypted_package(&bytes) => Err(Unread::Locked("protected by a password".to_string())),
         Format::Ole => Err(Unread::NotADocument(
             "an Office file of the old binary kind (.doc, .xls, .ppt), which nooma does not read".to_string(),
         )),

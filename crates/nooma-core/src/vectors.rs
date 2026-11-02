@@ -67,7 +67,7 @@ use usearch::{IndexOptions, MetricKind, ScalarKind};
 
 use crate::embed::{Embedder, Model, Role};
 use crate::error::{Error, Result};
-use crate::library::{Finder, Hit, IndexedFile, Library, Progress, StoredChunk};
+use crate::library::{Finder, Hit, IndexedFile, Library, Pace, Progress, StoredChunk};
 use crate::neutral::LanguageAxes;
 
 /// The format of a vector store: its `meta.json` and the record layout of
@@ -742,6 +742,15 @@ impl Library {
     /// Fails with [`Error::Busy`] when another process is updating the same
     /// model's vectors.
     pub fn update_vectors(&self, embedder: &mut dyn Embedder, progress: &(dyn Fn(Progress) + Sync)) -> Result<VectorReport> {
+        self.update_vectors_paced(embedder, Pace::foreground(progress))
+    }
+
+    /// [`Library::update_vectors`], at a pace: an update nobody waits for
+    /// holds before each batch of passages, and goes on when the hold
+    /// returns. The model's threads are the model's: lowering them is for
+    /// whoever loaded it.
+    pub fn update_vectors_paced(&self, embedder: &mut dyn Embedder, pace: Pace<'_>) -> Result<VectorReport> {
+        let progress = pace.progress;
         let started = Instant::now();
         let meta = Meta::of(&*embedder);
         let model = meta.model.clone();
@@ -784,6 +793,7 @@ impl Library {
             let mut last_save = Instant::now();
             let mut saved_size = building.graph.size();
             for (done, batch) in wanted.chunks(BATCH).enumerate() {
+                pace.hold();
                 let texts: Vec<&str> = batch.iter().map(|(_, text)| text.as_str()).collect();
                 let keys: Vec<Key> = batch.iter().map(|(key, _)| *key).collect();
                 let at = Instant::now();

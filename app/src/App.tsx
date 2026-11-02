@@ -3,13 +3,24 @@ import { useTranslation } from 'react-i18next'
 import { useLocale } from 'dowel-ui'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as chooseFolder } from '@tauri-apps/plugin-dialog'
-import { api, type Explained, type Found, type MeaningStatus, type Ranked, type Source, type Status } from '@/lib/api'
+import {
+  api,
+  type Explained,
+  type Found,
+  type Health,
+  type IndexState,
+  type MeaningStatus,
+  type Ranked,
+  type Source,
+  type Status,
+} from '@/lib/api'
 import { splitHighlights } from '@/lib/highlight'
 import { flatten, isPassage } from '@/lib/passage'
 import { folderOf } from '@/lib/paths'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { HealthPanel, healthCount } from '@/HealthPanel'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Progress } from '@/components/ui/progress'
 import { SearchField } from '@/components/ui/search-field'
@@ -24,8 +35,9 @@ import { ResizeEdges, WindowButtons, useTitleBarGestures } from '@/components/ui
  *
  * There is no splash. The window is spotlight-shaped - summoned, typed into,
  * dismissed - and anything between opening it and typing is in the way. The
- * index is brought up to date in the background while the field already
- * answers from what is stored.
+ * index is kept up to date in the background - by the window's own thread,
+ * which watches the folders - while the field already answers from what is
+ * stored; the page only hears how it goes.
  *
  * Results are one list, ranked from both halves: the documents that hold the
  * words and the documents close in meaning, each once. The words answer in
@@ -36,17 +48,13 @@ import { ResizeEdges, WindowButtons, useTitleBarGestures } from '@/components/ui
  * stands in when it does not.
  */
 
-type Indexing =
-  | { kind: 'idle' }
-  | { kind: 'running'; done: number; total: number }
-  | { kind: 'busy' }
-  | { kind: 'failed'; message: string }
-
 /** Computing vectors in the background. `started` and `from` date the run,
  * so the time left can be told from its pace. */
 type Vectors =
   | { kind: 'idle' }
   | { kind: 'running'; done: number; total: number; started: number; from: number }
+  /** Waiting for the power: the machine runs on its battery. */
+  | { kind: 'held' }
   | { kind: 'busy' }
   | { kind: 'failed'; message: string }
 
@@ -67,7 +75,11 @@ const GRACE_MS = 120
 export function App() {
   const { t } = useTranslation()
   const [status, setStatus] = useState<Status | null>(null)
-  const [indexing, setIndexing] = useState<Indexing>({ kind: 'idle' })
+  const [indexState, setIndexState] = useState<IndexState | null>(null)
+  /** Why the page could not even ask how the index is, if it could not. */
+  const [unreachable, setUnreachable] = useState<string | null>(null)
+  const [health, setHealth] = useState<Health | null>(null)
+  const [healthOpen, setHealthOpen] = useState(false)
   const [query, setQuery] = useState('')
   /** The pasted passage being searched for, when the field holds one. */
   const [example, setExample] = useState<string | null>(null)
@@ -201,32 +213,26 @@ export function App() {
   }, [])
 
   /** Catch the vectors up with the index, in the background, once there is
-   * a model to compute them with. */
+   * a model to compute them with: the window's thread does it after every
+   * update, and the page once the model has arrived. */
   const computeVectors = useCallback(async () => {
     const current = await readMeaningStatus()
     if (current?.present) await api.updateVectors()
   }, [readMeaningStatus])
 
-  const refresh = useCallback(async () => {
-    setIndexing({ kind: 'running', done: 0, total: 0 })
-    const stop = await api.onProgress(({ done, total }) => setIndexing({ kind: 'running', done, total }))
-    try {
-      await api.update()
-      setIndexing({ kind: 'idle' })
-    } catch (error) {
-      setIndexing(String(error) === 'busy' ? { kind: 'busy' } : { kind: 'failed', message: String(error) })
-    } finally {
-      stop()
-    }
-    setStatus(await api.status())
-    await computeVectors()
-  }, [computeVectors])
+  /** Of the state the page was sent and the one it asked for, the newer. */
+  const followIndex = useCallback((next: IndexState) => {
+    setIndexState((shown) => (shown !== null && shown.seq > next.seq ? shown : next))
+  }, [])
 
   // The background work reports as it goes, for as long as the window is
-  // open: the vectors being computed, and the model being fetched.
+  // open: the index kept up to date, the vectors being computed, and the
+  // model being fetched.
   useEffect(() => {
     if (!inTauri()) return
     const stops = [
+      api.onIndexState(followIndex),
+      api.onVectorsHeld(() => setVectors({ kind: 'held' })),
       api.onVectorsProgress(({ done, total }) =>
         setVectors((previous) =>
           previous.kind === 'running' && previous.total === total
@@ -249,21 +255,35 @@ export function App() {
     return () => {
       for (const stop of stops) void stop.then((unlisten) => unlisten())
     }
-  }, [computeVectors, readMeaningStatus])
+  }, [computeVectors, readMeaningStatus, followIndex])
 
-  // Open: show the window once there is something in it, then catch the
-  // index up with the folders while the field is already usable.
+  // Open: show the window once there is something in it, and ask how the
+  // index is - the window's thread is already catching it up.
   useEffect(() => {
     if (inTauri()) void getCurrentWindow().show()
     api
+      .indexState()
+      .then(followIndex)
+      .catch((error: unknown) => setUnreachable(String(error)))
+  }, [followIndex])
+
+  // Every finished update may have changed what the library holds and what
+  // it lacks: read both again, and what the meaning has caught up with.
+  const passes = indexState?.passes ?? 0
+  useEffect(() => {
+    api
       .status()
-      .then((current) => {
-        setStatus(current)
-        if (current.sources.length > 0) void refresh()
-        else void readMeaningStatus()
-      })
-      .catch((error: unknown) => setIndexing({ kind: 'failed', message: String(error) }))
-  }, [refresh, readMeaningStatus])
+      .then(setStatus)
+      .catch((error: unknown) => setUnreachable(String(error)))
+    api
+      .health()
+      .then((current) => setHealth(current ?? null))
+      .catch(() => setHealth(null))
+    api
+      .meaningStatus()
+      .then((current) => setMeaningStatus(current ?? null))
+      .catch(() => undefined)
+  }, [passes])
 
   // Results follow the query, and follow the index and the vectors as they
   // fill.
@@ -277,11 +297,10 @@ export function App() {
     if (typeof folder !== 'string') return
     try {
       setStatus(await api.addSource(folder))
-      await refresh()
     } catch (error) {
-      setIndexing({ kind: 'failed', message: String(error) })
+      setUnreachable(String(error))
     }
-  }, [refresh, t])
+  }, [t])
 
   const fetchModel = useCallback(async () => {
     setFetching({ kind: 'running', done: 0, total: meaningStatus?.bytes ?? 0 })
@@ -345,13 +364,19 @@ export function App() {
       </main>
       <StatusBar
         status={status}
-        indexing={indexing}
+        indexState={indexState}
+        unreachable={unreachable}
+        health={health}
         found={found}
         meaningStatus={meaningStatus}
         vectors={vectors}
         fetching={fetching}
         onAddFolder={addFolder}
+        onHealth={() => setHealthOpen(true)}
       />
+      {health !== null && status !== null && (
+        <HealthPanel health={health} sources={status.sources} open={healthOpen} onOpenChange={setHealthOpen} />
+      )}
     </div>
   )
 }
@@ -735,6 +760,7 @@ function meaningState(
     const minutes = Math.max(1, Math.ceil(((elapsed / read) * (vectors.total - vectors.done)) / 60_000))
     return { tone: 'warn', label: `${label} · ${t('status.meaningLeft', { minutes })}` }
   }
+  if (vectors.kind === 'held') return { tone: 'info', label: t('status.meaningHeld'), title: t('status.heldHint') }
   if (vectors.kind === 'busy') return { tone: 'info', label: t('status.meaningBusy') }
   if (vectors.kind === 'failed') return { tone: 'bad', label: t('status.meaningFailed'), title: vectors.message }
   if (meaningStatus.passages === null) return { tone: 'neutral', label: t('status.meaningNone') }
@@ -742,52 +768,86 @@ function meaningState(
   return { tone: 'good', label: t('status.meaningReady') }
 }
 
+/** What the status line says about the index, in which tone, and the
+ * longer word for its tooltip. */
+function indexStateOf(
+  status: Status,
+  indexState: IndexState | null,
+  unreachable: string | null,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): { tone: 'good' | 'warn' | 'bad' | 'info'; label: string; title?: string } {
+  if (unreachable !== null) return { tone: 'bad', label: t('status.failed'), title: unreachable }
+  switch (indexState?.kind) {
+    case 'running':
+      return {
+        tone: 'warn',
+        label: indexState.total > 0 ? t('status.indexing', { done: indexState.done, total: indexState.total }) : t('status.starting'),
+      }
+    case 'held':
+      return { tone: 'info', label: t('status.held'), title: t('status.heldHint') }
+    case 'busy':
+      return { tone: 'info', label: t('status.busy') }
+    case 'failed':
+      return { tone: 'bad', label: t('status.failed'), title: indexState.message }
+    default:
+      if (status.stale !== null) return { tone: 'warn', label: t('status.stale') }
+      return {
+        tone: 'good',
+        label: t('status.current'),
+        title: indexState?.watching === true ? t('status.watchingHint') : t('status.unwatchedHint'),
+      }
+  }
+}
+
 function StatusBar({
   status,
-  indexing,
+  indexState,
+  unreachable,
+  health,
   found,
   meaningStatus,
   vectors,
   fetching,
   onAddFolder,
+  onHealth,
 }: {
   status: Status | null
-  indexing: Indexing
+  indexState: IndexState | null
+  unreachable: string | null
+  health: Health | null
   found: Found | null
   meaningStatus: MeaningStatus | null
   vectors: Vectors
   fetching: Fetching
   onAddFolder: () => void
+  onHealth: () => void
 }) {
   const { t, i18n } = useTranslation()
   const locale = useLocale(i18n.language)
   if (status === null) return <footer className="h-7 shrink-0 border-t border-line bg-raise" />
 
-  const state =
-    indexing.kind === 'running'
-      ? {
-          tone: 'warn' as const,
-          label: indexing.total > 0 ? t('status.indexing', { done: indexing.done, total: indexing.total }) : t('status.starting'),
-        }
-      : indexing.kind === 'busy'
-        ? { tone: 'info' as const, label: t('status.busy') }
-        : indexing.kind === 'failed'
-          ? { tone: 'bad' as const, label: t('status.failed') }
-          : status.stale !== null
-            ? { tone: 'warn' as const, label: t('status.stale') }
-            : { tone: 'good' as const, label: t('status.current') }
+  const state = indexStateOf(status, indexState, unreachable, t)
   const half = status.sources.length > 0 ? meaningState(meaningStatus, vectors, fetching, t, locale) : null
+  const lacking = health === null ? 0 : healthCount(health)
 
   return (
-    <footer
-      className="flex h-7 shrink-0 items-center gap-4 border-t border-line bg-raise px-4 font-mono text-2xs whitespace-nowrap text-faint"
-      title={indexing.kind === 'failed' ? indexing.message : undefined}
-    >
-      {status.sources.length > 0 && <StatusDot className="shrink-0" status={state.tone} label={state.label} showLabel />}
+    <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-line bg-raise px-4 font-mono text-2xs whitespace-nowrap text-faint">
+      {status.sources.length > 0 && (
+        <span className="shrink-0" title={state.title}>
+          <StatusDot status={state.tone} label={state.label} showLabel />
+        </span>
+      )}
       {half !== null && (
         <span className="shrink-0" title={half.title}>
           <StatusDot status={half.tone} label={half.label} showLabel />
         </span>
+      )}
+      {/* What the index lacks, when it lacks anything: the way to the panel
+        * that says what and why. */}
+      {status.sources.length > 0 && lacking > 0 && (
+        <Button variant="icon" size="sm" className="h-5 shrink-0 px-1.5 font-mono text-2xs" onClick={onHealth}>
+          <StatusDot status="warn" label={t('health.chip', { count: lacking })} showLabel />
+        </Button>
       )}
       {/* The counts give way first when the window is narrow: the states
         * beside them are what the line is for. */}
@@ -801,7 +861,11 @@ function StatusBar({
           + {t('sources.addShort')}
         </Button>
       )}
-      <span className="ml-auto shrink-0">{found !== null ? t('status.took', { ms: found.took_ms }) : t('status.offline')}</span>
+      {/* Then the time an answer took: in a window at its narrowest, the
+        * states and the way to what the index lacks need the room. */}
+      <span className="ml-auto shrink-0 max-sm:hidden">
+        {found !== null ? t('status.took', { ms: found.took_ms }) : t('status.offline')}
+      </span>
     </footer>
   )
 }

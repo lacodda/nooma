@@ -30,6 +30,7 @@ use quick_xml::reader::Reader;
 use zip::ZipArchive;
 
 use crate::document::{Block, Blocks};
+use crate::reading::Unread;
 
 /// The rules a book is read by, as a number. Raised when they change what a
 /// book reads as: books are read again, and no other file is.
@@ -62,15 +63,20 @@ pub fn is_epub<R: std::io::Read + std::io::Seek>(zip: &mut ZipArchive<R>) -> boo
 }
 
 /// The text of a book, or why it could not be read, said for a person.
-pub fn read(bytes: Vec<u8>) -> Result<Blocks, String> {
-    crate::reading::guarded("the EPUB reader", || read_unguarded(bytes))
+pub fn read(bytes: Vec<u8>) -> Result<Blocks, Unread> {
+    crate::reading::guarded("the EPUB reader", || Ok(read_unguarded(bytes))).map_err(Unread::Failed)?
 }
 
-fn read_unguarded(bytes: Vec<u8>) -> Result<Blocks, String> {
-    let mut book = Book::open(bytes)?;
-    if book.locked()? {
-        return Err("protected by DRM".to_string());
+fn read_unguarded(bytes: Vec<u8>) -> Result<Blocks, Unread> {
+    let mut book = Book::open(bytes).map_err(Unread::Failed)?;
+    if book.locked().map_err(Unread::Failed)? {
+        return Err(Unread::Locked("protected by DRM".to_string()));
     }
+    read_open(book).map_err(Unread::Failed)
+}
+
+/// The text of a book that is open and not locked.
+fn read_open(mut book: Book) -> Result<Blocks, String> {
     let package_path = book.package_path()?;
     let package = Package::parse(&book.text(&package_path)?, &package_path);
     let contents = book.contents(&package);

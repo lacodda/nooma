@@ -2,14 +2,36 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/i18n'
 import { App } from '@/App'
-import type { Found, MeaningStatus, Ranked, Status } from '@/lib/api'
+import type { Found, Health, IndexState, MeaningStatus, Ranked, Status } from '@/lib/api'
 
 // The webview talks to Rust through `invoke`; in jsdom there is no Rust, so
-// the boundary is stubbed with the shapes `nooma-core` serializes.
+// the boundary is stubbed with the shapes `nooma-core` serializes. The events
+// Rust sends are kept by name, for a test to send one as the window would.
 const invoke = vi.fn()
+const listeners = new Map<string, (event: { payload: unknown }) => void>()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn((name: string, handler: (event: { payload: unknown }) => void) => {
+    listeners.set(name, handler)
+    return Promise.resolve(() => undefined)
+  }),
+}))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn().mockResolvedValue(null) }))
+// Rust is there, as far as the page asks.
+Object.defineProperty(window, '__TAURI_INTERNALS__', { value: {}, configurable: true })
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    show: () => Promise.resolve(),
+    isMaximized: () => Promise.resolve(false),
+    onResized: () => Promise.resolve(() => undefined),
+  }),
+}))
+
+/** Send an event as the window's Rust side sends it. */
+async function sent(name: string, payload: unknown) {
+  await waitFor(() => expect(listeners.has(name)).toBe(true))
+  await act(async () => listeners.get(name)?.({ payload }))
+}
 
 const noSources: Status = { sources: [], documents: 0, chunks: 0, indexed_at: null, stale: null }
 const oneSource: Status = { sources: [{ path: '/notes' }], documents: 3, chunks: 4, indexed_at: 1, stale: null }
@@ -82,13 +104,19 @@ const ready: MeaningStatus = {
 }
 const noModel: MeaningStatus = { ...ready, present: false, passages: null }
 
+const idle: IndexState = { kind: 'idle', passes: 0, watching: false, seq: 0 }
+const healthy: Health = { skipped: [], textless: [], unrecognized: [], guessed: [], unavailable: [] }
+let health: Health = healthy
+
 function answer(status: Status, half: MeaningStatus = ready, both: Found | null | Promise<Found | null> = whole, words: Found = byWords) {
   invoke.mockImplementation((command: string) => {
     switch (command) {
       case 'status':
         return Promise.resolve(status)
-      case 'update':
-        return Promise.resolve(null)
+      case 'index_state':
+        return Promise.resolve(idle)
+      case 'health':
+        return Promise.resolve(health)
       case 'search':
         return Promise.resolve(words)
       case 'meaning_status':
@@ -105,7 +133,11 @@ function answer(status: Status, half: MeaningStatus = ready, both: Found | null 
   })
 }
 
-beforeEach(() => invoke.mockReset())
+beforeEach(() => {
+  invoke.mockReset()
+  listeners.clear()
+  health = healthy
+})
 
 async function typed(text: string) {
   const field = await screen.findByRole('searchbox', { name: 'Search your files' })
@@ -124,21 +156,74 @@ describe('App', () => {
     answer(noSources)
     render(<App />)
     expect(await screen.findByRole('button', { name: 'Add folder' })).toBeTruthy()
-    expect(invoke).not.toHaveBeenCalledWith('update')
   })
 
-  it('catches the index up on opening, and then the vectors', async () => {
+  it('follows the indexing the window runs, and reads what it changed when it is done', async () => {
     answer(oneSource)
     render(<App />)
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('update'))
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('update_vectors'))
+    await screen.findByRole('img', { name: 'index up to date' })
+    const statusAsked = () => invoke.mock.calls.filter(([command]) => command === 'status').length
+    const before = statusAsked()
+
+    await sent('index-state', { kind: 'running', done: 2, total: 5, passes: 0, watching: false, seq: 3 })
+    expect(screen.getByRole('img', { name: 'indexing 2 / 5' })).toBeTruthy()
+    // A state older than the one shown is not drawn over it.
+    await sent('index-state', { ...idle, seq: 1 })
+    expect(screen.getByRole('img', { name: 'indexing 2 / 5' })).toBeTruthy()
+
+    await sent('index-state', { kind: 'idle', passes: 1, watching: true, seq: 4 })
+    expect(screen.getByRole('img', { name: 'index up to date' }).parentElement?.title).toBe(
+      'Watching the folders: a file saved is found a moment later.',
+    )
+    await waitFor(() => expect(statusAsked()).toBeGreaterThan(before))
+    expect(invoke).toHaveBeenCalledWith('health')
   })
 
-  it('does not ask for vectors when there is no model to compute them', async () => {
-    answer(oneSource, noModel)
+  it('says when indexing waits for the power', async () => {
+    answer(oneSource)
     render(<App />)
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('meaning_status'))
-    expect(invoke).not.toHaveBeenCalledWith('update_vectors')
+    await sent('index-state', { kind: 'held', passes: 0, watching: true, seq: 2 })
+    expect(screen.getByRole('img', { name: 'indexing paused: on battery' })).toBeTruthy()
+    await sent('vectors-held', null)
+    expect(screen.getByRole('img', { name: 'meaning paused: on battery' })).toBeTruthy()
+  })
+
+  it('opens what the index lacks from the status line, grouped by why', async () => {
+    health = {
+      ...healthy,
+      skipped: [
+        { path: '/notes/tax-return.pdf', why: 'locked', reason: 'protected by a password', size: 4096 },
+        { path: '/notes/video/talk.txt', why: 'too_large', reason: 'larger than 16 MB', size: 40 * 1024 * 1024 },
+      ],
+      guessed: [{ path: '/notes/сторож.txt', encoding: 'windows-1251' }],
+      unavailable: ['/archive'],
+    }
+    answer(oneSource)
+    render(<App />)
+    const chip = await screen.findByRole('button', { name: '4 to check' })
+    fireEvent.click(chip)
+    const panel = await screen.findByRole('dialog', { name: 'What the index lacks' })
+    const locked = within(panel).getByRole('region', { name: 'Under a password or DRM · 1' })
+    const row = within(locked).getByRole('button', { name: 'Show tax-return.pdf in its folder' })
+    expect(row.closest('li')?.title).toBe('/notes/tax-return.pdf\nprotected by a password')
+    const large = within(panel).getByRole('region', { name: 'Too large · 1' })
+    expect(within(large).getByText('40 MB')).toBeTruthy()
+    expect(within(large).getByText('notes/video')).toBeTruthy()
+    expect(within(panel).getByText('windows-1251')).toBeTruthy()
+    // A folder out of reach is said, not offered to be shown.
+    const away = within(panel).getByRole('region', { name: 'Folders out of reach · 1' })
+    expect(within(away).queryByRole('button')).toBeNull()
+
+    fireEvent.click(row)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('reveal_document', { path: '/notes/tax-return.pdf' }))
+  })
+
+  it('offers no panel when the index lacks nothing', async () => {
+    answer(oneSource)
+    render(<App />)
+    await screen.findByRole('img', { name: 'index up to date' })
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('health'))
+    expect(screen.queryByRole('button', { name: /to check/ })).toBeNull()
   })
 
   it('shows results with the matched word marked, in Russian', async () => {

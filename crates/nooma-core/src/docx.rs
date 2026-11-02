@@ -29,6 +29,7 @@ use office_oxide::DocumentFormat;
 use office_oxide::ir::{DocumentIR, Element, InlineContent, Note};
 
 use crate::document::{Block, Blocks};
+use crate::reading::Unread;
 
 /// What read a Word document's text, as the library records it with every
 /// one: a new version of the reader reads them all again.
@@ -38,7 +39,7 @@ pub fn reader() -> String {
 
 /// The text of a Word document, or why it could not be read, said for a
 /// person.
-pub fn read(bytes: Vec<u8>) -> Result<Blocks, String> {
+pub fn read(bytes: Vec<u8>) -> Result<Blocks, Unread> {
     crate::reading::guarded("the Word reader", || {
         let doc =
             office_oxide::Document::from_reader(Cursor::new(bytes), DocumentFormat::Docx).map_err(|e| format!("not a Word document that can be read: {e}"))?;
@@ -50,6 +51,7 @@ pub fn read(bytes: Vec<u8>) -> Result<Blocks, String> {
         blocks.aliases.extend(title);
         Ok(blocks)
     })
+    .map_err(Unread::Failed)
 }
 
 /// A Word document's elements as blocks, its notes where they are pointed

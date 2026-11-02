@@ -83,20 +83,50 @@ export interface Found {
   took_ms: number
 }
 
-export interface UpdateReport {
-  documents: number
-  indexed: number
-  removed: number
-  chunks: number
-  skipped: { path: string; reason: string }[]
-  /** PDFs, Word documents and books read in this update with no text in
-   * them - scans, found by name. */
+/** Why a file is not in the index, as the index's health sorts it. */
+export type Why = 'not_a_document' | 'too_large' | 'locked' | 'unopened' | 'damaged'
+
+/** A file found and not read - or a folder that could not be walked into. */
+export interface Skipped {
+  path: string
+  why: Why
+  /** Why, said for a person, in English: what the reader said. */
+  reason: string
+  /** In bytes, for a file. */
+  size?: number
+}
+
+/** What the index lacks of the files under the folders, and what it holds of
+ * them only in part. */
+export interface Health {
+  skipped: Skipped[]
+  /** PDFs, Word documents and books with no text in them: found by name. */
   textless: string[]
-  /** Text files whose encoding was guessed, with the guess. */
+  /** Why text in scans is not read on this machine, when it is not. */
+  no_ocr?: string
+  unrecognized: { path: string; reason: string }[]
   guessed: { path: string; encoding: string }[]
+  /** Folders that cannot be reached now. */
   unavailable: string[]
-  rebuilt: string | null
-  took_ms: number
+}
+
+/** What the window's indexing is doing. */
+export type Indexing =
+  | { kind: 'idle' }
+  | { kind: 'running'; done: number; total: number }
+  /** Held while the machine runs on its battery. */
+  | { kind: 'held' }
+  /** Another nooma is writing this library. */
+  | { kind: 'busy' }
+  | { kind: 'failed'; message: string }
+
+export type IndexState = Indexing & {
+  /** Updates finished since the window opened. */
+  passes: number
+  /** Whether the folders are watched for changes. */
+  watching: boolean
+  /** Counts every change: of two states, the larger is the newer. */
+  seq: number
 }
 
 export interface Progress {
@@ -152,18 +182,23 @@ export const api = {
    * passage; `null` when it cannot be told. */
   explain: (text: string, passage: boolean, path: string, line: number) =>
     invoke<Explained | null>('explain', { text, passage, path, line }),
-  /** `null` when an update is already running in this window. */
-  update: () => invoke<UpdateReport | null>('update'),
+  /** What the window's indexing is doing now; it says so as it changes by
+   * `index-state` too. */
+  indexState: () => invoke<IndexState>('index_state'),
+  health: () => invoke<Health>('health'),
   meaningStatus: () => invoke<MeaningStatus>('meaning_status'),
   /** Starts computing vectors in the background; `false` when there is no model. */
   updateVectors: () => invoke<boolean>('update_vectors'),
   /** Starts fetching the model; `false` when a fetch is already running. */
   fetchModel: () => invoke<boolean>('fetch_model'),
+  /** Adds the folder, and the window reads it. */
   addSource: (path: string) => invoke<Status>('add_source', { path }),
   open: (path: string) => invoke<void>('open_document', { path }),
   reveal: (path: string) => invoke<void>('reveal_document', { path }),
-  onProgress: (handler: (progress: Progress) => void): Promise<UnlistenFn> =>
-    listen<Progress>('index-progress', (event) => handler(event.payload)),
+  onIndexState: (handler: (state: IndexState) => void): Promise<UnlistenFn> =>
+    listen<IndexState>('index-state', (event) => handler(event.payload)),
+  /** The vectors wait for the power: the machine runs on its battery. */
+  onVectorsHeld: (handler: () => void): Promise<UnlistenFn> => listen('vectors-held', () => handler()),
   onVectorsProgress: (handler: (progress: Progress) => void): Promise<UnlistenFn> =>
     listen<Progress>('vectors-progress', (event) => handler(event.payload)),
   onVectorsDone: (handler: (done: VectorsDone) => void): Promise<UnlistenFn> =>

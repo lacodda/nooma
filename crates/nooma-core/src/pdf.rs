@@ -13,6 +13,7 @@ use pdf_oxide::PdfDocument;
 use pdf_oxide::outline::{Destination, OutlineItem};
 
 use crate::document::{Bookmark, Paged};
+use crate::reading::Unread;
 
 /// What read a PDF's text: the library and its version.
 ///
@@ -28,18 +29,23 @@ pub fn reader() -> String {
 ///
 /// A page the library fails on reads as a page with no text, so one bad page
 /// does not lose a book; a document whose every page fails is not read.
-pub fn read(bytes: Vec<u8>) -> Result<Paged, String> {
-    crate::reading::guarded("the PDF reader", || read_unguarded(bytes))
+pub fn read(bytes: Vec<u8>) -> Result<Paged, Unread> {
+    crate::reading::guarded("the PDF reader", || Ok(read_unguarded(bytes))).map_err(Unread::Failed)?
 }
 
-fn read_unguarded(bytes: Vec<u8>) -> Result<Paged, String> {
-    let doc = PdfDocument::from_bytes(bytes).map_err(|e| format!("not a PDF that can be read: {e}"))?;
+fn read_unguarded(bytes: Vec<u8>) -> Result<Paged, Unread> {
+    let doc = PdfDocument::from_bytes(bytes).map_err(|e| Unread::Failed(format!("not a PDF that can be read: {e}")))?;
     // Most locked PDFs are locked against printing or copying, with an empty
     // password to open them; the library opens those itself. One that needs a
     // real password reads as pages of nothing, which is not what it holds.
     if doc.is_encrypted() && !doc.authenticate(b"").unwrap_or(false) {
-        return Err("protected by a password".to_string());
+        return Err(Unread::Locked("protected by a password".to_string()));
     }
+    read_open(&doc).map_err(Unread::Failed)
+}
+
+/// The pages of a PDF that is open, or why none of them can be read.
+fn read_open(doc: &PdfDocument) -> Result<Paged, String> {
     let count = doc.page_count().map_err(|e| format!("its pages cannot be read: {e}"))?;
     let mut pages = Vec::with_capacity(count);
     let mut failure = None;
@@ -57,8 +63,8 @@ fn read_unguarded(bytes: Vec<u8>) -> Result<Paged, String> {
     }
     Ok(Paged {
         pages,
-        bookmarks: bookmarks(&doc),
-        title: title(&doc),
+        bookmarks: bookmarks(doc),
+        title: title(doc),
         recognized: Vec::new(),
     })
 }
@@ -161,7 +167,7 @@ mod tests {
 
     #[test]
     fn a_pdf_that_needs_a_password_says_so() {
-        assert_eq!(read(fixture("password.pdf")), Err("protected by a password".to_string()));
+        assert_eq!(read(fixture("password.pdf")), Err(Unread::Locked("protected by a password".to_string())));
     }
 
     #[test]
