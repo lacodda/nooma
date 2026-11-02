@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.13.0] - 2026-11-02
+
+### Documentation
+- Describe keeping up with the folders and the health of the index
+
+### Features
+- Keep the index up with the folders as they change
+
+### Breaking Changes
+
+the full-text index format is 6, which keeps what each
+file could not give. An index built by an earlier nooma is rebuilt on
+the next update; the vectors are kept. In nooma-core Unread has
+TooLarge, Locked and Unopened, the PDF, Word and EPUB readers return
+Unread, Skipped carries why and size, UpdateReport.unrecognized holds
+Unrecognized, and Status.indexed_at is when the index last changed. The
+JSON of index gives each skipped file why and size and lists only the
+files that update tried; `nooma health` lists all of them.
+
 ## [0.12.0] - 2026-10-28
 
 ### Build
