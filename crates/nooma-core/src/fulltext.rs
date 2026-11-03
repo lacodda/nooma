@@ -21,6 +21,8 @@
 //! stemmer at all: a bare Russian word there finds only its own form.
 
 use std::borrow::Cow;
+use std::collections::BTreeSet;
+use std::ops::Range;
 
 use tantivy::schema::{FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions};
 use tantivy::tokenizer::{LowerCaser, RemoveLongFilter, SimpleTokenizer, TextAnalyzer, Token, TokenFilter, TokenStream, Tokenizer};
@@ -39,6 +41,26 @@ pub fn analyzer() -> TextAnalyzer {
         .filter(LowerCaser)
         .filter(ScriptStemmer)
         .build()
+}
+
+/// Where the words of a text that are these terms are, as byte ranges in
+/// order. The text is cut and stemmed as the index cuts it, so a text that
+/// says *договоры* is marked for a query that said *договор*: the marks a
+/// search result shows, over a whole chunk rather than its fragment.
+pub fn marks(text: &str, terms: &BTreeSet<String>) -> Vec<Range<usize>> {
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    let mut analyzer = analyzer();
+    let mut stream = analyzer.token_stream(text);
+    let mut out = Vec::new();
+    while stream.advance() {
+        let token = stream.token();
+        if terms.contains(&token.text) {
+            out.push(token.offset_from..token.offset_to);
+        }
+    }
+    out
 }
 
 /// The fields of a chunk in the index.
@@ -65,7 +87,8 @@ pub struct Fields {
     pub backlinks: Field,
     /// How many notes link to this document: a signal, not text.
     pub backlink_count: Field,
-    /// The 1-based line the chunk starts on.
+    /// The 1-based line the chunk starts on: fast, so a file's chunks are
+    /// put in order by it without being read.
     pub line: Field,
     /// The 1-based page the chunk is on; a PDF's chunks have one, no other.
     pub page: Field,
@@ -99,7 +122,7 @@ impl Fields {
             links: builder.add_text_field("links", stored.clone()),
             backlinks: builder.add_text_field("backlinks", stored),
             backlink_count: builder.add_u64_field("backlink_count", FAST),
-            line: builder.add_u64_field("line", STORED | INDEXED),
+            line: builder.add_u64_field("line", STORED | INDEXED | FAST),
             page: builder.add_u64_field("page", STORED),
             recognized: builder.add_u64_field("recognized", STORED),
             modified: builder.add_u64_field("modified", STORED),
@@ -324,6 +347,15 @@ mod tests {
         for (word, stem) in pairs {
             assert_eq!(terms(word), vec![stem], "{word}");
         }
+    }
+
+    #[test]
+    fn a_word_is_marked_in_any_of_its_forms() {
+        let text = "Договоры гарантии; the warranties, the ДОГОВОР.";
+        let wanted: BTreeSet<String> = terms("договор warranty").into_iter().collect();
+        let marked: Vec<&str> = marks(text, &wanted).into_iter().map(|range| &text[range]).collect();
+        assert_eq!(marked, ["Договоры", "warranties", "ДОГОВОР"]);
+        assert!(marks(text, &BTreeSet::new()).is_empty());
     }
 
     #[test]

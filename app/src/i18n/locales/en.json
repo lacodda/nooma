@@ -123,5 +123,25 @@
     "guessedHint": "Not UTF-8, so the encoding was guessed. A wrong guess reads as gibberish, and such a file is found by nothing.",
     "unavailable": "Folders out of reach",
     "unavailableHint": "A drive unplugged, or a folder moved: what was found in it is kept as it was."
+  },
+  "preview": {
+    "label": "Preview",
+    "resize": "Resize the preview",
+    "earlier_one": "Show {{count}} earlier passage",
+    "earlier_other": "Show {{count}} earlier passages",
+    "later_one": "Show {{count}} later passage",
+    "later_other": "Show {{count}} later passages",
+    "open": "Open",
+    "openAtLine": "Open at line {{line}}",
+    "openAtPage": "Open at page {{page}}",
+    "openAtHeading": "Open at the heading",
+    "opensIn": "In {{program}}",
+    "opensInSystem": "In the program this kind of file opens with",
+    "reveal": "Show in folder",
+    "quote": "Copy as quote",
+    "copied": "Copied",
+    "copyFailed": "Could not copy",
+    "missing": "This document is no longer in the index. It is read again at the next update.",
+    "failed": "The preview failed: {{message}}"
   }
 }

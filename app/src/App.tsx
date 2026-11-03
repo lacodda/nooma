@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocale } from 'dowel-ui'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -10,14 +10,18 @@ import {
   type Health,
   type IndexState,
   type MeaningStatus,
+  type Passage,
   type Ranked,
+  type Shown,
   type Source,
   type Status,
 } from '@/lib/api'
 import { splitHighlights } from '@/lib/highlight'
 import { flatten, isPassage } from '@/lib/passage'
 import { folderOf } from '@/lib/paths'
+import { quoteOf, type Source as QuoteSource } from '@/lib/quote'
 import { cn } from '@/lib/utils'
+import { Preview, type Copying } from '@/Preview'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { HealthPanel, healthCount } from '@/HealthPanel'
@@ -25,6 +29,8 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Progress } from '@/components/ui/progress'
 import { SearchField } from '@/components/ui/search-field'
 import { StatusDot } from '@/components/ui/status-dot'
+import { Splitter, SplitterHandle, SplitterPane } from '@/components/ui/splitter'
+import { useCommand } from '@/components/ui/commands'
 import { ResizeEdges, WindowButtons, useTitleBarGestures } from '@/components/ui/window-frame'
 
 /*
@@ -40,7 +46,10 @@ import { ResizeEdges, WindowButtons, useTitleBarGestures } from '@/components/ui
  * stored; the page only hears how it goes.
  *
  * Results are one list, ranked from both halves: the documents that hold the
- * words and the documents close in meaning, each once. The words answer in
+ * words and the documents close in meaning, each once. Where the window is
+ * wide enough, the row selected is read beside the list, in its document
+ * (see `Preview.tsx`); where it is not, the list has the window, and Enter
+ * still opens the row at the place it was found. The words answer in
  * milliseconds; the whole answer waits for the model to read the query - tens
  * of milliseconds, or a batch of the background reading when that is running.
  * The words' answer is held back a moment, so that a whole answer arriving
@@ -72,6 +81,55 @@ const PACE_MS = 20_000
 /** How long the words' answer waits for the whole one before it is shown. */
 const GRACE_MS = 120
 
+/** The width from which the list and the preview stand side by side: below
+ * it a row's fragment is the preview there is room for. */
+const WIDE = '(min-width: 860px)'
+
+/** Where the window keeps how the list and the preview share it. */
+const SIZES_KEY = 'nooma.preview.sizes'
+
+/** How long a quote taken says so on its button. */
+const COPIED_MS = 1600
+
+function subscribeTo(query: string) {
+  return (changed: () => void) => {
+    const list = typeof window.matchMedia === 'function' ? window.matchMedia(query) : null
+    list?.addEventListener('change', changed)
+    return () => list?.removeEventListener('change', changed)
+  }
+}
+
+/** Whether the window matches a media query, as it is resized. */
+function useMedia(query: string): boolean {
+  return useSyncExternalStore(subscribeTo(query), () => typeof window.matchMedia === 'function' && window.matchMedia(query).matches)
+}
+
+function savedSizes(): number[] | undefined {
+  try {
+    const sizes: unknown = JSON.parse(localStorage.getItem(SIZES_KEY) ?? 'null')
+    return Array.isArray(sizes) && sizes.length === 2 && sizes.every((size) => typeof size === 'number') ? (sizes as number[]) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function saveSizes(sizes: number[]) {
+  try {
+    localStorage.setItem(SIZES_KEY, JSON.stringify(sizes))
+  } catch {
+    // A window that cannot keep its layout opens at the usual one.
+  }
+}
+
+/** The text selected inside the preview, when there is some. */
+function selectedInPreview(): string | null {
+  const selection = typeof window.getSelection === 'function' ? window.getSelection() : null
+  const text = selection?.toString().trim() ?? ''
+  const node = selection?.anchorNode ?? null
+  const element = node instanceof Element ? node : (node?.parentElement ?? null)
+  return text !== '' && element?.closest('[data-preview]') !== null && element !== null ? text : null
+}
+
 export function App() {
   const { t } = useTranslation()
   const [status, setStatus] = useState<Status | null>(null)
@@ -99,6 +157,12 @@ export function App() {
    * answer replaces the words'. */
   const selectedPath = useRef<string | null>(null)
   const asked = useRef(0)
+  const wide = useMedia(WIDE)
+  /** What the preview showed last, and for which row: what a quote takes. */
+  const shown = useRef<{ path: string; line: number; shown: Shown | null } | null>(null)
+  const [copying, setCopying] = useState<Copying>('idle')
+  const copied = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(copied.current), [])
 
   const select = useCallback((index: number, hits: readonly Ranked[]) => {
     setSelected(index)
@@ -325,6 +389,46 @@ export function App() {
   }
 
   const rows = found?.hits ?? []
+  const row = rows[selected]
+
+  const onShown = useCallback((path: string, line: number, next: Shown | null) => {
+    shown.current = { path, line, shown: next }
+  }, [])
+
+  /** Take the row selected away as a quote: what is selected in the preview,
+   * or the whole chunk found, with the file and the place under it. */
+  const quote = useCallback(async () => {
+    if (row === undefined) return
+    const told = (state: Copying) => {
+      setCopying(state)
+      clearTimeout(copied.current)
+      copied.current = setTimeout(() => setCopying('idle'), COPIED_MS)
+    }
+    try {
+      const kept = shown.current
+      const preview =
+        kept !== null && kept.path === row.path && kept.line === row.line && kept.shown !== null ? kept.shown : await api.preview(row.path, row.line, null, 0, 0)
+      const passage = preview?.passages[preview.found]
+      if (preview === null || passage === undefined) {
+        told('failed')
+        return
+      }
+      await navigator.clipboard.writeText(quoteOf(selectedInPreview() ?? passage.text, sourceOf(preview, passage, t)))
+      told('copied')
+    } catch {
+      told('failed')
+    }
+  }, [row, t])
+
+  useCommand({
+    id: 'quote',
+    label: t('preview.quote'),
+    keys: 'Mod+Shift+C',
+    whileTyping: true,
+    enabled: row !== undefined,
+    run: () => void quote(),
+  })
+
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
@@ -333,35 +437,62 @@ export function App() {
       event.preventDefault()
       select(Math.max(selected - 1, 0), rows)
     } else if (event.key === 'Enter') {
-      const row = rows[selected]
       if (!row) return
       event.preventDefault()
-      void (event.ctrlKey || event.metaKey ? api.reveal(row.path) : api.open(row.path))
+      void (event.ctrlKey || event.metaKey ? api.reveal(row.path) : api.open(row.path, row.line))
     }
   }
+
+  const body = (
+    <Body
+      status={status}
+      query={query}
+      example={example}
+      found={found}
+      pending={pending}
+      failure={failure}
+      meaningFailure={meaningFailure}
+      meaningStatus={meaningStatus}
+      vectors={vectors}
+      fetching={fetching}
+      selected={selected}
+      onSelect={(index) => select(index, rows)}
+      onAddFolder={addFolder}
+      onFetchModel={fetchModel}
+    />
+  )
 
   return (
     <div className="flex h-full flex-col bg-bg text-text">
       <ResizeEdges />
       <Titlebar query={query} onQuery={onQuery} onKeyDown={onKeyDown} onPaste={onPaste} />
-      <main className="min-h-0 flex-1 overflow-y-auto">
-        <Body
-          status={status}
-          query={query}
-          example={example}
-          found={found}
-          pending={pending}
-          failure={failure}
-          meaningFailure={meaningFailure}
-          meaningStatus={meaningStatus}
-          vectors={vectors}
-          fetching={fetching}
-          selected={selected}
-          onSelect={(index) => select(index, rows)}
-          onAddFolder={addFolder}
-          onFetchModel={fetchModel}
-        />
+      <main className="min-h-0 flex-1">
+        {wide && row !== undefined ? (
+          <Splitter defaultSizes={savedSizes() ?? [56, 44]} onSizesChange={saveSizes}>
+            <SplitterPane min={35} className="overflow-y-auto">
+              {body}
+            </SplitterPane>
+            <SplitterHandle label={t('preview.resize')} />
+            <SplitterPane min={28}>
+              <Preview
+                hit={row}
+                query={example === null ? query : null}
+                asked={{ text: example ?? query, passage: example !== null }}
+                stamp={passes}
+                onShown={onShown}
+                onQuote={() => void quote()}
+                copying={copying}
+              />
+            </SplitterPane>
+          </Splitter>
+        ) : (
+          <div className="h-full overflow-y-auto">{body}</div>
+        )}
       </main>
+      {/* The quote taken by its key, said where the preview's button is not. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {copying === 'copied' ? t('preview.copied') : copying === 'failed' ? t('preview.copyFailed') : ''}
+      </span>
       <StatusBar
         status={status}
         indexState={indexState}
@@ -673,7 +804,7 @@ function ResultRow({
       ref={element}
       aria-selected={selected}
       onClick={onSelect}
-      onDoubleClick={() => void api.open(hit.path)}
+      onDoubleClick={() => void api.open(hit.path, hit.line)}
       className={cn(
         'cursor-default border-l-2 px-4 py-2.5',
         selected ? 'border-accent bg-accent-soft' : 'border-transparent hover:bg-soft',
@@ -736,6 +867,15 @@ function ResultRow({
       )}
     </li>
   )
+}
+
+/** Where a quote of a passage says it is from: the line of a file opened in
+ * an editor, the page of a PDF, the headings of anything else. */
+function sourceOf(preview: Shown, passage: Passage, t: (key: string, options?: Record<string, unknown>) => string): QuoteSource {
+  if (preview.kind === 'markdown' || preview.kind === 'text') return { path: preview.path, line: passage.line }
+  if (passage.page !== undefined) return { path: preview.path, page: t('results.page', { page: passage.page }) }
+  const headings = passage.headings[0] === preview.title ? passage.headings.slice(1) : passage.headings
+  return { path: preview.path, headings }
 }
 
 /** What the status line says about the meaning half, and in which tone. */

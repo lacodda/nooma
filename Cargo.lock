@@ -4087,6 +4087,7 @@ dependencies = [
 name = "nooma-app"
 version = "0.13.0"
 dependencies = [
+ "directories",
  "nooma-core",
  "nooma-fetch",
  "serde",
@@ -4097,6 +4098,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-window-state",
  "tempfile",
+ "windows",
 ]
 
 [[package]]

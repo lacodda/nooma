@@ -8,6 +8,7 @@
 //! that remembers where the window was.
 
 pub mod commands;
+pub mod opening;
 
 use tauri::Manager as _;
 
@@ -50,6 +51,7 @@ pub fn run() {
             commands::meaning_status,
             commands::fetch_model,
             commands::add_source,
+            commands::preview,
             commands::open_document,
             commands::reveal_document,
         ])

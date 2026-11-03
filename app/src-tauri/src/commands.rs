@@ -23,25 +23,39 @@
 //! names them; asked while it runs, it runs once more after, over everything
 //! it was asked about meanwhile. The page is told how it goes by
 //! `index-state`.
+//!
+//! The row selected is shown in a preview beside the list: its chunk whole,
+//! among its neighbours in the document, the query's words marked - and how
+//! the document would be opened at it, so the button can say so. Opening one
+//! opens it there, in the program the system has for it (see
+//! [`crate::opening`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use nooma_core::document::DocKind;
 use nooma_core::embed::OnnxEmbedder;
 use nooma_core::library::indexing_threads;
 use nooma_core::model::ModelSpec;
 use nooma_core::{
-    Answer, Embedder, Finder, Health, LanguageAxes, Library, Model, Pace, Progress, Ranked, Role, Scope, SemanticIndex, Status, UpdateReport, VectorReport,
-    Watcher, background, hybrid, why,
+    Answer, Embedder, Finder, Health, LanguageAxes, Library, Model, Pace, Passage, Preview, Progress, Ranked, Role, Scope, SemanticIndex, Status, UpdateReport,
+    VectorReport, Watcher, background, hybrid, why,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager as _, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::opening::{self, Opening, Os, System};
+
 /// The most results the window asks for; more than a screen is noise.
 const MAX_RESULTS: usize = 50;
+
+/// The most chunks a preview shows on either side of the one found: the
+/// preview reads on as far as this a step at a time, and the program opened
+/// at the place reads on from there.
+const MAX_AROUND: usize = 60;
 
 /// The longest the background update steps aside for searches before it takes
 /// the model anyway: a guard against a count that never falls, not a pace.
@@ -83,6 +97,8 @@ pub struct AppState {
     indexer: Indexer,
     /// The folders watched, until the next whole update watches them anew.
     watcher: Mutex<Option<Watcher>>,
+    /// What the machine opens documents with.
+    system: Box<dyn System + Send + Sync>,
 }
 
 /// What the window's indexing is doing.
@@ -243,7 +259,15 @@ impl AppState {
             fetching: AtomicBool::new(false),
             indexer: Indexer::new(),
             watcher: Mutex::new(None),
+            system: Box::new(Os::default()),
         }
+    }
+
+    /// The same, with a machine that says what a test tells it to.
+    #[cfg(test)]
+    fn on(mut self, system: impl System + Send + Sync + 'static) -> Self {
+        self.system = Box::new(system);
+        self
     }
 
     fn library(&self) -> Result<Library, String> {
@@ -963,11 +987,85 @@ pub fn add_source_in(state: &AppState, path: &Path) -> Result<Status, String> {
     library.status().map_err(|e| e.to_string())
 }
 
-/// Open a found document in its default application.
+/// A found document around the chunk found, and how it would be opened
+/// there: what the preview shows.
+#[derive(Debug, Serialize)]
+pub struct Shown {
+    #[serde(flatten)]
+    pub preview: Preview,
+    pub opens: Opening,
+}
+
+/// The chunk starting at a line of a found document, with up to `before`
+/// chunks before it and `after` after, the words of `query` marked - none for
+/// a pasted passage. `None` when the index does not hold the document, or
+/// there is no index yet.
 #[tauri::command]
-pub fn open_document(app: AppHandle, state: State<'_, AppState>, path: PathBuf) -> Result<(), String> {
+pub async fn preview(
+    state: State<'_, AppState>,
+    path: PathBuf,
+    line: u32,
+    query: Option<String>,
+    before: usize,
+    after: usize,
+) -> Result<Option<Shown>, String> {
+    preview_in(&state, &path, line, query.as_deref(), before, after)
+}
+
+pub fn preview_in(state: &AppState, path: &Path, line: u32, query: Option<&str>, before: usize, after: usize) -> Result<Option<Shown>, String> {
+    let preview = {
+        let kept = finder_of(state)?;
+        let Some(finder) = kept.as_ref() else { return Ok(None) };
+        finder
+            .preview(path, line, query, before.min(MAX_AROUND), after.min(MAX_AROUND))
+            .map_err(|e| e.to_string())?
+    };
+    // The finder is let go before the system is asked: a search waits for
+    // the finder, not for the shell.
+    let Some(preview) = preview else { return Ok(None) };
+    let opens = opening_of(state, &preview.path, &preview.kind, &preview.passages[preview.found]);
+    Ok(Some(Shown { preview, opens }))
+}
+
+/// How a document would be opened at a chunk of it.
+fn opening_of(state: &AppState, path: &Path, kind: &str, passage: &Passage) -> Opening {
+    let place = opening::Place {
+        path,
+        kind: DocKind::from_name(kind).unwrap_or(DocKind::Text),
+        line: passage.line,
+        page: passage.page,
+        heading: passage.headings.last().map(String::as_str),
+    };
+    opening::plan(&place, state.system.as_ref())
+}
+
+/// How a found document would be opened at the chunk starting at a line of
+/// it; `None` when the index does not hold it.
+pub fn opening_in(state: &AppState, path: &Path, line: u32) -> Result<Option<Opening>, String> {
+    let preview = {
+        let kept = finder_of(state)?;
+        let Some(finder) = kept.as_ref() else { return Ok(None) };
+        finder.preview(path, line, None, 0, 0).map_err(|e| e.to_string())?
+    };
+    Ok(preview.map(|preview| opening_of(state, &preview.path, &preview.kind, &preview.passages[preview.found])))
+}
+
+/// Open a found document - at the chunk starting at `line`, when it is
+/// given and the program that opens the document can be told the place.
+#[tauri::command]
+pub fn open_document(app: AppHandle, state: State<'_, AppState>, path: PathBuf, line: Option<u32>) -> Result<(), String> {
     let path = indexed_path(&state, &path)?;
-    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
+    let file = |path: &Path| app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| e.to_string());
+    // A place the index no longer knows is not a reason not to open the
+    // file: it opens at its start.
+    let opening = match line {
+        Some(line) => opening_in(&state, &path, line).ok().flatten(),
+        None => None,
+    };
+    match opening {
+        Some(opening) => opening.open(&path, |link| app.opener().open_url(link, None::<&str>).map_err(|e| e.to_string()), file),
+        None => file(&path),
+    }
 }
 
 /// Show a found document in the file manager.
@@ -1113,6 +1211,88 @@ mod tests {
         let health = health_of(&state).unwrap();
         assert_eq!(health.skipped.len(), 1);
         assert_eq!(health.skipped[0].why, nooma_core::Why::Damaged);
+    }
+
+    /// A machine whose shell opens every file with one program.
+    struct OpensWith(&'static str);
+
+    impl System for OpensWith {
+        fn program_for(&self, _path: &Path, _kind: DocKind) -> Option<opening::Program> {
+            Some(opening::Program {
+                executable: PathBuf::from(self.0),
+                name: "Code".to_string(),
+            })
+        }
+
+        fn vaults(&self) -> Vec<(String, PathBuf)> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn the_selected_row_is_shown_among_its_neighbours_with_where_it_opens() {
+        let notes = tempfile::tempdir().unwrap();
+        let note = "# Greenhouse
+
+## Vents
+
+Open the vents at noon.
+
+## Watering
+
+Water the tomatoes in the evening.
+
+## Heating
+
+The heater goes on at night.
+";
+        std::fs::write(notes.path().join("greenhouse.md"), note).unwrap();
+        let store = tempfile::tempdir().unwrap();
+        let state = AppState::at(store.path()).on(OpensWith("/apps/Code.exe"));
+        add_source_in(&state, notes.path()).unwrap();
+        let path = notes.path().join("greenhouse.md");
+        assert!(preview_in(&state, &path, 1, None, 1, 1).unwrap().is_none(), "nothing before the first update");
+        updated(&state);
+
+        let hit = search_in(&state, "tomatoes", None).unwrap().hits.remove(0).hit;
+        let shown = preview_in(&state, &hit.path, hit.line, Some("tomatoes"), 1, 1).unwrap().unwrap();
+        let found = &shown.preview.passages[shown.preview.found];
+        assert_eq!((found.line, found.highlights.len()), (hit.line, 1));
+        assert_eq!(shown.preview.passages.len(), 3, "the vents and the heater beside it");
+        assert_eq!(shown.opens.program.as_deref(), Some("Code"));
+        assert_eq!(shown.opens.at, Some(opening::At::Line { line: hit.line }));
+
+        // As the page reads it: the preview and how it opens, side by side,
+        // and nothing of what would be run.
+        let json = serde_json::to_value(&shown).unwrap();
+        assert_eq!(json["found"], 1);
+        assert_eq!(json["opens"], serde_json::json!({"program": "Code", "at": {"kind": "line", "line": hit.line}}));
+
+        assert_eq!(opening_in(&state, &hit.path, hit.line).unwrap(), Some(shown.opens));
+        assert!(preview_in(&state, &notes.path().join("absent.md"), 1, None, 1, 1).unwrap().is_none());
+        assert_eq!(opening_in(&state, &notes.path().join("absent.md"), 1).unwrap(), None);
+    }
+
+    #[test]
+    fn a_preview_reads_on_no_further_than_it_may() {
+        let notes = tempfile::tempdir().unwrap();
+        let long: String = (0..(MAX_AROUND + 5))
+            .map(|i| {
+                format!(
+                    "## Part {i}
+
+Words of part {i}.
+
+"
+                )
+            })
+            .collect();
+        std::fs::write(notes.path().join("long.md"), long).unwrap();
+        let (_store, state) = library_with(notes.path());
+        updated(&state);
+        let shown = preview_in(&state, &notes.path().join("long.md"), 1, None, 0, usize::MAX).unwrap().unwrap();
+        assert_eq!(shown.preview.passages.len(), MAX_AROUND + 1);
+        assert_eq!(shown.preview.after, 4);
     }
 
     #[test]

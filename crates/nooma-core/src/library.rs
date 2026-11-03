@@ -58,7 +58,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tantivy::collector::{DocSetCollector, TopDocs};
-use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, TermQuery};
+use tantivy::query::{Query, QueryParser, TermQuery};
 use tantivy::schema::{IndexRecordOption, OwnedValue, Value};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{DocAddress, DocId, Index, IndexWriter, Score, SegmentReader, TantivyDocument, Term};
@@ -95,7 +95,11 @@ pub const SOURCES_FORMAT_VERSION: u32 = 1;
 /// 6: the manifest keeps what each file could not give - documents with no
 /// text, pictures of text not read, encodings guessed - and the files not
 /// read at all, with why.
-pub const FULLTEXT_FORMAT_VERSION: u32 = 6;
+///
+/// 7: the line a chunk starts on is a fast field, so the chunks of one file
+/// are put in order without reading each of them - a preview shows a chunk
+/// among its neighbours.
+pub const FULLTEXT_FORMAT_VERSION: u32 = 7;
 
 /// The nooma that tried a file it could not read: a later one may read it,
 /// or tell it otherwise, so it tries it again.
@@ -1401,37 +1405,132 @@ impl Finder {
     /// the line was recorded - the one at or before it, with the line it
     /// starts on.
     fn chunk_at(&self, searcher: &tantivy::Searcher, path: &Path, line: u32) -> Result<Option<(u32, TantivyDocument)>> {
-        let fields = &self.fields;
-        let key = path.to_string_lossy();
-        let in_file = || TermQuery::new(Term::from_field_text(fields.path, &key), IndexRecordOption::Basic);
-        // The chunk that starts at the line, read alone: a long journal has
-        // hundreds of chunks, and reading them all to pick one cost more than
-        // the search that found it.
-        let at_line = BooleanQuery::new(vec![
-            (Occur::Must, Box::new(in_file()) as Box<dyn Query>),
-            (
-                Occur::Must,
-                Box::new(TermQuery::new(Term::from_field_u64(fields.line, u64::from(line)), IndexRecordOption::Basic)),
-            ),
-        ]);
-        let mut addresses = searcher.search(&at_line, &DocSetCollector).map_err(Error::fulltext)?;
-        if addresses.is_empty() {
-            // Changed since the line was recorded: every chunk, to find the
-            // one at or before it.
-            addresses = searcher.search(&in_file(), &DocSetCollector).map_err(Error::fulltext)?;
-        }
-        let mut chunks = Vec::with_capacity(addresses.len());
-        for address in addresses {
-            let doc: TantivyDocument = searcher.doc(address).map_err(Error::fulltext)?;
-            chunks.push((line_of(&doc, fields), doc));
-        }
-        chunks.sort_by_key(|(starts, _)| *starts);
-        let at = chunks
-            .iter()
-            .rposition(|(starts, _)| *starts <= line)
-            .or_else(|| (!chunks.is_empty()).then_some(0));
-        Ok(at.map(|at| chunks.swap_remove(at)))
+        let chunks = self.in_order(searcher, path)?;
+        let Some(at) = place_of(&chunks, line) else { return Ok(None) };
+        let (starts, address) = chunks[at];
+        let doc: TantivyDocument = searcher.doc(address).map_err(Error::fulltext)?;
+        Ok(Some((starts, doc)))
     }
+
+    /// The chunk starting at a line of a file - found as [`Finder::chunks`]
+    /// finds it - whole, with up to `before` chunks of the file before it and
+    /// `after` after it, and the words of `query` marked in each: a document
+    /// read around the place a search found in it. `None` when the index no
+    /// longer holds the file. Without a query nothing is marked: a pasted
+    /// passage is not words to look for.
+    ///
+    /// The chunks are put in order by the lines the index keeps beside them,
+    /// so a book of a thousand chunks costs the reading of the ones shown.
+    pub fn preview(&self, path: &Path, line: u32, query: Option<&str>, before: usize, after: usize) -> Result<Option<Preview>> {
+        self.reader.reload().map_err(Error::fulltext)?;
+        let searcher = self.reader.searcher();
+        let fields = &self.fields;
+        let chunks = self.in_order(&searcher, path)?;
+        let Some(at) = place_of(&chunks, line) else { return Ok(None) };
+        let first = at.saturating_sub(before);
+        let last = at.saturating_add(after).min(chunks.len() - 1);
+        let terms = query.map(|query| Distinctive::of(&searcher, fields.body, query).terms).unwrap_or_default();
+        let mut passages = Vec::with_capacity(last - first + 1);
+        let mut named = None;
+        for (_, address) in &chunks[first..=last] {
+            let doc: TantivyDocument = searcher.doc(*address).map_err(Error::fulltext)?;
+            named.get_or_insert_with(|| (first_text(&doc, fields.kind), first_text(&doc, fields.title)));
+            let text = first_text(&doc, fields.body);
+            passages.push(Passage {
+                headings: all_text(&doc, fields.headings),
+                line: line_of(&doc, fields),
+                page: page_of(&doc, fields),
+                recognized: recognized_of(&doc, fields),
+                highlights: fulltext::marks(&text, &terms),
+                text,
+            });
+        }
+        let (kind, title) = named.unwrap_or_default();
+        Ok(Some(Preview {
+            path: path.to_path_buf(),
+            kind,
+            title,
+            passages,
+            found: at - first,
+            before: first,
+            after: chunks.len() - 1 - last,
+        }))
+    }
+
+    /// Every chunk of a file with the line it starts on, in order. The lines
+    /// are read from the column the index keeps them in, not from the chunks:
+    /// a long journal has hundreds of chunks, and reading them all to pick
+    /// one cost more than the search that found it.
+    fn in_order(&self, searcher: &tantivy::Searcher, path: &Path) -> Result<Vec<(u32, DocAddress)>> {
+        let key = path.to_string_lossy();
+        let in_file = TermQuery::new(Term::from_field_text(self.fields.path, &key), IndexRecordOption::Basic);
+        let addresses = searcher.search(&in_file, &DocSetCollector).map_err(Error::fulltext)?;
+        let mut columns: BTreeMap<u32, tantivy::columnar::Column<u64>> = BTreeMap::new();
+        let mut out = Vec::with_capacity(addresses.len());
+        for address in addresses {
+            let column = match columns.entry(address.segment_ord) {
+                std::collections::btree_map::Entry::Occupied(column) => column.into_mut(),
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    let reader = searcher.segment_reader(address.segment_ord);
+                    slot.insert(reader.fast_fields().u64("line").map_err(Error::fulltext)?)
+                }
+            };
+            let starts = column.first(address.doc_id).and_then(|n| u32::try_from(n).ok()).unwrap_or(1);
+            out.push((starts, address));
+        }
+        out.sort_unstable();
+        Ok(out)
+    }
+}
+
+/// Which of a file's chunks, in order, holds a line: the one starting at it,
+/// or - the file changed since the line was recorded - the last one before
+/// it, or the first.
+fn place_of(chunks: &[(u32, DocAddress)], line: u32) -> Option<usize> {
+    chunks
+        .iter()
+        .rposition(|(starts, _)| *starts <= line)
+        .or_else(|| (!chunks.is_empty()).then_some(0))
+}
+
+/// A document around one of its chunks: what a preview of a search result
+/// shows.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Preview {
+    /// The file.
+    pub path: PathBuf,
+    /// What it is, as a hit names it.
+    pub kind: String,
+    /// The document's title.
+    pub title: String,
+    /// The chunks shown, in the document's order.
+    pub passages: Vec<Passage>,
+    /// Which of `passages` is the chunk asked about.
+    pub found: usize,
+    /// How many chunks of the document come before the first one shown.
+    pub before: usize,
+    /// How many come after the last one shown.
+    pub after: usize,
+}
+
+/// A chunk of a document, whole.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Passage {
+    /// The headings above it, outermost first.
+    pub headings: Vec<String>,
+    /// The line it starts on, as a hit's.
+    pub line: u32,
+    /// The page it is on, in a PDF.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<u32>,
+    /// Whether its text was read by OCR out of a picture.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub recognized: bool,
+    /// Its text: for a note, the markdown it is written in.
+    pub text: String,
+    /// Where the words of the query are in `text`, as byte ranges.
+    #[serde(serialize_with = "ranges_as_pairs")]
+    pub highlights: Vec<Range<usize>>,
 }
 
 /// A chunk's lines and times are kept as numbers.

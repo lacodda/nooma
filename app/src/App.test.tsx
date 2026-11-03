@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/i18n'
 import { App } from '@/App'
-import type { Found, Health, IndexState, MeaningStatus, Ranked, Status } from '@/lib/api'
+import type { Found, Health, IndexState, MeaningStatus, Ranked, Shown, Status } from '@/lib/api'
 
 // The webview talks to Rust through `invoke`; in jsdom there is no Rust, so
 // the boundary is stubbed with the shapes `nooma-core` serializes. The events
@@ -104,12 +104,33 @@ const ready: MeaningStatus = {
 }
 const noModel: MeaningStatus = { ...ready, present: false, passages: null }
 
+/** The contracts note around the chunk found: the chunk before it and the
+ * one after, the query's word marked in bytes of UTF-8. */
+const contractsShown: Shown = {
+  path: contracts.path,
+  kind: 'markdown',
+  title: 'Договоры',
+  passages: [
+    { headings: ['Договоры', 'Стороны'], line: 3, text: 'Поставщик и покупатель.', highlights: [] },
+    // `Договор` is fourteen bytes: seven Cyrillic letters of two each.
+    { headings: ['Договоры', 'Сроки'], line: 5, text: 'Договор поставки продлевается.\n\n- [x] подписан\n- [ ] [[Счета#Март|счёт]] #финансы', highlights: [[0, 14]] },
+    { headings: ['Договоры', 'Сроки'], line: 11, text: 'Срок - год.', highlights: [] },
+  ],
+  found: 1,
+  before: 0,
+  after: 3,
+  opens: { program: 'Visual Studio Code', at: { kind: 'line', line: 5 } },
+}
+
 const idle: IndexState = { kind: 'idle', passes: 0, watching: false, seq: 0 }
 const healthy: Health = { skipped: [], textless: [], unrecognized: [], guessed: [], unavailable: [] }
 let health: Health = healthy
 
+/** What the preview is told about a document. */
+let shownFor: (args: { path: string }) => Shown | null = () => null
+
 function answer(status: Status, half: MeaningStatus = ready, both: Found | null | Promise<Found | null> = whole, words: Found = byWords) {
-  invoke.mockImplementation((command: string) => {
+  invoke.mockImplementation((command: string, args?: unknown) => {
     switch (command) {
       case 'status':
         return Promise.resolve(status)
@@ -127,9 +148,19 @@ function answer(status: Status, half: MeaningStatus = ready, both: Found | null 
       case 'update_vectors':
       case 'fetch_model':
         return Promise.resolve(true)
+      case 'preview':
+        return Promise.resolve(shownFor(args as { path: string }))
       default:
         return Promise.resolve(undefined)
     }
+  })
+}
+
+/** A window as wide as it opens, or one at its narrowest. */
+function windowWide(wide: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => ({ matches: wide, media: query, addEventListener: () => undefined, removeEventListener: () => undefined }),
   })
 }
 
@@ -137,6 +168,8 @@ beforeEach(() => {
   invoke.mockReset()
   listeners.clear()
   health = healthy
+  shownFor = (args) => (args.path === contracts.path ? contractsShown : null)
+  windowWide(false)
 })
 
 async function typed(text: string) {
@@ -345,7 +378,7 @@ describe('App', () => {
     })
     await screen.findByText('Supply terms')
     fireEvent.keyDown(field, { key: 'Enter' })
-    expect(invoke).toHaveBeenCalledWith('open_document', { path: '/notes/other.txt' })
+    expect(invoke).toHaveBeenCalledWith('open_document', { path: '/notes/other.txt', line: 1 })
   })
 
   it('opens the selected result on Enter and reveals it on Ctrl+Enter', async () => {
@@ -356,7 +389,7 @@ describe('App', () => {
     await press(field, 'ArrowDown')
     await press(field, 'ArrowDown')
     fireEvent.keyDown(field, { key: 'Enter' })
-    expect(invoke).toHaveBeenCalledWith('open_document', { path: '/notes/supply.md' })
+    expect(invoke).toHaveBeenCalledWith('open_document', { path: '/notes/supply.md', line: 1 })
     fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
     expect(invoke).toHaveBeenCalledWith('reveal_document', { path: '/notes/supply.md' })
   })
@@ -391,6 +424,98 @@ describe('App', () => {
     expect(await screen.findByText('Supply terms')).toBeTruthy()
     expect(invoke).not.toHaveBeenCalledWith('search', expect.anything())
     expect((field as HTMLInputElement).value).toBe('The supply agreement renews each year. It can be cancelled in writing.')
+  })
+
+  it('reads the row selected in its document beside the list, the note drawn as a note', async () => {
+    windowWide(true)
+    answer(oneSource)
+    render(<App />)
+    await typed('договор')
+    const preview = await screen.findByRole('region', { name: 'Preview' })
+    await within(preview).findByText('Поставщик и покупатель.')
+    // The section the found chunk starts, under the note's title.
+    expect(within(preview).getByRole('heading', { name: 'Сроки' })).toBeTruthy()
+    expect(within(preview).getAllByRole('heading', { name: 'Договоры' })).toHaveLength(1)
+    expect(within(preview).getByRole('heading', { name: 'Стороны' })).toBeTruthy()
+    // The word found is marked in the whole chunk, the chunk is marked as
+    // the one found, and the note's markdown reads as a note.
+    const found = preview.querySelector('[data-found]') as HTMLElement
+    expect(within(found).getByText('Договор', { selector: 'mark' })).toBeTruthy()
+    expect(within(found).getAllByRole('checkbox').map((box) => (box as HTMLInputElement).checked)).toEqual([true, false])
+    expect(within(found).getByText('счёт').getAttribute('title')).toBe('Счета#Март')
+    expect(within(found).getByText('#финансы')).toBeTruthy()
+    expect(found.textContent).not.toContain('[[')
+
+    const open = within(preview).getByRole('button', { name: /Open at line 5/ })
+    expect(open.getAttribute('title')).toBe('In Visual Studio Code')
+    fireEvent.click(open)
+    expect(invoke).toHaveBeenCalledWith('open_document', { path: contracts.path, line: 5 })
+    expect(invoke).toHaveBeenCalledWith('preview', { path: contracts.path, line: 5, query: 'договор', before: 2, after: 2 })
+
+    fireEvent.click(within(preview).getByRole('button', { name: /Show 3 later passages/ }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('preview', { path: contracts.path, line: 5, query: 'договор', before: 2, after: 6 }))
+  })
+
+  it('marks the sentence that answered in the preview of a row found by meaning alone', async () => {
+    windowWide(true)
+    const passage = 'Terms. The supply agreement renews each year unless cancelled. Notice in writing.'
+    const sentence = 'The supply agreement renews each year unless cancelled.'
+    shownFor = (args) =>
+      args.path === supply.path
+        ? {
+            path: supply.path,
+            kind: 'text',
+            title: 'Supply terms',
+            passages: [{ headings: [], line: 1, text: passage, highlights: [] }],
+            found: 0,
+            before: 0,
+            after: 0,
+            opens: { program: null, at: null },
+          }
+        : null
+    answer(oneSource, ready, { ...whole, hits: [supply, contracts] })
+    const plain = invoke.getMockImplementation()
+    invoke.mockImplementation((command: string, args?: unknown) =>
+      command === 'explain'
+        ? Promise.resolve({ fragment: `…${sentence}`, closest: [3, 3 + sentence.length] })
+        : (plain as (c: string, a?: unknown) => unknown)(command, args),
+    )
+    render(<App />)
+    await typed('договор поставки')
+    const preview = await screen.findByRole('region', { name: 'Preview' })
+    const mark = await within(preview).findByText(sentence, { selector: 'mark' })
+    expect(mark.className).toContain('bg-accent-soft')
+    expect(invoke).toHaveBeenCalledWith('explain', { text: 'договор поставки', passage: false, path: supply.path, line: 1 })
+    // A program the system does not name: the button says only what it does.
+    expect(within(preview).getByRole('button', { name: /^Open/ }).getAttribute('title')).toBe('In the program this kind of file opens with')
+  })
+
+  it('leaves the list the window at its narrowest', async () => {
+    answer(oneSource)
+    render(<App />)
+    await typed('договор')
+    await screen.findByText('Supply terms')
+    expect(screen.queryByRole('region', { name: 'Preview' })).toBeNull()
+    expect(invoke).not.toHaveBeenCalledWith('preview', expect.anything())
+  })
+
+  it('takes the row selected away as a quote, with the file and its line under it', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    answer(oneSource)
+    render(<App />)
+    const field = await typed('договор')
+    await screen.findByText('Supply terms')
+    // The window is narrow: the chunk is asked for, alone, to be quoted.
+    await act(async () => {
+      fireEvent.keyDown(field, { key: 'C', code: 'KeyC', ctrlKey: true, shiftKey: true })
+    })
+    await waitFor(() => expect(writeText).toHaveBeenCalled())
+    expect(invoke).toHaveBeenCalledWith('preview', { path: contracts.path, line: 5, query: null, before: 0, after: 0 })
+    expect(writeText).toHaveBeenCalledWith(
+      ['> Договор поставки продлевается.', '>', '> - [x] подписан', '> - [ ] [[Счета#Март|счёт]] #финансы', '>', '> `/notes/договоры.md:5`', ''].join('\n'),
+    )
+    expect(await screen.findByText('Copied', { selector: '[role="status"]' })).toBeTruthy()
   })
 
   it('takes a short paste as a query', async () => {

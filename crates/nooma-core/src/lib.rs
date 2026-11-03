@@ -60,7 +60,9 @@ pub use hybrid::{Answer, Place, Ranked};
 pub use incremental::Update;
 pub use index::{FileIndex, Import, RepoIndex, Revision, Symbol, SymbolKind};
 pub use lang::Language;
-pub use library::{Finder, Guessed, Health, Hit, Library, Matched, Pace, Progress, Scope, Skipped, Source, Status, Unrecognized, UpdateReport, WordHit};
+pub use library::{
+    Finder, Guessed, Health, Hit, Library, Matched, Pace, Passage, Preview, Progress, Scope, Skipped, Source, Status, Unrecognized, UpdateReport, WordHit,
+};
 pub use model::{ModelSpec, Pooling};
 pub use neutral::LanguageAxes;
 pub use reading::Why;

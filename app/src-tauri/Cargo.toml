@@ -34,6 +34,14 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 # The window comes back where and how large it was closed.
 tauri-plugin-window-state = "2"
+# Where Obsidian keeps its list of vaults: the user's configuration folder.
+directories.workspace = true
+
+# What the shell opens a kind of file with, so a document opens in the
+# program a double click would start - told the place found in it. The
+# major nitid and the OCR crate are on, so the tree holds one copy.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_UI_Shell"] }
 
 [dev-dependencies]
 tempfile.workspace = true

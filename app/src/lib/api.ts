@@ -134,6 +134,44 @@ export interface Progress {
   total: number
 }
 
+/** A chunk of a document, whole. */
+export interface Passage {
+  headings: string[]
+  line: number
+  page?: number
+  recognized?: boolean
+  /** For a note, the markdown it is written in. */
+  text: string
+  /** Byte offsets into the UTF-8 text, `[start, end]`: the query's words. */
+  highlights: [number, number][]
+}
+
+/** Where in a document a program is told to open it. */
+export type At = { kind: 'line'; line: number } | { kind: 'page'; page: number } | { kind: 'heading'; heading: string }
+
+/** How a document would be opened at the place found. */
+export interface Opening {
+  /** The program, by its name; `null` when the system does not say. */
+  program: string | null
+  /** Where it opens; `null` at the start. */
+  at: At | null
+}
+
+/** A found document around the chunk found: what the preview shows. */
+export interface Shown {
+  path: string
+  kind: Hit['kind']
+  title: string
+  /** In the document's order. */
+  passages: Passage[]
+  /** Which of `passages` is the one found. */
+  found: number
+  /** Chunks of the document before the first shown, and after the last. */
+  before: number
+  after: number
+  opens: Opening
+}
+
 export interface MeaningStatus {
   model: string
   /** The model's size once fetched. */
@@ -193,7 +231,13 @@ export const api = {
   fetchModel: () => invoke<boolean>('fetch_model'),
   /** Adds the folder, and the window reads it. */
   addSource: (path: string) => invoke<Status>('add_source', { path }),
-  open: (path: string) => invoke<void>('open_document', { path }),
+  /** The chunk found at a line of a document among its neighbours, the
+   * query's words marked; `null` when the index does not hold it. */
+  preview: (path: string, line: number, query: string | null, before: number, after: number) =>
+    invoke<Shown | null>('preview', { path, line, query, before, after }),
+  /** Opens a document - at the chunk starting at `line`, when the program
+   * that opens it can be told the place. */
+  open: (path: string, line?: number) => invoke<void>('open_document', { path, line: line ?? null }),
   reveal: (path: string) => invoke<void>('reveal_document', { path }),
   onIndexState: (handler: (state: IndexState) => void): Promise<UnlistenFn> =>
     listen<IndexState>('index-state', (event) => handler(event.payload)),
