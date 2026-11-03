@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.14.0] - 2026-11-03
+
+### Documentation
+- Describe reading what was found and opening it at the place
+
+### Features
+- Read the row selected in its document and open it there
+
+### Breaking Changes
+
+the full-text index is format 7, the line a chunk
+starts on a fast field; an index of format 6 is built again by the
+next update.
+
 ## [0.13.0] - 2026-11-02
 
 ### Documentation
