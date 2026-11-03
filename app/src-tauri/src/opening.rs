@@ -551,6 +551,22 @@ mod sys {
             .into_iter()
             .find_map(|dir| std::fs::read_to_string(dir.join("applications").join(id)).ok())
             .and_then(|text| desktop_entry(&text))
+            .and_then(|program| {
+                let executable = on_path(&program.executable)?;
+                Some(Program { executable, ..program })
+            })
+    }
+
+    /// The file a desktop entry's program is: a path as it stands, a bare
+    /// name - `vim`, `code` - where the `PATH` finds it. One that is nowhere
+    /// is no program to run.
+    fn on_path(program: &Path) -> Option<PathBuf> {
+        if program.components().count() > 1 {
+            return program.is_file().then(|| program.to_path_buf());
+        }
+        std::env::split_paths(&std::env::var_os("PATH")?)
+            .map(|dir| dir.join(program))
+            .find(|candidate| candidate.is_file())
     }
 
     fn data_dirs() -> Vec<PathBuf> {
