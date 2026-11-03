@@ -4,6 +4,9 @@ All notable changes to this project are documented in this file.
 
 ## [0.14.0] - 2026-11-03
 
+### Bug Fixes
+- Find a desktop entry's program on the PATH
+
 ### Documentation
 - Describe reading what was found and opening it at the place
 
