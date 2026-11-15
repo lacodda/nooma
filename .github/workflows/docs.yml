@@ -20,9 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # The version docs/package.json pins, as every machine runs it.
       - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          package_json_file: docs/package.json
       - uses: actions/setup-node@v7
         with:
           node-version: 22
