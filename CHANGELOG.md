@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.15.0] - 2026-11-15
+
+### Bug Fixes
+- Read a part's heading as its name, not its first words
+- Read UTF-8 with a stray zero byte as the text it is
+- Mark a link or a tag as the mark it is under
+
+### Build
+- Bring the stack up to date
+
+### Documentation
+- Say what v0.15.0 does, the status in two lines
+
+### Features
+- The engine's own overlay scrollbars
+- Name declarations without a body and their cfg
+- Show the sentence that answered for every row the meaning found
+
+### Breaking Changes
+
+CHUNKER_VERSION is 4, and a repository index built
+by an earlier nooma is parsed again in full the first time it is
+read. Nothing is lost and nothing needs doing.
+
 ## [0.14.0] - 2026-11-03
 
 ### Bug Fixes
