@@ -20,7 +20,8 @@
         "minHeight": 360,
         "decorations": false,
         "shadow": true,
-        "visible": false
+        "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --enable-features=OverlayScrollbar"
       }
     ],
     "security": {
