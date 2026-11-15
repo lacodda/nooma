@@ -119,9 +119,9 @@ fn as_utf8(bytes: &[u8]) -> Option<Decoded> {
     (broken * 100 <= good).then(|| decoded(String::from_utf8_lossy(bytes).into_owned(), UTF_8, true))
 }
 
-/// UTF-8 with zeros in it as rare as the control characters text may carry
-/// - one in a thousand bytes at the most - and none of it otherwise broken:
-/// the zeros are damage, and dropped. UTF-16 is all zeros by comparison, and
+/// UTF-8 with zeros in it as rare as the control characters text may carry,
+/// one in a thousand bytes at the most, and none of it otherwise broken: the
+/// zeros are damage, and dropped. UTF-16 is all zeros by comparison, and
 /// binary data is seldom valid UTF-8 for more than a few bytes.
 fn with_stray_zeros(bytes: &[u8]) -> Option<Decoded> {
     if controls_per_thousand(bytes) > 1 {
