@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { useLocale } from 'dowel-ui'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -783,7 +784,7 @@ const KIND_LABELS: Record<Ranked['kind'], string> = { markdown: 'MD', text: 'TXT
 /** Where in its file a hit is, said for a person: the line a note opens at,
  * the page of a PDF. A Word document, a book or a picture is found in by its
  * headings, which the row says already. */
-function placeOf(hit: Ranked, t: (key: string, options: Record<string, unknown>) => string): string | null {
+function placeOf(hit: Ranked, t: TFunction): string | null {
   if (hit.page !== undefined) return t('results.page', { page: hit.page })
   if (hit.kind === 'markdown' || hit.kind === 'text') return t('results.line', { line: hit.line })
   return null
@@ -901,7 +902,7 @@ function marksOf(hit: Ranked): Mark[] {
 
 /** Where a quote of a passage says it is from: the line of a file opened in
  * an editor, the page of a PDF, the headings of anything else. */
-function sourceOf(preview: Shown, passage: Passage, t: (key: string, options?: Record<string, unknown>) => string): QuoteSource {
+function sourceOf(preview: Shown, passage: Passage, t: TFunction): QuoteSource {
   if (preview.kind === 'markdown' || preview.kind === 'text') return { path: preview.path, line: passage.line }
   if (passage.page !== undefined) return { path: preview.path, page: t('results.page', { page: passage.page }) }
   const headings = passage.headings[0] === preview.title ? passage.headings.slice(1) : passage.headings
@@ -913,7 +914,7 @@ function meaningState(
   meaningStatus: MeaningStatus | null,
   vectors: Vectors,
   fetching: Fetching,
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: TFunction,
   locale: string,
 ): { tone: 'good' | 'warn' | 'bad' | 'info' | 'neutral'; label: string; title?: string } | null {
   if (meaningStatus === null) return null
@@ -944,7 +945,7 @@ function indexStateOf(
   status: Status,
   indexState: IndexState | null,
   unreachable: string | null,
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: TFunction,
 ): { tone: 'good' | 'warn' | 'bad' | 'info'; label: string; title?: string } {
   if (unreachable !== null) return { tone: 'bad', label: t('status.failed'), title: unreachable }
   switch (indexState?.kind) {
