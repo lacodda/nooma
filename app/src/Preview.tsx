@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api, type Explained, type Passage, type Ranked, type Shown } from '@/lib/api'
+import { api, type Passage, type Ranked, type Shown } from '@/lib/api'
 import { type Mark, ordered, sentenceIn, utf16Ranges } from '@/lib/marks'
 import { cn } from '@/lib/utils'
+import { wantsWhy } from '@/lib/why'
 import { MARK_CLASSES, Note } from '@/Note'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,8 +48,9 @@ export interface PreviewProps {
   hit: Ranked
   /** The query typed, whose words are marked; `null` for a pasted passage. */
   query: string | null
-  /** What the search was for, to ask a row found by meaning why. */
-  asked: { text: string; passage: boolean }
+  /** Asks why a row was found, once per search; the answer comes back on
+   * the row, as `closest`. */
+  explain: (hit: Ranked) => Promise<unknown>
   /** Moves whenever the index has changed: what is shown is read again. */
   stamp: number
   /** Told what is shown for a row - its path and line - so a quote can be
@@ -64,7 +66,7 @@ interface Around {
   after: number
 }
 
-export function Preview({ hit, query, asked, stamp, onShown, onQuote, copying }: PreviewProps) {
+export function Preview({ hit, query, explain, stamp, onShown, onQuote, copying }: PreviewProps) {
   const { t } = useTranslation()
   const target = `${hit.path}\n${hit.line}\n${query ?? ''}`
   const [around, setAround] = useState<Around>({ target, before: AROUND, after: AROUND })
@@ -72,7 +74,6 @@ export function Preview({ hit, query, asked, stamp, onShown, onQuote, copying }:
   // one was read.
   if (around.target !== target) setAround({ target, before: AROUND, after: AROUND })
   const [shown, setShown] = useState<{ target: string; shown: Shown | null } | null>(null)
-  const [explained, setExplained] = useState<{ target: string; told: Explained } | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   /** Where the found chunk stood before more was read around it. */
@@ -108,27 +109,17 @@ export function Preview({ hit, query, asked, stamp, onShown, onQuote, copying }:
     }
   }, [path, line, query, around.before, around.after, target, stamp, onShown])
 
-  // A row the meaning alone found, with nothing marked in it: which of its
-  // sentences answered.
-  const askWhy = hit.meaning !== null && hit.highlights.length === 0 && hit.closest === undefined
+  // A row the meaning found, with nothing marked in it: which of its
+  // sentences answered. The list asks too, top row first; the row selected
+  // does not wait its turn.
+  const askWhy = wantsWhy(hit)
   useEffect(() => {
     if (!askWhy) return
-    let current = true
-    const timer = setTimeout(() => {
-      api
-        .explain(asked.text, asked.passage, hit.path, hit.line)
-        .then((told) => {
-          if (current && told !== null && told !== undefined) setExplained({ target, told })
-        })
-        // The model failing on a sentence leaves the passage unmarked, which
-        // is how it would be without asking.
-        .catch(() => undefined)
-    }, EXPLAIN_MS)
-    return () => {
-      current = false
-      clearTimeout(timer)
-    }
-  }, [askWhy, asked.text, asked.passage, hit.path, hit.line, target])
+    // The model failing on a sentence leaves the passage unmarked, which is
+    // how it would be without asking.
+    const timer = setTimeout(() => void explain(hit).catch(() => undefined), EXPLAIN_MS)
+    return () => clearTimeout(timer)
+  }, [askWhy, explain, hit])
 
   // What was read last stays until the row selected now is read: a blank
   // between two rows would flash at every arrow pressed.
@@ -170,7 +161,7 @@ export function Preview({ hit, query, asked, stamp, onShown, onQuote, copying }:
   }
 
   // The sentence that answered by meaning: told with the row, or asked for.
-  const why = !fresh ? null : hit.closest !== undefined ? { fragment: hit.fragment, closest: hit.closest } : explained?.target === target ? explained.told : null
+  const why = fresh && hit.closest !== undefined ? { fragment: hit.fragment, closest: hit.closest } : null
   const foundPassage = current.passages[current.found]
   const closest = why !== null && foundPassage !== undefined ? sentenceIn(foundPassage.text, why.fragment, why.closest) : null
   const recognized = current.passages.some((passage) => passage.recognized === true)
@@ -259,7 +250,7 @@ function Frame({
     <section data-preview aria-label={t('preview.label')} className="flex h-full min-h-0 flex-col bg-raise">
       <header className="shrink-0 border-b border-line px-4 pt-2.5 pb-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 rounded-xs border border-line px-1 font-mono text-2xs font-bold text-dim">{KIND_LABELS[kind]}</span>
+          <span className="shrink-0 rounded-xs border border-line px-1 font-mono text-2xs font-semibold text-dim">{KIND_LABELS[kind]}</span>
           <h2 className="truncate text-sm font-semibold">{title}</h2>
           {badge}
         </div>

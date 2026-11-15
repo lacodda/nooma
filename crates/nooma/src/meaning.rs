@@ -2,9 +2,9 @@
 //! a progress line, and asking both halves.
 //!
 //! Every command that searches by meaning answers from the stored index and
-//! says how much of the library it covers. A row only the meaning found shows
+//! says how much of the library it covers. A row the meaning carried shows
 //! the sentence that answered - the model reads the sentences of its chunk -
-//! since there is no word of the query in it to show. Computing vectors is indexing -
+//! since there is no word of the query marked in it to show. Computing vectors is indexing -
 //! an hour for a large library the first time - so it belongs to
 //! `nooma index`, never to a search that was asked for an answer.
 
@@ -109,7 +109,8 @@ fn read(library: &Library, models: &Path, text: &str, role: Role) -> Result<(Mea
     Ok((meaning, Some((index, vector, embedder))))
 }
 
-/// Show each row only the meaning found at the sentence that answered.
+/// Show each row the meaning carried, with nothing marked, at the sentence
+/// that answered.
 fn explain(finder: &Finder, read: Option<Read>, answer: &mut Answer) -> Result<()> {
     let Some((index, vector, mut embedder)) = read else {
         return Ok(());

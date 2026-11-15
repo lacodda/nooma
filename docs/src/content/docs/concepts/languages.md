@@ -20,11 +20,13 @@ Two things follow:
 
 The obvious shortcut - subtracting the average vector of each alphabet - was tried first, in v0.6.0. It takes the subject away with the language, because in a real library they go together: the English documents are manuals, the Russian ones notes. The two texts of a pair share their subject, so their difference cannot carry it away. The measurements, and the ways that scored worse, are in `docs/adr/0008-meaning-without-the-language.md`.
 
-## What a row found across languages shows
+## Why a row was found
 
-A row the meaning alone found, written in another language than the question, has nothing that looks like the question in it. So it says so - the window marks it **another language**, `find` writes `meaning 0.84, another language` - and shows the place that answered: the sentence of its chunk closest to the question, compared the same way, with its fragment starting there. The window marks that sentence in the meaning's colour, as it marks the words that matched in the words'; `find --json` gives it as `closest`, byte offsets into the fragment.
+A row the words carried shows the words, marked. A row the meaning carried has none to mark: its chunk answered in other words than the question's, and a chunk is up to a screen of text, whose opening is seldom the place. So the row shows the place that answered - the sentence of its chunk closest to the question, compared the same way, without the language - with its fragment starting there. The window marks that sentence in the meaning's colour, as it marks the words that matched in the words'; `find --json` gives it as `closest`, byte offsets into the fragment. A sentence starts at its first word: the marks a note's line is laid out with - a quote's `>`, a list's `-`, a task's box, a callout's `[!warning]` - are not part of it.
 
-Finding that sentence costs the model a read of every sentence of the chunk - from a twentieth of a second for a short one to a quarter for a long one - so it is done only for these rows: in the window one row at a time after the list is shown, top first; on the command line for the rows it prints. A row in the question's own language shows the opening of its chunk, as before.
+A row the meaning alone found in another language than the question's has nothing that looks like the question in it at all, and says so as well: the window marks it **another language**, `find` writes `meaning 0.84, another language`.
+
+Finding the sentence costs the model a read of every sentence of the chunk - from a twentieth of a second for a short one to a quarter for a long one. The window asks after the list is shown, one row at a time, top first, and the row selected does not wait its turn; each row is read once per search. The command line reads the rows it prints before it prints them.
 
 Which language a text is in is told by its words' alphabets, as the full-text half tells them: Cyrillic is Russian, Latin is English, and the alphabet most of the words are written in decides. A Russian note full of English terms is a Russian note.
 

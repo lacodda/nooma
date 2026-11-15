@@ -361,6 +361,47 @@ describe('App', () => {
     expect(within(row).getByText('another language').getAttribute('title')).toContain('another language than the query')
   })
 
+  it('tells a row found by meaning in the question’s own language why, and asks once with the preview open', async () => {
+    const sentence = 'The supply agreement renews each year unless cancelled.'
+    const same: Ranked = { ...supply, fragment: `Terms. ${sentence}` }
+    answer(oneSource, ready, { ...whole, hits: [same, contracts] })
+    const plain = invoke.getMockImplementation()
+    invoke.mockImplementation((command: string, args?: unknown) =>
+      command === 'explain'
+        ? Promise.resolve({ fragment: `…${sentence}`, closest: [3, 3 + sentence.length] })
+        : (plain as (c: string, a?: unknown) => unknown)(command, args),
+    )
+    render(<App />)
+    windowWide(true)
+    await typed('supply agreement renewal')
+    const list = await screen.findByRole('list', { name: 'Results' })
+    const mark = await within(list).findByText(sentence, { selector: 'mark' })
+    expect(mark.className).toContain('bg-accent-soft')
+    // The list and the preview both want the row told; the model reads it once.
+    await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === 'explain')).toHaveLength(1))
+    expect(invoke).toHaveBeenCalledWith('explain', { text: 'supply agreement renewal', passage: false, path: supply.path, line: 1 })
+  })
+
+  it('shows a note’s row as the note reads, not as its markdown is typed', async () => {
+    const greenhouse: Ranked = {
+      ...contracts,
+      path: '/notes/greenhouse.md',
+      title: 'Greenhouse',
+      headings: [],
+      fragment: '> [!warning] Frost\n> Below **five** degrees, see [[kitchen-appliances|the kettle]].\n\n- [x] Sow ==early==',
+      // `five`, as bytes of the fragment.
+      highlights: [[29, 33]],
+    }
+    answer(oneSource, ready, { ...whole, hits: [greenhouse] })
+    render(<App />)
+    await typed('five')
+    const row = (await screen.findByText('Greenhouse')).closest('li') as HTMLElement
+    const fragment = row.querySelector('p') as HTMLElement
+    expect(fragment.textContent).toBe('Frost · Below five degrees, see the kettle. · Sow early')
+    expect(within(fragment).getByText('five', { selector: 'mark' }).className).toContain('bg-info-soft')
+    expect(fragment.textContent).not.toMatch(/\[!|\*\*|\[\[|==/)
+  })
+
   it('shows the words at once while the whole answer is slow, and keeps the selection when it comes', async () => {
     let arrive: (found: Found) => void = () => undefined
     const slow = new Promise<Found>((resolve) => {

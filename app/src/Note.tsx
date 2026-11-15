@@ -43,6 +43,8 @@ function Placed({ text, places, marks }: { text: string; places: readonly number
 interface Context {
   source: string
   marks: readonly Mark[]
+  /** Drawn as one line: a hard break is a space. */
+  flat?: boolean
 }
 
 export function Note({ text, marks, className }: { text: string; marks: readonly Mark[]; className?: string }) {
@@ -146,7 +148,7 @@ function phrasing(nodes: readonly PhrasingContent[], context: Context): ReactNod
           </span>
         )
       case 'break':
-        return <br key={index} />
+        return context.flat === true ? ' ' : <br key={index} />
       case 'footnoteReference':
         return (
           <sup key={index} className="text-faint">
@@ -306,4 +308,83 @@ function block(node: RootContent, context: Context, key: number): ReactNode {
 
 function blocks(nodes: readonly RootContent[], context: Context): ReactNode[] {
   return nodes.map((node, index) => block(node, context, index))
+}
+
+/*
+ * The same reading, run into one line: what a row of the list shows of a
+ * note. A row is two lines of the note's words, so the structure goes - a
+ * heading, a list item, a table cell are each a piece of the line, set apart
+ * by a dot - and what the words look like stays: a link by its name, a
+ * callout by its title, emphasis as emphasis. Nothing of the markup's own
+ * typing is left to read.
+ */
+
+/** A passage of a note as one line of its words, with the marks of a
+ * search on them. */
+export function NoteLine({ text, marks }: { text: string; marks: readonly Mark[] }) {
+  const context: Context = { source: text, marks, flat: true }
+  return <>{joined(pieces(parseNote(text).children, context))}</>
+}
+
+/** Pieces of a line, a dot between each two. */
+function joined(parts: readonly ReactNode[]): ReactNode[] {
+  return parts.flatMap((part, index) =>
+    index === 0
+      ? [part]
+      : [
+          <span key={`dot-${index}`} aria-hidden className="text-faint">
+            {' · '}
+          </span>,
+          part,
+        ],
+  )
+}
+
+/** The blocks of a passage as the pieces of one line, in order. */
+function pieces(nodes: readonly RootContent[], context: Context): ReactNode[] {
+  return nodes.flatMap((node, index) => piecesOf(node, context, index))
+}
+
+function piecesOf(node: RootContent, context: Context, key: number): ReactNode[] {
+  switch (node.type) {
+    case 'paragraph':
+      return [<span key={key}>{phrasing(node.children, context)}</span>]
+    case 'heading':
+      return [
+        <span key={key} className="font-semibold">
+          {phrasing(node.children, context)}
+        </span>,
+      ]
+    case 'blockquote': {
+      const callout = calloutOf(node)
+      if (callout === null) return pieces(node.children, context)
+      const title = callout.title ?? callout.type.charAt(0).toUpperCase() + callout.type.slice(1)
+      return [
+        <span key={key} data-callout={callout.type} className="font-semibold">
+          {title}
+        </span>,
+        ...(callout.body === null ? [] : [<span key={`${key}-body`}>{phrasing(callout.body.children, context)}</span>]),
+        ...pieces(node.children.slice(1), context),
+      ]
+    }
+    case 'list':
+      return node.children.map((item, index) => (
+        <span key={`${key}-${index}`} className={cn(item.checked === true && 'text-faint line-through')}>
+          {joined(pieces(item.children, context))}
+        </span>
+      ))
+    case 'table':
+      return node.children.flatMap((row, at) => row.children.map((cell, index) => <span key={`${key}-${at}-${index}`}>{phrasing(cell.children, context)}</span>))
+    case 'code':
+      return [
+        <code key={key} className="rounded-xs bg-soft px-1 font-mono text-[0.9em]">
+          {markedValue(node, context)}
+        </code>,
+      ]
+    case 'footnoteDefinition':
+      return pieces(node.children, context)
+    default:
+      // A rule, raw HTML and a link's definition have no words of the note.
+      return []
+  }
 }

@@ -13,7 +13,7 @@ A note is drawn as a note: headings where its sections start, lists and tasks, q
 
 Nothing in the preview acts. A link is drawn as a link and goes nowhere, and a picture in a note is named where it stands, not loaded: the preview is a reading of the file, and a click that took the window to a web page would be a click that sent something out.
 
-A row found by meaning alone, with no word of the query in it, is asked which of its sentences answered - once it has been selected a moment - and that sentence is marked in the passage, as the list marks the one found in another language. See [One list from two halves](/nooma/concepts/hybrid/).
+A row the meaning found, with no word of the query marked in it, shows the sentence that answered, marked in the list and in the passage alike - see [Why a row was found](/nooma/concepts/languages/#why-a-row-was-found). The list reads the note the way the preview does, on one line: a link by its name, a callout by its title, emphasis as emphasis, the pieces of a list or a table set apart by a dot, and none of the markdown's own typing.
 
 At its narrowest the window is the list alone, and a row's fragment is the preview there is room for. Everything below works there as well, by its keys.
 

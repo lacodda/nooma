@@ -17,6 +17,9 @@ import {
   type Status,
 } from '@/lib/api'
 import { splitHighlights } from '@/lib/highlight'
+import { utf16Ranges, type Mark } from '@/lib/marks'
+import { askOnce, wantsWhy } from '@/lib/why'
+import { NoteLine } from '@/Note'
 import { flatten, isPassage } from '@/lib/passage'
 import { folderOf } from '@/lib/paths'
 import { quoteOf, type Source as QuoteSource } from '@/lib/quote'
@@ -169,29 +172,42 @@ export function App() {
     selectedPath.current = hits[index]?.path ?? null
   }, [])
 
-  /** Ask each row the meaning found in another language why, top first, and
+  /** Why a row of the answer shown was found, asked once per search: the
+   * list and the preview ask through it alike. */
+  const why = useRef<(hit: Ranked) => Promise<Explained | null>>(() => Promise.resolve(null))
+  const explainRow = useCallback((hit: Ranked) => why.current(hit), [])
+
+  /** Ask each row the meaning found with nothing marked why, top first, and
    * show the sentence that answered as it comes. Stops when another search
    * starts; a row that cannot be told keeps its chunk's opening. */
-  const tellWhy = useCallback(async (answer: Found, text: string, passage: boolean, current: () => boolean) => {
-    for (const hit of answer.hits) {
-      if (!current()) return
-      if (!hit.across || hit.highlights.length > 0 || hit.closest !== undefined) continue
-      let told: Explained | null
-      try {
-        told = await api.explain(text, passage, hit.path, hit.line)
-      } catch {
-        // The model failed on a sentence it read for a search a moment ago:
-        // the rows stay as the search showed them, which is still the answer.
-        return
+  const tellWhy = useCallback((answer: Found, text: string, passage: boolean, current: () => boolean) => {
+    why.current = askOnce(async (path, line) => {
+      const told = await api.explain(text, passage, path, line)
+      if (current() && told !== null && told !== undefined) {
+        const { fragment, closest } = told
+        setFound((shown) =>
+          shown === null
+            ? shown
+            : { ...shown, hits: shown.hits.map((row) => (row.path === path && row.line === line ? { ...row, fragment, closest } : row)) },
+        )
       }
-      if (!current() || told === null || told === undefined) continue
-      const { fragment, closest } = told
-      setFound((shown) =>
-        shown === null
-          ? shown
-          : { ...shown, hits: shown.hits.map((row) => (row.path === hit.path && row.line === hit.line ? { ...row, fragment, closest } : row)) },
-      )
-    }
+      return told ?? null
+    })
+    const ask = why.current
+    void (async () => {
+      for (const hit of answer.hits) {
+        if (!current()) return
+        if (!wantsWhy(hit)) continue
+        try {
+          await ask(hit)
+        } catch {
+          // The model failed on a sentence it read for a search a moment
+          // ago: the rows stay as the search showed them, which is still
+          // the answer.
+          return
+        }
+      }
+    })()
   }, [])
 
   const runSearch = useCallback(
@@ -235,7 +251,7 @@ export function App() {
           if (result !== null) {
             whole = 'shown'
             show(result)
-            void tellWhy(result, passage ?? text, passage !== null, current)
+            tellWhy(result, passage ?? text, passage !== null, current)
           } else {
             whole = 'none'
             if (words !== null) show(words)
@@ -477,7 +493,7 @@ export function App() {
               <Preview
                 hit={row}
                 query={example === null ? query : null}
-                asked={{ text: example ?? query, passage: example !== null }}
+                explain={explainRow}
                 stamp={passes}
                 onShown={onShown}
                 onQuote={() => void quote()}
@@ -811,7 +827,7 @@ function ResultRow({
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 rounded-xs border border-line px-1 font-mono text-2xs font-bold text-dim">
+        <span className="shrink-0 rounded-xs border border-line px-1 font-mono text-2xs font-semibold text-dim">
           {KIND_LABELS[hit.kind]}
         </span>
         <span className="truncate text-sm font-semibold">{hit.title}</span>
@@ -850,23 +866,37 @@ function ResultRow({
       {hit.fragment !== '' && (
         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-dim">
           {/* The words matched are marked as the words' badge is coloured;
-            * the sentence that answered by meaning, as the meaning's. */}
-          {splitHighlights(hit.fragment, hit.closest !== undefined ? [hit.closest] : hit.highlights).map((piece, index) =>
-            piece.marked ? (
-              <mark
-                key={index}
-                className={cn('px-px text-text', hit.closest !== undefined ? 'rounded-xs bg-accent-soft' : 'border-b border-info bg-info-soft')}
-              >
-                {piece.text}
-              </mark>
-            ) : (
-              <span key={index}>{piece.text}</span>
-            ),
+            * the sentence that answered by meaning, as the meaning's. A note
+            * reads as the note does, not as its markdown is typed. */}
+          {hit.kind === 'markdown' ? (
+            <NoteLine text={hit.fragment} marks={marksOf(hit)} />
+          ) : (
+            splitHighlights(hit.fragment, hit.closest !== undefined ? [hit.closest] : hit.highlights).map((piece, index) =>
+              piece.marked ? (
+                <mark
+                  key={index}
+                  className={cn('px-px text-text', hit.closest !== undefined ? 'rounded-xs bg-accent-soft' : 'border-b border-info bg-info-soft')}
+                >
+                  {piece.text}
+                </mark>
+              ) : (
+                <span key={index}>{piece.text}</span>
+              ),
+            )
           )}
         </p>
       )}
     </li>
   )
+}
+
+/** The marks on a row's fragment, as the note's renderer counts them: the
+ * sentence that answered, or else the words matched. */
+function marksOf(hit: Ranked): Mark[] {
+  if (hit.closest !== undefined) {
+    return utf16Ranges(hit.fragment, [hit.closest]).map(([start, end]) => ({ start, end, kind: 'closest' }))
+  }
+  return utf16Ranges(hit.fragment, hit.highlights).map(([start, end]) => ({ start, end, kind: 'word' }))
 }
 
 /** Where a quote of a passage says it is from: the line of a file opened in

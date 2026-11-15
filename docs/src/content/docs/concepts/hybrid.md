@@ -25,7 +25,7 @@ A note edited this week is a little more likely to be the one you mean than one 
 
 ## What a row shows
 
-The chunk shown for a document is the one from the half that carried it: the words' chunk with the matching words marked, when the words carried it; the meaning's chunk, from its opening, when the meaning did - or, when the meaning alone found it in the other language, from the sentence that answered, marked: see [Across languages](/nooma/concepts/languages/). The row says which halves found it - the window with a badge for each, `find` in brackets after the title: `words`, `some words` when no document held them all, `meaning 0.84` with the cosine, or both - and `another language` when the meaning found it across languages.
+The chunk shown for a document is the one from the half that carried it: the words' chunk with the matching words marked, when the words carried it; the meaning's chunk from the sentence that answered, marked, when the meaning did - see [Why a row was found](/nooma/concepts/languages/#why-a-row-was-found). The row says which halves found it - the window with a badge for each, `find` in brackets after the title: `words`, `some words` when no document held them all, `meaning 0.84` with the cosine, or both - and `another language` when the meaning found it across languages.
 
 The score of a row is the sum, freshness included. It orders one list; it is not comparable between two searches, and the window draws it as a bar against the first row rather than as a number.
 
