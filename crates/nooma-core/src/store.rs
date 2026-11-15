@@ -46,7 +46,7 @@ impl Store {
     /// The file holding the index of the repository at `repo_root`.
     ///
     /// Named by a hash of the path, not by the path itself: work trees live at
-    /// `C:\Projects\nooma` and `/home/k/nooma`, and turning either into a
+    /// `D:\code\notes` and `/home/k/notes`, and turning either into a
     /// filename means inventing an escaping scheme that two platforms would
     /// have to agree on. The readable name goes inside the file, where
     /// `RepoIndex::root` already holds it.

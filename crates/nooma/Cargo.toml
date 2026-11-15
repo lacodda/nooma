@@ -11,19 +11,6 @@ authors.workspace = true
 readme = "../../README.md"
 keywords = ["search", "semantic-search", "embeddings", "offline", "local"]
 categories = ["text-processing", "filesystem"]
-# assets/icon.ico is required by build.rs on Windows; the rest of the brand
-# artwork only serves GitHub and the docs site.
-exclude = [
-    "docs/",
-    ".github/",
-    "cliff.toml",
-    "rustfmt.toml",
-    "assets/social-preview.png",
-    "assets/screenshot.png",
-    "assets/logo-512.png",
-    "assets/apple-touch-icon.png",
-    "assets/favicon-32.png",
-]
 
 # Prose summaries shell out to the user's own Claude Code CLI, and that is the
 # one thing in this product that leaves the machine. It is off unless asked

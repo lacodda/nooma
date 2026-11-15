@@ -1,15 +1,17 @@
-// Embeds the Windows executable icon and version metadata. The icon is the S
-// tile of the lacodda line mark, exported to a multi-size .ico so Explorer
-// picks the right resolution for each view.
+// Embeds the Windows executable icon and version metadata. The icon is the
+// lacodda line mark in every size Explorer asks for, each drawn from the level
+// of the mark its size calls for.
 //
-// The artwork lives once, at the workspace root: `assets/` is the brand's
-// single copy, shared by the docs site and the GitHub shopfront. A second copy
-// inside this crate would drift from it silently.
+// It lives inside this crate: `cargo install nooma` builds the published
+// crate, which carries only what is under its own directory, and an icon at
+// the top of the workspace would fail that build on Windows. It does not drift
+// from the brand's masters in `assets/`: `lyrn assets` draws every `.ico` a
+// build reads from them.
 fn main() {
     #[cfg(windows)]
     {
         let icon = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../assets/icon.ico")
+            .join("assets/icon.ico")
             .canonicalize()
             .expect("the line mark is missing from assets/icon.ico");
         println!("cargo:rerun-if-changed={}", icon.display());
