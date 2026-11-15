@@ -71,6 +71,16 @@ pub struct SummaryEntry {
     /// Each language says so differently and all four say it somehow: `pub`,
     /// `export`, an initial capital, a name that does not start with `_`.
     pub public: bool,
+    /// The condition the declaration is compiled under, as its author wrote
+    /// it: the predicate of the `#[cfg(...)]` on it, on what encloses it and
+    /// on the file, joined by `all(...)` when there are several. `None` when
+    /// every build has it.
+    ///
+    /// Public under `feature = "semantic"` is public only to a caller that
+    /// turns the feature on, and a summary that did not say so would describe
+    /// a surface some builds do not have.
+    #[serde(default)]
+    pub cfg: Option<String>,
 }
 
 impl ModuleSummary {
@@ -90,6 +100,9 @@ impl ModuleSummary {
         }
         for entry in self.entries.iter().filter(|e| e.public) {
             out.push_str("\n\n");
+            if let Some(cfg) = &entry.cfg {
+                out.push_str(&format!("#[cfg({cfg})]\n"));
+            }
             out.push_str(&entry.signature);
             if let Some(doc) = &entry.doc {
                 out.push('\n');
@@ -118,7 +131,12 @@ pub fn summarize(file: &FileIndex, source: &[u8]) -> Option<ModuleSummary> {
     let root = tree.root_node();
 
     let header = header_doc(file.language, root, source);
-    let entries = file.symbols.iter().map(|symbol| entry_for(file.language, root, source, symbol)).collect();
+    let whole_file = file_conditions(root, source);
+    let entries = file
+        .symbols
+        .iter()
+        .map(|symbol| entry_for(file.language, root, source, symbol, &whole_file))
+        .collect();
 
     Some(ModuleSummary {
         path: file.path.clone(),
@@ -129,8 +147,12 @@ pub fn summarize(file: &FileIndex, source: &[u8]) -> Option<ModuleSummary> {
 }
 
 /// Build one entry, finding the declaration node the symbol names.
-fn entry_for(language: Language, root: Node<'_>, source: &[u8], symbol: &Symbol) -> SummaryEntry {
+fn entry_for(language: Language, root: Node<'_>, source: &[u8], symbol: &Symbol, whole_file: &[String]) -> SummaryEntry {
     let node = declaration_at(root, symbol.line, &symbol.name, source);
+    let mut conditions = whole_file.to_vec();
+    if let Some(node) = node {
+        conditions.extend(conditions_of(node, source));
+    }
     let signature = node.map(|node| signature_of(node, source)).unwrap_or_else(|| symbol.name.clone());
     let doc = node.and_then(|node| doc_for(language, node, source));
     let public = match node {
@@ -148,6 +170,7 @@ fn entry_for(language: Language, root: Node<'_>, source: &[u8], symbol: &Symbol)
         signature,
         doc,
         public,
+        cfg: joined(conditions),
     }
 }
 
@@ -156,9 +179,15 @@ fn entry_for(language: Language, root: Node<'_>, source: &[u8], symbol: &Symbol)
 /// Found by position and name rather than by running the symbol query again:
 /// the query already ran, and asking it twice invites the two answers to
 /// differ about what was declared where.
+///
+/// A declaration with a body is the innermost node that names it. One without
+/// - `pub struct Marker;`, `pub mod store;`, a TypeScript `declare function`
+/// - is the outermost: the only other nodes naming it on its line are the
+/// paths inside it.
 fn declaration_at<'a>(root: Node<'a>, line: u32, name: &str, source: &[u8]) -> Option<Node<'a>> {
     let row = line.checked_sub(1)? as usize;
     let mut best: Option<Node<'a>> = None;
+    let mut bare: Option<Node<'a>> = None;
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         // Nothing inside a node that ends before this row, or begins after
@@ -166,13 +195,16 @@ fn declaration_at<'a>(root: Node<'a>, line: u32, name: &str, source: &[u8]) -> O
         if node.start_position().row > row || node.end_position().row < row {
             continue;
         }
-        if node.start_position().row == row && has_body(node) && name_text(node, source) == name {
-            // The innermost match wins: `export function f()` and the
-            // `function f()` inside it both start here, and the signature
-            // belongs to the declaration rather than to the wrapper.
-            let narrower = best.is_none_or(|held| node.start_byte() >= held.start_byte() && node.end_byte() <= held.end_byte());
-            if narrower {
-                best = Some(node);
+        if node.start_position().row == row && name_text(node, source) == name {
+            if has_body(node) {
+                // The innermost match wins: `export function f()` and the
+                // `function f()` inside it both start here, and the signature
+                // belongs to the declaration rather than to the wrapper.
+                if best.is_none_or(|held| encloses(held, node)) {
+                    best = Some(node);
+                }
+            } else if bare.is_none_or(|held| encloses(node, held)) {
+                bare = Some(node);
             }
         }
         let mut cursor = node.walk();
@@ -180,7 +212,12 @@ fn declaration_at<'a>(root: Node<'a>, line: u32, name: &str, source: &[u8]) -> O
             stack.push(child);
         }
     }
-    best
+    best.or(bare)
+}
+
+/// Whether one node holds the whole of another.
+fn encloses(outer: Node<'_>, inner: Node<'_>) -> bool {
+    outer.start_byte() <= inner.start_byte() && inner.end_byte() <= outer.end_byte()
 }
 
 /// The fields a declaration keeps the part after its signature in.
@@ -217,7 +254,9 @@ fn signature_of(node: Node<'_>, source: &[u8]) -> String {
     let node = outermost_wrapper(node);
     let end = signature_end(node).unwrap_or_else(|| node.end_byte());
     let text = std::str::from_utf8(&source[node.start_byte()..end.max(node.start_byte())]).unwrap_or_default();
-    collapse(text.trim().trim_end_matches(['{', '=']).trim())
+    // A declaration without a body ends in `;`, which closes it and is no
+    // part of what it declares.
+    collapse(text.trim().trim_end_matches(['{', '=', ';']).trim())
 }
 
 /// The byte the signature stops at: where the declaration's contents begin.
@@ -628,6 +667,50 @@ fn attributes_of(node: Node<'_>, source: &[u8]) -> Vec<String> {
         previous = sibling.prev_sibling();
     }
     found
+}
+
+/// The `cfg` predicates a Rust declaration is compiled under: its own and
+/// those of everything enclosing it in the file, outermost first.
+fn conditions_of(node: Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut at = Some(node);
+    while let Some(current) = at {
+        let own: Vec<String> = attributes_of(current, source).iter().filter_map(|attribute| cfg_predicate(attribute)).collect();
+        found.splice(0..0, own);
+        at = current.parent();
+    }
+    found
+}
+
+/// The `cfg` predicates a file puts on the whole of itself: `#![cfg(...)]`
+/// at its top.
+fn file_conditions(root: Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut cursor = root.walk();
+    root.children(&mut cursor)
+        .filter(|child| child.kind() == "inner_attribute_item")
+        .filter_map(|child| {
+            let text = collapse(child.utf8_text(source).unwrap_or_default());
+            let inner = text.strip_prefix("#![").and_then(|rest| rest.strip_suffix(']'))?.trim().to_string();
+            cfg_predicate(&inner)
+        })
+        .collect()
+}
+
+/// The predicate of a `cfg(...)` attribute, as written; `None` for any other
+/// attribute, `cfg_attr` among them.
+fn cfg_predicate(attribute: &str) -> Option<String> {
+    let inner = attribute.strip_prefix("cfg")?.trim_start().strip_prefix('(')?.strip_suffix(')')?;
+    Some(inner.trim().to_string())
+}
+
+/// Several conditions as one, the way a reader would write it: `all(a, b)`.
+fn joined(mut conditions: Vec<String>) -> Option<String> {
+    conditions.dedup();
+    match conditions.len() {
+        0 => None,
+        1 => conditions.pop(),
+        _ => Some(format!("all({})", conditions.join(", "))),
+    }
 }
 
 /// Whether a `cfg` predicate can hold only in a test build.

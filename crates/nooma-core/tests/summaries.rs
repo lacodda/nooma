@@ -207,6 +207,88 @@ mod tests {
     assert!(!entry(&summary, "helper").public, "the attribute on the module covers what is inside it");
 }
 
+/// A declaration with nothing after its signature is still a declaration:
+/// a marker type, a module in a file of its own, a tuple struct. Missed, it
+/// was named in the summary by its bare name, with no doc, and read as
+/// private however it was marked.
+#[test]
+fn a_rust_declaration_without_a_body_keeps_its_signature_and_doc() {
+    let source = "/// A marker that nothing is pending.
+pub struct Idle;
+
+/// Where the vectors are kept.
+pub mod store;
+
+/// A count of passages.
+pub struct Passages(pub usize);
+
+/// What a search answers with.
+pub type Answer = std::result::Result<Vec<String>, String>;
+
+struct Private;
+";
+    let summary = summarize(Language::Rust, source);
+    let idle = entry(&summary, "Idle");
+    assert_eq!(idle.signature, "pub struct Idle");
+    assert_eq!(idle.doc.as_deref(), Some("A marker that nothing is pending."));
+    assert!(idle.public);
+    let store = entry(&summary, "store");
+    assert_eq!(
+        (store.signature.as_str(), store.doc.as_deref()),
+        ("pub mod store", Some("Where the vectors are kept."))
+    );
+    let passages = entry(&summary, "Passages");
+    assert_eq!(passages.doc.as_deref(), Some("A count of passages."));
+    assert!(passages.public);
+    // A path inside the declaration names `Result` on the same line; the
+    // declaration, not the path, is what is summarized.
+    assert_eq!(entry(&summary, "Answer").signature, "pub type Answer");
+    assert!(!entry(&summary, "Private").public);
+}
+
+/// Public under a feature is public to a build that turns the feature on.
+/// The condition is said as the author wrote it, gathered from the item, what
+/// encloses it and the file, and stands above the signature in the text.
+#[test]
+fn a_rust_declaration_says_the_condition_it_is_compiled_under() {
+    let source = "#![cfg(unix)]
+
+/// Always there.
+pub fn open() {}
+
+/// Only with vectors.
+#[cfg(feature = \"semantic\")]
+pub fn similar() {}
+
+#[cfg(feature = \"semantic\")]
+pub mod graph {
+    #[cfg(target_os = \"linux\")]
+    pub fn mapped() {}
+}
+
+#[cfg_attr(docsrs, doc(cfg(feature = \"x\")))]
+pub fn documented() {}
+";
+    let summary = summarize(Language::Rust, source);
+    assert_eq!(entry(&summary, "open").cfg.as_deref(), Some("unix"));
+    assert_eq!(entry(&summary, "similar").cfg.as_deref(), Some("all(unix, feature = \"semantic\")"));
+    assert_eq!(
+        entry(&summary, "mapped").cfg.as_deref(),
+        Some("all(unix, feature = \"semantic\", target_os = \"linux\")"),
+        "outermost first"
+    );
+    assert_eq!(entry(&summary, "documented").cfg.as_deref(), Some("unix"), "cfg_attr is not a condition");
+    let text = summary.to_text();
+    assert!(
+        text.contains("#[cfg(all(unix, feature = \"semantic\"))]\npub fn similar()\nOnly with vectors."),
+        "{text}"
+    );
+
+    let plain = summarize(Language::Rust, "pub fn open() {}\n");
+    assert_eq!(entry(&plain, "open").cfg, None);
+    assert!(!plain.to_text().contains("#[cfg"));
+}
+
 const TYPESCRIPT: &str = r#"/**
  * The widgets module.
  */

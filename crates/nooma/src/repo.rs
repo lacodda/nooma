@@ -292,6 +292,7 @@ fn summary_command(args: SummaryArgs) -> Result<()> {
                             "signature": entry.signature,
                             "doc": entry.doc,
                             "public": entry.public,
+                            "cfg": entry.cfg,
                         })
                     })
                     .collect();
@@ -337,7 +338,11 @@ fn summary_command(args: SummaryArgs) -> Result<()> {
                 // The line alone: the path is the heading directly above, and
                 // repeating it on every row pushes the signatures — the part
                 // worth reading — off to the right.
-                println!("  {:>5}  {}", entry.line, entry.signature);
+                // A condition reads where Rust writes it: before the item.
+                match &entry.cfg {
+                    Some(cfg) => println!("  {:>5}  #[cfg({cfg})] {}", entry.line, entry.signature),
+                    None => println!("  {:>5}  {}", entry.line, entry.signature),
+                }
             }
         }
         eprintln!("{} modules", modules.len());

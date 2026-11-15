@@ -223,7 +223,8 @@ Post an entry to the ledger.",
           "parent": null,
           "signature": "pub fn post(entry: Entry) -> Result<Balance>",
           "doc": "Post an entry to the ledger.",
-          "public": true
+          "public": true,
+          "cfg": null
         }
       ]
     }
@@ -248,8 +249,9 @@ Post an entry to the ledger.",
 | `parent` | The enclosing declaration, or `null`. |
 | `signature` | The declaration as written, up to its body, with whitespace collapsed. |
 | `doc` | The documentation attached to it, markers stripped, or `null`. |
+| `cfg` | The condition a Rust declaration is compiled under, as written in its `#[cfg(...)]` and in those of what encloses it (`feature = "semantic"`), joined by `all(...)` when there are several; `null` when every build has it. |
 
-`text` is the field to hand to something that reads prose. The rest is for a caller that wants the parts separately.
+`text` is the field to hand to something that reads prose. A declaration under a condition carries its `#[cfg(...)]` on the line above its signature there, as the listing does before it: a function public only with a feature is part of the surface only for a build that turns the feature on. A condition written on the `mod` line of the parent file is not seen from the module's own file. The rest is for a caller that wants the parts separately.
 
 Everything above is lifted from the source word for word. Nothing in this command is generated unless [`--prose`](/reference/prose/) asks for it, and what it adds arrives in a field of its own.
 

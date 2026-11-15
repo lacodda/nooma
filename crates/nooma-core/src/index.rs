@@ -43,7 +43,12 @@ pub const FORMAT_VERSION: u32 = 2;
 /// 3: a Rust doc comment above an attribute is the item's doc, and `pub`
 /// under `#[cfg(test)]` is not public. Stored summaries said otherwise for
 /// every type that derives anything and every test-only helper.
-pub const CHUNKER_VERSION: u32 = 3;
+///
+/// 4: a declaration without a body - `pub struct Marker;`, `pub mod store;` -
+/// has its signature and doc, and every declaration says the `cfg` it is
+/// compiled under. Stored summaries named the first by name alone and left
+/// the second unsaid.
+pub const CHUNKER_VERSION: u32 = 4;
 
 /// What an index describes: a commit, and whether the tree matched it.
 ///
