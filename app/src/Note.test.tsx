@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { Mark } from '@/lib/marks'
-import { Note } from '@/Note'
+import { Note, NoteLine } from '@/Note'
 
 /** Marks on every place a word stands in a text. */
 function marksOf(text: string, word: string): Mark[] {
@@ -66,5 +66,45 @@ describe('Note', () => {
     const callout = container.querySelector('[data-callout="warning"]') as HTMLElement
     expect(callout.className).toContain('border-warn')
     expect(callout.textContent).toBe('WarningFrost tonight.')
+  })
+
+  it('marks a link inside the sentence that answered as the sentence, not as a word', () => {
+    const text = 'See also [[kitchen-appliances]] for the kettle.'
+    const marks: Mark[] = [{ start: 0, end: text.length, kind: 'closest' }]
+    const { container } = render(<Note text={text} marks={marks} />)
+    const link = container.querySelector('[title="kitchen-appliances"]') as HTMLElement
+    expect(link.className).toContain('bg-accent-soft')
+    expect(link.className).not.toContain('bg-info-soft')
+  })
+})
+
+describe('NoteLine', () => {
+  it('runs the blocks of a note into one line, set apart by a dot', () => {
+    const text = [
+      '## Frost',
+      '',
+      'Shut the vents.',
+      '',
+      '- water',
+      '- [x] sow',
+      '',
+      '| plant | when |',
+      '| --- | --- |',
+      '| tomato | morning |',
+      '',
+      '---',
+      '',
+      '[spec]: https://example.org',
+    ].join('\n')
+    const { container } = render(<NoteLine text={text} marks={[]} />)
+    expect(container.textContent).toBe('Frost · Shut the vents. · water · sow · plant · when · tomato · morning')
+    expect(container.querySelector('br')).toBeNull()
+  })
+
+  it('reads a hard break as a space, and marks the words where they stand', () => {
+    const text = 'Below five  \ndegrees'
+    const { container } = render(<NoteLine text={text} marks={marksOf(text, 'degrees')} />)
+    expect(container.textContent).toBe('Below five degrees')
+    expect([...container.querySelectorAll('mark')].map((mark) => mark.textContent)).toEqual(['degrees'])
   })
 })

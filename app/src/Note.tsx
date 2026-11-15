@@ -70,8 +70,13 @@ function markedValue(node: Nodes & { value: string }, context: Context): ReactNo
 function text(value: string, at: number[] | null, context: Context): ReactNode[] {
   const marked = (from: number, to: number) =>
     at === null ? value.slice(from, to) : <Placed text={value.slice(from, to)} places={at.slice(from, to)} marks={context.marks} />
-  const hit = (from: number, to: number) =>
-    at !== null && at.slice(from, to).some((place) => context.marks.some((mark) => place >= mark.start && place < mark.end))
+  // The kind of mark on a piece drawn whole - a tag, a link - when any of its
+  // letters is under one: a sentence that answered marks the link inside it
+  // as the sentence, not as a word that matched.
+  const markOn = (from: number, to: number) => {
+    const kind = at === null ? undefined : context.marks.find((mark) => at.slice(from, to).some((place) => place >= mark.start && place < mark.end))?.kind
+    return kind === undefined ? false : MARK_CLASSES[kind]
+  }
   return inlinesOf(value).map((inline, index) => {
     switch (inline.kind) {
       case 'text':
@@ -86,7 +91,7 @@ function text(value: string, at: number[] | null, context: Context): ReactNode[]
         )
       case 'tag':
         return (
-          <span key={index} className={cn('text-accent', hit(inline.start, inline.end) && MARK_CLASSES.word)}>
+          <span key={index} className={cn('text-accent', markOn(inline.start, inline.end))}>
             {value.slice(inline.start, inline.end)}
           </span>
         )
@@ -98,7 +103,7 @@ function text(value: string, at: number[] | null, context: Context): ReactNode[]
             className={cn(
               'text-accent underline decoration-dotted underline-offset-2',
               inline.embed && 'rounded-xs border border-line px-1 no-underline',
-              hit(inline.start, inline.end) && MARK_CLASSES.word,
+              markOn(inline.start, inline.end),
             )}
           >
             {inline.shown}
