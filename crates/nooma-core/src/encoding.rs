@@ -7,10 +7,12 @@
 //! query ever matches. So the encoding is told by the bytes, in this order:
 //!
 //! 1. A byte order mark says it: UTF-8, UTF-16LE or UTF-16BE.
-//! 2. Bytes with zeros in them are UTF-16 if they read as text in it, and
-//!    not text at all if they do not. No text has a zero byte in UTF-8 or in
-//!    a legacy encoding - and UTF-16 of Cyrillic or Latin text, all bytes
-//!    below 128, is valid UTF-8, so this comes first.
+//! 2. Bytes with zeros in them are UTF-16 if they read as text in it. No
+//!    text has a zero byte in UTF-8 or in a legacy encoding - and UTF-16 of
+//!    Cyrillic or Latin text, all bytes below 128, is valid UTF-8, so this
+//!    comes first. Otherwise they are not text at all, unless they are UTF-8
+//!    with a stray zero or two: a terminal's output pasted into a note
+//!    leaves one, and a diary of a megabyte is not binary for it.
 //! 3. Bytes that are valid UTF-8 are UTF-8 - and so are bytes that are
 //!    UTF-8 but for a character cut off at the end or a rare damaged byte,
 //!    which no legacy encoding produces by chance.
@@ -54,7 +56,9 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, NotText> {
         return Ok(decoded(text.into_owned(), encoding, false));
     }
     if bytes.contains(&0) {
-        return utf16_without_mark(bytes).ok_or(NotText("binary data, not text"));
+        return utf16_without_mark(bytes)
+            .or_else(|| with_stray_zeros(bytes))
+            .ok_or(NotText("binary data, not text"));
     }
     if let Some(text) = as_utf8(bytes) {
         return Ok(text);
@@ -113,6 +117,18 @@ fn as_utf8(bytes: &[u8]) -> Option<Decoded> {
         }
     }
     (broken * 100 <= good).then(|| decoded(String::from_utf8_lossy(bytes).into_owned(), UTF_8, true))
+}
+
+/// UTF-8 with zeros in it as rare as the control characters text may carry
+/// - one in a thousand bytes at the most - and none of it otherwise broken:
+/// the zeros are damage, and dropped. UTF-16 is all zeros by comparison, and
+/// binary data is seldom valid UTF-8 for more than a few bytes.
+fn with_stray_zeros(bytes: &[u8]) -> Option<Decoded> {
+    if controls_per_thousand(bytes) > 1 {
+        return None;
+    }
+    let text = std::str::from_utf8(bytes).ok()?;
+    Some(decoded(text.replace('\0', ""), UTF_8, false))
 }
 
 /// UTF-16 with no mark to say so, in whichever byte order reads as text:
@@ -193,6 +209,22 @@ mod tests {
         let be: Vec<u8> = text.encode_utf16().flat_map(u16::to_be_bytes).collect();
         assert_eq!(decode(&le), Ok(decoded(text.into(), UTF_16LE, true)));
         assert_eq!(decode(&be), Ok(decoded(text.into(), UTF_16BE, true)));
+    }
+
+    /// A note that is UTF-8 throughout but for a zero byte pasted in with a
+    /// terminal's output is the note, without the zero; zeros as many as
+    /// UTF-16 or a binary file has are not.
+    #[test]
+    fn a_stray_zero_in_utf8_is_damage_and_not_binary() {
+        let note = format!("{}\0{}", "Дневник: сборка прошла. ".repeat(60), "Вывод \x1b[32mok\x1b[0m. ".repeat(40));
+        let read = decode(note.as_bytes()).unwrap();
+        assert_eq!(read.encoding, "UTF-8");
+        assert!(!read.guessed);
+        assert!(!read.text.contains('\0'));
+        assert!(read.text.contains("Дневник") && read.text.contains("Вывод"));
+
+        let dense: Vec<u8> = "заметка\0".repeat(200).into_bytes();
+        assert_eq!(decode(&dense), Err(NotText("binary data, not text")), "a zero in every few bytes is no stray");
     }
 
     #[test]
