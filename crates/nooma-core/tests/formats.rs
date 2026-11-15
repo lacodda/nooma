@@ -131,6 +131,11 @@ fn a_book_is_read_in_its_order_under_its_contents() {
             vec!["Winter on the cape", "The fog signal"],
             "{name}"
         );
+        // The part's heading on its page is its name above, not its first words.
+        for (phrase, part) in [("twice a minute", "The fog signal"), ("lit at four", "Winter on the cape")] {
+            let opening = &chunk_with(doc, phrase).text;
+            assert!(!opening.starts_with(part), "{name}: {part:?} said twice: {opening:?}");
+        }
         assert_eq!(
             headings(chunk_with(doc, "Diesel · 400 litres")),
             vec!["Winter on the cape", "Supplies"],

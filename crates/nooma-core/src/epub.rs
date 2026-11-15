@@ -34,7 +34,7 @@ use crate::reading::Unread;
 
 /// The rules a book is read by, as a number. Raised when they change what a
 /// book reads as: books are read again, and no other file is.
-pub const READER_VERSION: u32 = 1;
+pub const READER_VERSION: u32 = 2;
 
 /// The largest page of a book read, decompressed. A chapter is kilobytes; an
 /// entry that claims hundreds of megabytes is a zip bomb, not a page.
@@ -538,6 +538,9 @@ fn read_page(text: &str, anchors: &HashMap<&str, &Vec<String>>, headings: bool, 
     let mut skipping: Option<usize> = None;
     let mut depth = 0usize;
     let mut heading: Option<usize> = None;
+    // A heading read as text, in a book whose contents head its chunks: how
+    // deep it is, so its end can be told from the end of anything inside it.
+    let mut titled: Option<usize> = None;
     let mut preformatted = 0usize;
     // A link to a place in the book, open: how deep it is, and where in the
     // paragraph its text begins.
@@ -566,8 +569,12 @@ fn read_page(text: &str, anchors: &HashMap<&str, &Vec<String>>, headings: bool, 
                 if name == "pre" {
                     preformatted += 1;
                 }
-                if headings && let Some(level) = heading_level(&name) {
-                    heading = Some(level);
+                if let Some(level) = heading_level(&name) {
+                    if headings {
+                        heading = Some(level);
+                    } else if titled.is_none() {
+                        titled = Some(depth);
+                    }
                 }
                 if matches!(name.as_str(), "td" | "th") && !page.paragraph.trim().is_empty() {
                     page.paragraph.push_str(" · ");
@@ -615,6 +622,15 @@ fn read_page(text: &str, anchors: &HashMap<&str, &Vec<String>>, headings: bool, 
                     if !text.is_empty() {
                         blocks.push(Block::Heading(level, text));
                     }
+                } else if titled == Some(ends) {
+                    titled = None;
+                    // The page's own heading of a part the contents named: the
+                    // name stands above every chunk of the part already, and
+                    // read as text it would open the part's first chunk again.
+                    if path.last().is_some_and(|title| same_title(title, &page.paragraph)) {
+                        page.paragraph.clear();
+                    }
+                    page.end_paragraph(blocks);
                 } else if BLOCKS.contains(&name.as_str()) {
                     page.end_paragraph(blocks);
                 }
@@ -691,6 +707,14 @@ fn is_a_note_mark(text: &str) -> bool {
 fn points_at_a_note(e: &BytesStart) -> bool {
     let says = |name: &str, word: &str| attribute(e, name).is_some_and(|value| value.split_whitespace().any(|v| v == word));
     says("type", "noteref") || says("role", "doc-noteref")
+}
+
+/// Whether a page's heading says what an entry of the contents says, as a
+/// reader sees it: the same words, whatever their case and spacing.
+fn same_title(entry: &str, heading: &str) -> bool {
+    let words = |text: &str| collapse(text).to_lowercase();
+    let heading = words(heading);
+    !heading.is_empty() && words(entry) == heading
 }
 
 fn heading_level(name: &str) -> Option<usize> {
@@ -931,8 +955,26 @@ mod tests {
             &mut path,
         )
         .unwrap();
-        assert_eq!(blocks, vec![paragraph("lamp"), Block::Part(fog.clone()), paragraph("Fog"), paragraph("horn")]);
+        // The part's heading is its name in the path, not its first words.
+        assert_eq!(blocks, vec![paragraph("lamp"), Block::Part(fog.clone()), paragraph("horn")]);
         assert_eq!(path, fog, "the next page goes on under it");
+    }
+
+    /// A heading the contents do not name - or name otherwise - is the
+    /// page's text, as it was.
+    #[test]
+    fn a_heading_the_contents_do_not_name_stays_text() {
+        let mut blocks = Vec::new();
+        let mut path = vec!["Winter on the cape".to_string()];
+        read_page(
+            "<body><h1>WINTER  on the cape</h1><p>lamp</p><h2>The keeper's log</h2><p>horn</p></body>",
+            &HashMap::new(),
+            false,
+            &mut blocks,
+            &mut path,
+        )
+        .unwrap();
+        assert_eq!(blocks, vec![paragraph("lamp"), paragraph("The keeper's log"), paragraph("horn")]);
     }
 
     #[test]
