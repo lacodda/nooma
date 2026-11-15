@@ -13,7 +13,6 @@ keywords = ["tree-sitter", "code-index", "symbols", "git", "offline"]
 categories = ["development-tools", "parsing"]
 
 [dependencies]
-anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -80,6 +79,8 @@ default = []
 semantic = ["dep:fastembed", "dep:ort", "dep:usearch"]
 
 [dev-dependencies]
+# The language-axes example reports its failures; the library has its own error type.
+anyhow.workspace = true
 tempfile.workspace = true
 
 # Runs the real model, so it exists only where the model runner does.

@@ -181,9 +181,9 @@ fn entry_for(language: Language, root: Node<'_>, source: &[u8], symbol: &Symbol,
 /// differ about what was declared where.
 ///
 /// A declaration with a body is the innermost node that names it. One without
-/// - `pub struct Marker;`, `pub mod store;`, a TypeScript `declare function`
-/// - is the outermost: the only other nodes naming it on its line are the
-/// paths inside it.
+/// one (`pub struct Marker;`, `pub mod store;`, a TypeScript `declare
+/// function`) is the outermost: the only other nodes naming it on its line
+/// are the paths inside it.
 fn declaration_at<'a>(root: Node<'a>, line: u32, name: &str, source: &[u8]) -> Option<Node<'a>> {
     let row = line.checked_sub(1)? as usize;
     let mut best: Option<Node<'a>> = None;
