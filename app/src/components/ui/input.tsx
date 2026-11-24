@@ -8,9 +8,17 @@ import { cn } from 'dowel-ui'
  * everything a browser gives an input for free - autofill, spellcheck, the
  * right keyboard on a phone, `type="email"` validation - still works.
  *
- * The focus ring is the accent, drawn outside the border rather than replacing
- * it: a field that only changes colour on focus is invisible to anyone who
- * cannot distinguish those two colours.
+ * The focus ring is the accent, two pixels where the border was one: a field
+ * that only changes colour on focus is invisible to anyone who cannot
+ * distinguish those two colours, and a change of weight is not a colour.
+ *
+ * It is drawn inside the box, over the border, and not outside it. A field
+ * stands at the edge of something that clips more often than not - a
+ * ScrollArea's viewport, a dialog's body, a panel with `overflow: hidden` -
+ * and a ring drawn outside lost the side that touched it. kilna overrode the
+ * offset for every field in its own stylesheet to get it back; the fields of
+ * the set that draw their ring on a box around the input (NumberField,
+ * PasswordField, TagInput, Combobox) draw it the same way.
  */
 export const fieldClasses = cn(
   'w-full rounded-md border border-line bg-transparent px-2.5 py-1.5',
@@ -24,7 +32,7 @@ export const fieldClasses = cn(
    * `tests/entry-text.test.ts` holds every field in the set to it. */
   'text-sm pointer-coarse:text-lg text-text placeholder:text-faint',
   'transition-colors hover:border-line-2',
-  'focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent',
+  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
   // A field nobody can type in should look like one.
   'disabled:cursor-not-allowed disabled:opacity-50',
   // `aria-invalid` rather than a prop: the attribute is what a screen reader

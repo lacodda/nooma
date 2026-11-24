@@ -215,6 +215,12 @@ export function DialogBody({ className, ...props }: ComponentProps<'div'>) {
       data-dialog-body
       className={cn(
         'min-h-0 flex-1 overflow-y-auto overscroll-contain px-5',
+        // Room for a ring at the top and the bottom. The body scrolls, so it
+        // clips, and a field's ring on its first or last control was cut
+        // where it met the edge - kilna padded a wrapper of its own inside
+        // every body to get it back. Six pixels is the ring and a pixel of
+        // air, and small beside the header's and the actions' own.
+        'py-1.5',
         // First or last in the popup, it takes the padding the missing part
         // would have given - a dialog with no header still has a top edge.
         'first:pt-5 last:pb-5',

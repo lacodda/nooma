@@ -1,4 +1,4 @@
-import { useId, type ButtonHTMLAttributes, type MouseEvent } from 'react'
+import { useId, type ButtonHTMLAttributes, type MouseEvent, type Ref } from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { useRender } from '@base-ui/react/use-render'
 // `cn` comes from the package rather than being copied in beside the
@@ -116,6 +116,10 @@ export interface ButtonProps
    * before deciding what to build with them.
    */
   render?: useRender.RenderProp
+  /** React 19 passes `ref` as a plain prop; it is declared so a caller can
+   * reach the element - to point a dialog's `initialFocus` at it, or to
+   * measure it. With `render` it reaches whatever was rendered. */
+  ref?: Ref<HTMLButtonElement>
 }
 
 export function Button({
@@ -127,6 +131,7 @@ export function Button({
   disabled = false,
   disabledReason,
   onClick,
+  ref,
   ...props
 }: ButtonProps) {
   const reasonId = useId()
@@ -134,13 +139,21 @@ export function Button({
 
   const button = useRender({
     render,
+    ref,
     defaultTagName: 'button',
     props: {
       // A `<button>` inside a form submits it unless told otherwise, which
       // surprises everyone once. When rendering as something else the
       // attribute is meaningless and would land on an `<a>`, so it is only
       // set for the element that has it - `render` is what says which.
-      ...(render === undefined && type === undefined ? { type: 'button' } : { type }),
+      //
+      // And with `render`, a type nobody gave is not passed at all. It used to
+      // be passed as `undefined`, which overwrote the `type="button"` that a
+      // DialogClose or a DrawerClose sets for itself: `<Button
+      // render={<DialogClose />}>` drew a button with no type, the first one
+      // in the form, and Enter in any field of the dialog pressed Cancel
+      // (austeris lost four forms' entries that way).
+      ...(render === undefined ? { type: type ?? 'button' } : type === undefined ? {} : { type }),
       // A link has no size: it takes the size of the text it sits in.
       className: cn(buttonVariants({ variant, size: variant === 'link' ? null : size }), className),
       'data-disabled': disabled ? '' : undefined,
