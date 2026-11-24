@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.16.0] - 2026-11-24
+
+### Build
+- Adopt the line's standard
+
+### CI
+- Release by furca's engine, and install what went out
+
+### Features
+- Install nooma with one line
+
 ## [0.15.0] - 2026-11-15
 
 ### Bug Fixes

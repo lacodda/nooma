@@ -31,7 +31,7 @@ There is exactly one exception, and it is not in the default build: `--prose` ca
 
 ## What works today
 
-v0.15.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files, PDFs, Word documents, books, screenshots and scans, or an Obsidian vault, and search from a window with one field or from the shell:
+v0.16.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files, PDFs, Word documents, books, screenshots and scans, or an Obsidian vault, and search from a window with one field or from the shell:
 
 <p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar, one list of results marked by the half that found each - Russian notes found for an English question marked another language, the sentence that answered highlighted - and beside it the PDF selected, read at its page among the pages around it, the words of the question marked, with Open, Show in folder and Copy as quote under it" width="720"></p>
 
@@ -84,7 +84,7 @@ That is the `nooma` command, from the latest release, for your own account. The 
 
 ## Status
 
-v0.15.0: notes, text, PDF, Word, EPUB and scans, searched by words and by meaning into one list, across Russian and English; every row says why it was found. The index format still changes between versions and rebuilds itself. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.16.0: notes, text, PDF, Word, EPUB and scans, searched by words and by meaning into one list, across Russian and English; every row says why it was found. The index format still changes between versions and rebuilds itself. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 
