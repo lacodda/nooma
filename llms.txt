@@ -1,0 +1,30 @@
+# nooma
+
+> Local semantic search over your files: find a document by what it is about, fully offline.
+
+nooma keeps two indexes over the folders it is pointed at - full text for
+exact words, vectors for meaning - and answers with one list from both. It is
+a command-line program, `nooma`, and a window, over one library crate. Nothing
+of what it reads leaves the machine. Everything below is written for people
+and agents alike: there is no second set of instructions kept elsewhere.
+
+## Docs
+
+- [README](README.md): what it is, what working with it looks like, how to install it
+- [Getting Started](docs/src/content/docs/getting-started.md): install, search your folders, index a repository
+- [Contributing](CONTRIBUTING.md): the layout, the gate, how fixtures are made, how a release goes out
+- [Architecture decisions](docs/adr/): why it is built the way it is, one decision per file
+- [Changelog](CHANGELOG.md): what each release changed
+
+## Reference
+
+- [find, similar, index, source](docs/src/content/docs/reference/find.md): searching folders, every option and the JSON each command prints
+- [model](docs/src/content/docs/reference/model.md): fetching the embedding model
+- [eval](docs/src/content/docs/reference/eval.md): measuring search against questions whose answers are known
+- [repo](docs/src/content/docs/reference/repo.md): the repository index - symbols, imports, summaries, history
+
+## Optional
+
+- [Security policy](SECURITY.md): how to report a vulnerability, privately
+- [Code of Conduct](CODE_OF_CONDUCT.md): how people taking part treat each other
+- [License](LICENSE): MIT
