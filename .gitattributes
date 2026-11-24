@@ -8,3 +8,7 @@
 *.epub binary
 crates/nooma-core/tests/formats/encodings/** binary
 crates/nooma-core/tests/formats/kinds/** binary
+
+# The Unix installer is piped into sh: a carriage return at the end of a line
+# is part of the command to it.
+*.sh text eol=lf

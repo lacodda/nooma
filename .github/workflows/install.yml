@@ -1,0 +1,175 @@
+name: Install
+
+# The installers, run the way a person runs them, against a real release: the
+# one just published, or the latest one when a script changes. A green run
+# means the release can be installed from the README, on each system it is
+# built for.
+#
+# `release.yml` calls this once the release page is out, so a release whose
+# archives the installers cannot fetch is a red release, not a surprise for
+# the first person who tries.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release just published (vX.Y.Z)
+        type: string
+        required: true
+  push:
+    branches: [main]
+    paths: ['tools/install.ps1', 'tools/install.sh', '.github/workflows/install.yml']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: A published release to install (vX.Y.Z); empty installs the latest
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Piped into iex, as the README says - not run as a file, which would
+      # forgive what iex does not. Windows PowerShell, the one every Windows
+      # has.
+      - name: Install
+        shell: powershell
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:TAG) { $env:NOOMA_VERSION = $env:TAG }
+          Get-Content -Raw tools/install.ps1 | Invoke-Expression
+      - name: Check what is installed
+        shell: powershell
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\nooma\nooma.exe"
+          $said = & $exe --version
+          Write-Host $said
+          if ($said -notmatch '^nooma \d+\.\d+\.\d+$') { throw "the installed program says '$said'" }
+          if ($env:TAG -and $said -ne "nooma $($env:TAG.TrimStart('v'))") { throw "asked for $env:TAG, installed '$said'" }
+          $path = [string](Get-Item "HKCU:\Environment").GetValue("Path", "", "DoNotExpandEnvironmentNames")
+          if ($path -notlike "*Programs\nooma*") { throw "the install left nooma off the PATH" }
+          # The program works where it landed: it answers a question about a
+          # folder it has just read.
+          $env:NOOMA_STORE = Join-Path $env:RUNNER_TEMP "store"
+          $notes = Join-Path $env:RUNNER_TEMP "notes"
+          New-Item -ItemType Directory $notes | Out-Null
+          Set-Content (Join-Path $notes "kettle.md") "# Kettle`n`nDescale the kettle with citric acid once a month."
+          & $exe source add $notes
+          & $exe index
+          $found = & $exe find "citric acid"
+          Write-Host ($found -join "`n")
+          if (-not ($found -join "`n").Contains("kettle.md")) { throw "the installed program did not find the note" }
+
+  # A copy in a directory of its own, as the release engine makes one to prove
+  # a release: nothing outside that directory changes, and a second copy over
+  # the first leaves one program and nothing beside it.
+  windows-quiet:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: A copy in a directory of its own leaves the PATH alone
+        shell: powershell
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:TAG) { $env:NOOMA_VERSION = $env:TAG }
+          $env:NOOMA_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "nooma-copy"
+          $env:NOOMA_NO_PATH = "1"
+          Get-Content -Raw tools/install.ps1 | Invoke-Expression
+          $exe = Join-Path $env:NOOMA_INSTALL_DIR "nooma.exe"
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "the copy does not run" }
+          if (Test-Path (Join-Path $env:LOCALAPPDATA "Programs\nooma")) { throw "a copy installed itself as well" }
+          $path = [string](Get-Item "HKCU:\Environment").GetValue("Path", "", "DoNotExpandEnvironmentNames")
+          if ($path -like "*nooma*") { throw "a copy reached the PATH: $path" }
+      # A program that is running cannot be overwritten. The one installed
+      # above is kept busy while the installer runs again: it has to step
+      # aside, and the copy that takes its place has to be whole.
+      - name: A running program steps aside
+        shell: powershell
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:TAG) { $env:NOOMA_VERSION = $env:TAG }
+          $env:NOOMA_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "nooma-copy"
+          $env:NOOMA_NO_PATH = "1"
+          $env:NOOMA_STORE = Join-Path $env:RUNNER_TEMP "store"
+          $exe = Join-Path $env:NOOMA_INSTALL_DIR "nooma.exe"
+          $notes = Join-Path $env:RUNNER_TEMP "notes"
+          New-Item -ItemType Directory $notes | Out-Null
+          & $exe source add $notes
+          $busy = Start-Process $exe -ArgumentList "index", "--watch" -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          if ($busy.HasExited) { throw "nooma index --watch did not stay up to hold its file" }
+          try {
+            Get-Content -Raw tools/install.ps1 | Invoke-Expression
+            & $exe --version
+            if ($LASTEXITCODE -ne 0) { throw "the copy installed over a running one does not run" }
+          } finally {
+            Stop-Process -Id $busy.Id -Force -ErrorAction SilentlyContinue
+            $busy.WaitForExit()
+          }
+          # Once nothing runs the old one, the next install sweeps it up.
+          Get-Content -Raw tools/install.ps1 | Invoke-Expression
+          $left = (Get-ChildItem $env:NOOMA_INSTALL_DIR | ForEach-Object Name | Sort-Object) -join ","
+          if ($left -ne "nooma.exe") { throw "the installs left $left" }
+
+  unix:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      # Piped into sh, as the README says.
+      - name: Install
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$TAG" ]; then export NOOMA_VERSION="$TAG"; fi
+          sh < tools/install.sh
+      - name: Check what is installed
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          exe="$HOME/.local/bin/nooma"
+          said=$("$exe" --version)
+          echo "$said"
+          case "$said" in
+            "nooma "[0-9]*) ;;
+            *) echo "the installed program says '$said'"; exit 1 ;;
+          esac
+          if [ -n "$TAG" ] && [ "$said" != "nooma ${TAG#v}" ]; then
+            echo "asked for $TAG, installed '$said'"
+            exit 1
+          fi
+          export NOOMA_STORE="$RUNNER_TEMP/store"
+          mkdir "$RUNNER_TEMP/notes"
+          printf '# Kettle\n\nDescale the kettle with citric acid once a month.\n' > "$RUNNER_TEMP/notes/kettle.md"
+          "$exe" source add "$RUNNER_TEMP/notes"
+          "$exe" index
+          "$exe" find "citric acid" | tee "$RUNNER_TEMP/found.txt"
+          grep -q "kettle.md" "$RUNNER_TEMP/found.txt"
+      - name: A copy in a directory of its own
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$TAG" ]; then export NOOMA_VERSION="$TAG"; fi
+          export NOOMA_INSTALL_DIR="$RUNNER_TEMP/nooma-copy" NOOMA_NO_PATH=1
+          sh < tools/install.sh > "$RUNNER_TEMP/said.txt"
+          cat "$RUNNER_TEMP/said.txt"
+          "$NOOMA_INSTALL_DIR/nooma" --version
+          if grep -q "to your PATH" "$RUNNER_TEMP/said.txt"; then
+            echo "told to leave the PATH alone, the installer talked about it"
+            exit 1
+          fi
+          test "$(ls "$NOOMA_INSTALL_DIR")" = "nooma"

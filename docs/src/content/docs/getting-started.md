@@ -5,15 +5,35 @@ description: Install nooma, search your folders, and index a repository.
 
 ## Install
 
-Via cargo:
+On Windows, in PowerShell:
 
-```bash
-cargo install nooma
+```powershell
+irm https://raw.githubusercontent.com/lacodda/nooma/main/tools/install.ps1 | iex
 ```
 
-nooma is early: there is no install script yet, and the package name is not claimed on crates.io. Each release carries a binary for Windows, Linux and macOS on its [GitHub release page](https://github.com/lacodda/nooma/releases); building from source is the other way in.
+On macOS and Linux:
 
-The window comes as an installer on the same release page: `nooma_<version>_x64-setup.exe` on Windows, a `.deb` or `.AppImage` on Linux, a `.dmg` on macOS. It is not signed yet, so Windows asks before the first run.
+```bash
+curl -fsSL https://raw.githubusercontent.com/lacodda/nooma/main/tools/install.sh | sh
+```
+
+Either one puts the `nooma` command of the latest release in your own account - `%LOCALAPPDATA%\Programs\nooma` on Windows, which it adds to your `PATH`; `~/.local/bin` elsewhere - and needs no administrator. Run it again to update: on Windows a `nooma` that is running steps aside and carries on until it exits. There are builds for Windows and Linux on x86-64 and for macOS on Apple silicon.
+
+Three variables change what the installers do:
+
+| Variable | Set, it means |
+| --- | --- |
+| `NOOMA_VERSION` | Install that release (`vX.Y.Z`) rather than the latest. |
+| `NOOMA_INSTALL_DIR` | Put the program in this directory instead. |
+| `NOOMA_NO_PATH` | Leave the `PATH` alone, and say nothing about it. |
+
+The window comes as an installer on the [release page](https://github.com/lacodda/nooma/releases/latest): `nooma_<version>_x64-setup.exe` on Windows, a `.deb` or `.AppImage` on Linux, a `.dmg` on macOS. It is not signed yet, so Windows asks before the first run.
+
+On any other machine, build it from source - it takes Rust and a C++ compiler:
+
+```bash
+cargo install nooma --locked --git https://github.com/lacodda/nooma
+```
 
 ## What works today
 

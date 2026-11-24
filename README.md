@@ -66,6 +66,22 @@ The model runs on your CPU and is fetched once, when you ask: a button in the wi
 
 The repository index from earlier versions is still here: `nooma repo` reads a git repository into symbols, imports, module summaries and commit history, for [rigger](https://github.com/lacodda/rigger) and for scripts.
 
+## Install
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/lacodda/nooma/main/tools/install.ps1 | iex
+```
+
+On macOS and Linux:
+
+```console
+$ curl -fsSL https://raw.githubusercontent.com/lacodda/nooma/main/tools/install.sh | sh
+```
+
+That is the `nooma` command, from the latest release, for your own account. The window comes as an installer on the [release page](https://github.com/lacodda/nooma/releases/latest); [Getting Started](https://lacodda.github.io/nooma/getting-started/) has the rest.
+
 ## Status
 
 v0.15.0: notes, text, PDF, Word, EPUB and scans, searched by words and by meaning into one list, across Russian and English; every row says why it was found. The index format still changes between versions and rebuilds itself. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
