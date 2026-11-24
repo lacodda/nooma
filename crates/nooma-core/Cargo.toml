@@ -34,7 +34,7 @@ tantivy = "0.27"
 # with FULLTEXT_FORMAT_VERSION, or the stored words are looked up by other
 # rules and quietly do not match. 2.20261016 added Ukrainian and left both
 # alone: no stem of 51 thousand words moved.
-frostem = { version = "~2.20261016.3", default-features = false, features = ["russian", "english"] }
+frostem = { version = "~2.20261016.4", default-features = false, features = ["russian", "english"] }
 # Text out of PDF, page by page, in pure Rust. Without its default features:
 # colour management is for rendering, which nooma does not do; the old RC4
 # cipher stays, since a PDF locked only by an owner password still has to be
@@ -57,8 +57,10 @@ chardetng = "1"
 # through the line's crate. Elsewhere it builds and reads nothing.
 lacodda-ocr.workspace = true
 # Embeddings through ONNX Runtime. The runtime is linked statically, fetched
-# by `ort` when it is built - never while nooma runs.
-fastembed = { version = "7.7", default-features = false, features = ["ort-download-binaries-rustls-tls"], optional = true }
+# by `ort` when it is built - never while nooma runs. `onig` is the regex
+# engine the tokenizer has always split text with here; fastembed 7.8 made it
+# a choice, and the other engine would be another reading of the same text.
+fastembed = { version = "7.8", default-features = false, features = ["ort-download-binaries-rustls-tls", "onig"], optional = true }
 # The runtime itself, for the one thing fastembed leaves to its caller: the
 # environment every model is loaded into. Pinned to the version fastembed
 # pins, so the two are one crate - a fastembed on another runtime fails to
@@ -67,7 +69,7 @@ ort = { version = "=2.0.0-rc.15", default-features = false, optional = true }
 # The approximate nearest-neighbour graph over the vectors: a C++ library
 # built from source, so it lives behind the same feature as the model runner.
 usearch = { version = "2.26", optional = true }
-notify = "8.2"
+notify = "9.0"
 
 # Everything about vectors - the model runner, the store of computed vectors
 # and the index searched over them - is one feature. A consumer that reads
