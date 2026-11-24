@@ -95,7 +95,9 @@ The Word documents, books and text files in `crates/nooma-core/tests/formats` ar
 
 The pictures in `crates/lacodda-ocr/tests/images` are made by `source/make_images.py` from the pages beside it: Chrome sets letters in English, Russian and Spanish at 200 dots an inch and a screen at 100%, and Pillow turns the letters into scans - grey, a little turned, a little soft - and makes a photo stored on its side, a picture with a transparent background and one with no text. `tests/pdf/half-scanned.pdf` is a typed page followed by one of those scans. The tests that read them - `lacodda-ocr`'s and `nooma-core`'s `pictures` - run on Windows with the recognizers and spell checkers for English, Russian and Spanish installed, and do not skip without them: add the three languages in Settings > Time & language > Language & region, or as an administrator `Add-WindowsCapability -Online -Name Language.OCR~~~ru-RU~0.0.1.0` and `Language.Basic~~~ru-RU~0.0.1.0` for each. ADR 0012 has the numbers behind how a reading's language is chosen.
 
+<!-- historical versions -->
 Green tests are not a verified product. Three defects in v0.1.0 were found only by running the binary against real repositories while 39 tests passed — a Windows path prefix leaking into every output, a type reported once per `impl` block, and a CLI flag that clashed with a positional argument so that no invocation parsed. Run it on something real before calling a version done.
+<!-- /historical versions -->
 
 ## Principles
 
@@ -110,3 +112,23 @@ Green tests are not a verified product. Three defects in v0.1.0 were found only 
 **A changed index format is a breaking change.** It ships with a migration path in the changelog, or with a forced reindex the user is told about. An index that is silently misread looks like "search stopped finding things", which is the worst failure this product has.
 
 Architecture decisions are recorded in [`docs/adr/`](docs/adr/).
+
+## Installers
+
+`tools/install.ps1` and `tools/install.sh` are what the README tells a person to run, and they only ever run on somebody else's machine. `crates/nooma/tests/installers.rs` reads them and holds them to what the line learned the hard way - a Windows shell running the Unix script is sent to the PowerShell one, the `PATH` stays an expandable string, a running `nooma.exe` is moved aside before the new one is copied - and to the rest of the repository: the targets they ask for are the ones `release.yml` builds and `release.toml` lists, and the README and Getting Started install with the very lines the scripts name. The `Install` workflow runs them for real, against the latest release when a script changes and against each release as it goes out.
+
+## Releasing
+
+A release is the end of a stage, and [furca](https://github.com/lacodda/furca)'s release engine runs it from [`release.toml`](release.toml): `furca release plan` says what the next release is and what stands in its way, and `furca release run` carries it out - bump, changelog, the format check, commit, push, green CI, tag - then checks the release page and installs the release here, proven by its hash. The notes of every release end with [`.github/release-notes.md`](.github/release-notes.md), a checklist ticked on the release page once the release has reached a machine the way a user gets it and has been run by hand.
+
+## Dependencies
+
+Updated by hand, at most once a week, in a commit of their own - Dependabot is off on purpose ([ADR 0013](docs/adr/0013-dependabot-is-off.md)). The `Audit` workflow fails on a published advisory, and on a dependency whose license is not on the accepted list in [`deny.toml`](deny.toml).
+
+## Assistant files
+
+Instructions for coding assistants - `CLAUDE.md`, `AGENTS.md`, `.claude/`, `.cursor/` and the like - stay on the machine they were written for, and `.gitignore` keeps them out of the repository. What anyone needs to know about the project, human or agent, is in this file and in [`llms.txt`](llms.txt).
+
+## Conduct and security
+
+Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). A vulnerability is reported privately, as [SECURITY.md](SECURITY.md) describes - never in a public issue.

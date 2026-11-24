@@ -3,6 +3,10 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # A tag whose run GitHub lost - a job never created, a rerun refused - is
+  # built again with `gh workflow run release.yml --ref vX.Y.Z`: the tag stays
+  # where it is.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,6 +17,8 @@ env:
 jobs:
   build:
     name: ${{ matrix.target }}
+    # Dispatched on a branch, the run would release the branch's name.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -63,6 +69,7 @@ jobs:
   # name; the CLI archives above stay the way to get `nooma` alone.
   desktop:
     name: desktop ${{ matrix.target }}
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -126,6 +133,14 @@ jobs:
         with:
           config: cliff.toml
           args: --latest --strip header
+      # The changelog's section for the tag, then .github/release-notes.md:
+      # the checklist ticked once the release has been through it.
+      - name: Write the release notes
+        env:
+          CHANGES: ${{ steps.cliff.outputs.content }}
+        run: |
+          printf '%s\n\n' "$CHANGES" > release-notes.md
+          cat .github/release-notes.md >> release-notes.md
       - uses: actions/download-artifact@v8
         with:
           path: packages
@@ -133,6 +148,14 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          body: ${{ steps.cliff.outputs.content }}
+          body_path: release-notes.md
           # Installers land one folder down, by bundle kind.
           files: packages/**/*
+
+  # The release as a stranger gets it: the installers the README names, run
+  # against the page that has just gone out, on each system it is built for.
+  install:
+    needs: release
+    uses: ./.github/workflows/install.yml
+    with:
+      tag: ${{ github.ref_name }}
