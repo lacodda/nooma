@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.17.0] - 2026-11-25
+
+### Build
+- Take the week's patch releases
+
+### Features
+- Read paths when asked, rank commits by meaning
+- Add a full-text provider for one folder
+
+### Breaking Changes
+
+HISTORY_FORMAT_VERSION is 2, and a repository's stored
+history is read again in full by the next `nooma repo history`. Nothing
+is lost and nothing needs doing.
+
 ## [0.16.0] - 2026-11-24
 
 ### Build

@@ -31,7 +31,7 @@ There is exactly one exception, and it is not in the default build: `--prose` ca
 
 ## What works today
 
-v0.16.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files, PDFs, Word documents, books, screenshots and scans, or an Obsidian vault, and search from a window with one field or from the shell:
+v0.17.0 searches your folders two ways at once - by the words in them and by what they mean - and answers with one list, in Russian and English alike. Point it at notes, text files, PDFs, Word documents, books, screenshots and scans, or an Obsidian vault, and search from a window with one field or from the shell:
 
 <p align="center"><img src="https://github.com/lacodda/nooma/raw/main/assets/screenshot.png" alt="The nooma window: one field in the title bar, one list of results marked by the half that found each - Russian notes found for an English question marked another language, the sentence that answered highlighted - and beside it the PDF selected, read at its page among the pages around it, the words of the question marked, with Open, Show in folder and Copy as quote under it" width="720"></p>
 
@@ -64,7 +64,7 @@ The index keeps up by itself: the window watches the folders and reads a note a 
 
 The model runs on your CPU and is fetched once, when you ask: a button in the window, `nooma model fetch` in the shell. The first reading of a large library takes an hour or so; it runs in the background, and search answers over what is read meanwhile. `nooma eval` measures each half and the list against questions whose answers you know, on your own folders.
 
-The repository index from earlier versions is still here: `nooma repo` reads a git repository into symbols, imports, module summaries and commit history, for [rigger](https://github.com/lacodda/rigger) and for scripts.
+The repository index from earlier versions is still here: `nooma repo` reads a git repository into symbols, imports, module summaries and commit history - a commit found by a word, a path or what its message means - for [rigger](https://github.com/lacodda/rigger), [furca](https://github.com/lacodda/furca) and scripts. And the library underneath answers another program for one folder: [provider](https://lacodda.github.io/nooma/reference/provider/).
 
 ## Install
 
@@ -84,7 +84,7 @@ That is the `nooma` command, from the latest release, for your own account. The 
 
 ## Status
 
-v0.16.0: notes, text, PDF, Word, EPUB and scans, searched by words and by meaning into one list, across Russian and English; every row says why it was found. The index format still changes between versions and rebuilds itself. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
+v0.17.0: notes, text, PDF, Word, EPUB and scans, searched by words and by meaning into one list, across Russian and English; every row says why it was found. The index format still changes between versions and rebuilds itself. See the [changelog](https://github.com/lacodda/nooma/blob/main/CHANGELOG.md) for what has shipped, and [CONTRIBUTING.md](https://github.com/lacodda/nooma/blob/main/CONTRIBUTING.md) for the build.
 
 ## License
 
