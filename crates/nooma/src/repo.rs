@@ -5,12 +5,18 @@
 //! another a question. What `--json` prints is a contract: fields are added,
 //! never renamed or dropped without a format bump.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand};
-use nooma_core::{FileIndex, History, RepoIndex, Store, Symbol, SymbolKind, Update, history, incremental, repo::Repo};
+use nooma_core::model::ModelSpec;
+use nooma_core::{
+    CommitDoc, CommitVectors, Embedder as _, Error, FileIndex, History, RepoIndex, Role, Store, Symbol, SymbolKind, Update, history, incremental, repo::Repo,
+};
+
+use crate::meaning;
+use crate::model::{ModelsArgs, size};
 
 /// What is in a repository.
 #[derive(Debug, Args)]
@@ -44,8 +50,11 @@ struct CommonArgs {
     /// Print machine-readable JSON instead of a report
     #[arg(long)]
     json: bool,
+    // Its own variable, not the library's `NOOMA_STORE`: the two directories
+    // hold different things, and one name for both would point a repository
+    // index into a library, or a library into a directory of indexes.
     /// Keep the index in this directory instead of the user's data directory
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "NOOMA_REPO_STORE")]
     store: Option<PathBuf>,
 }
 
@@ -134,6 +143,14 @@ struct HistoryArgs {
     /// Only commits that touched this path, or anything beneath it
     #[arg(long, value_name = "PATH")]
     touching: Option<String>,
+    /// Rank the commits by how close their message is in meaning to this text
+    #[arg(long, value_name = "TEXT")]
+    meaning: Option<String>,
+    /// How many commits to answer with when ranking by meaning
+    #[arg(long, value_name = "N", default_value_t = DEFAULT_HISTORY_TOP, requires = "meaning")]
+    top: usize,
+    #[command(flatten)]
+    models: ModelsArgs,
     /// How many commits to read from the top of the history
     #[arg(long, value_name = "N", default_value_t = DEFAULT_HISTORY_LIMIT)]
     limit: usize,
@@ -148,6 +165,14 @@ struct HistoryArgs {
 /// and small enough that a first run on something the size of the Linux kernel
 /// answers rather than appearing to hang.
 const DEFAULT_HISTORY_LIMIT: usize = 5_000;
+
+/// How many commits a ranking by meaning answers with when the caller does
+/// not say.
+///
+/// A ranking has no natural end - the last commit of five thousand is still
+/// "the closest of what is left" - so it is cut where a person stops reading
+/// and a caller marking rows stops marking them.
+const DEFAULT_HISTORY_TOP: usize = 20;
 
 pub fn run(args: RepoArgs) -> Result<()> {
     match args.command {
@@ -412,53 +437,133 @@ fn prose_for(_args: &SummaryArgs, _modules: &[&FileIndex]) -> Result<BTreeMap<St
 fn history_command(args: HistoryArgs) -> Result<()> {
     let repo = open(&args.common)?;
     let store = open_store(&args.common)?;
-    let history = read_history(&repo, &store, &args)?;
+    let (mut history, mut unsaved) = read_history(&repo, &store, &args)?;
 
     // Both filters narrow the same list, so asking for a message *and* a path
     // means both, which is what someone naming two things expects.
-    let mut commits: Vec<&nooma_core::CommitDoc> = match &args.matching {
-        Some(text) => history.matching(text),
-        None => history.commits.iter().collect(),
+    let mut chosen: Vec<String> = match &args.matching {
+        Some(text) => history.matching(text).into_iter().map(|commit| commit.id.clone()).collect(),
+        None => history.commits.iter().map(|commit| commit.id.clone()).collect(),
     };
     if let Some(path) = &args.touching {
-        let touching = history.touching(path);
-        commits.retain(|commit| touching.iter().any(|other| other.id == commit.id));
+        // The one filter that needs every commit's paths: a commit whose
+        // paths were never read cannot be said not to have touched it.
+        unsaved |= history.read_paths(&repo, |_| true).context("reading the paths the commits touched")? > 0;
+        let touching: HashSet<&str> = history.touching(&repo, path)?.into_iter().map(|commit| commit.id.as_str()).collect();
+        chosen.retain(|id| touching.contains(id.as_str()));
     }
+
+    // The ranking comes last: it orders what the filters left, and the model
+    // reads only those messages.
+    let mut scores: HashMap<String, f32> = HashMap::new();
+    if let Some(text) = &args.meaning {
+        let by_id: HashMap<&str, &CommitDoc> = history.commits.iter().map(|commit| (commit.id.as_str(), commit)).collect();
+        let commits: Vec<&CommitDoc> = chosen.iter().filter_map(|id| by_id.get(id.as_str()).copied()).collect();
+        let ranked = rank_by_meaning(&repo, &store, &args, text, &commits)?;
+        chosen = ranked.iter().map(|(at, _)| commits[*at].id.clone()).collect();
+        scores = ranked.iter().map(|(at, score)| (commits[*at].id.clone(), *score)).collect();
+    }
+
+    // The paths are part of what `--json` prints for a commit, so they are
+    // read for the commits printed - those, and no others.
+    if args.common.json {
+        let printed: HashSet<&str> = chosen.iter().map(String::as_str).collect();
+        unsaved |= history
+            .read_paths(&repo, |commit| printed.contains(commit.id.as_str()))
+            .context("reading the paths the commits touched")?
+            > 0;
+    }
+    if unsaved {
+        history::save(&store, &history).context("storing the history")?;
+    }
+
+    let by_id: HashMap<&str, &CommitDoc> = history.commits.iter().map(|commit| (commit.id.as_str(), commit)).collect();
+    let commits: Vec<&CommitDoc> = chosen.iter().filter_map(|id| by_id.get(id.as_str()).copied()).collect();
 
     if args.common.json {
         let rows: Vec<_> = commits
             .iter()
             .map(|commit| {
-                serde_json::json!({
+                let mut row = serde_json::json!({
                     "id": commit.id,
                     "summary": commit.summary,
                     "body": commit.body,
                     "author": commit.author,
                     "time": commit.time,
                     "paths": commit.paths,
-                })
+                });
+                // Only where there is one: a list that was not ranked has no
+                // score to give, and a null would read as one that is missing.
+                if let Some(score) = scores.get(&commit.id) {
+                    row["score"] = serde_json::json!(score);
+                }
+                row
             })
             .collect();
-        print_json(&serde_json::json!({
+        let mut out = serde_json::json!({
             "head": history.head,
             "commits": rows,
-        }))
+        });
+        if args.meaning.is_some() {
+            out["model"] = serde_json::json!(ModelSpec::default_model().id);
+        }
+        print_json(&out)
     } else {
         for commit in &commits {
-            println!("{}  {}", commit.short(), commit.summary);
+            match scores.get(&commit.id) {
+                Some(score) => println!("{}  {score:.2}  {}", commit.short(), commit.summary),
+                None => println!("{}  {}", commit.short(), commit.summary),
+            }
         }
         eprintln!("{} commits", commits.len());
         Ok(())
     }
 }
 
-/// The history a reading command should answer from.
+/// Rank commits by how close their messages are to a text, as the model
+/// reads both: their places in `commits` and the cosine, closest first.
+///
+/// The model reads the messages it has not read before, and what it read is
+/// kept beside the history for good - a commit's id fixes its message, so no
+/// commit is ever read twice.
+fn rank_by_meaning(repo: &Repo, store: &Store, args: &HistoryArgs, text: &str, commits: &[&CommitDoc]) -> Result<Vec<(usize, f32)>> {
+    let models = args.models.dir()?;
+    // The flag asked for the model's reading, so without the model there is
+    // no answer to give: falling back to another order would hand the caller
+    // a list that looks ranked and is not.
+    let Some(mut embedder) = meaning::load(&models)? else {
+        let spec = ModelSpec::default_model();
+        anyhow::bail!(
+            "ranking by meaning needs the model: fetch it once with `nooma model fetch` ({}, the one download nooma makes)",
+            size(spec.bytes())
+        );
+    };
+    let mut vectors = match CommitVectors::open(&history::vectors_dir(store, repo.root()), &embedder) {
+        Ok(vectors) => vectors,
+        Err(Error::Busy) => anyhow::bail!("another nooma is reading this repository's commit messages; ask again when it is done"),
+        Err(error) => return Err(error).context("opening the vectors of the commit messages"),
+    };
+    if let Some(reason) = vectors.rebuilt() {
+        eprintln!("the vectors of the commit messages are computed again: {reason}");
+    }
+    let model = ModelSpec::default_model().id;
+    let progress = meaning::progress_for(model, "commit messages");
+    vectors
+        .update(&mut embedder, commits.iter().copied(), &progress)
+        .context("reading the commit messages")?;
+    // What a person typed is read as a question, as `nooma find` reads it.
+    let query = embedder.embed(&[text], Role::Query)?.pop().unwrap_or_default();
+    Ok(vectors.rank(&query, commits.iter().copied(), args.top))
+}
+
+/// The history a reading command should answer from, and whether it differs
+/// from the one stored.
 ///
 /// Brought up to date first unless the caller asked otherwise, for the same
 /// reason the index is: reading costs only the commits that are new, and
 /// answering from a stale history costs the caller a wrong answer about their
 /// own newest work.
-fn read_history(repo: &Repo, store: &Store, args: &HistoryArgs) -> Result<History> {
+fn read_history(repo: &Repo, store: &Store, args: &HistoryArgs) -> Result<(History, bool)> {
     // A stored history that cannot be read is not a failure: reading from
     // scratch is exactly what fixes it.
     let previous = match history::load(store, repo.root()) {
@@ -469,21 +574,19 @@ fn read_history(repo: &Repo, store: &Store, args: &HistoryArgs) -> Result<Histor
 
     if args.no_refresh {
         return match previous {
-            Some(history) => Ok(history),
+            Some(history) => Ok((history, false)),
             None => anyhow::bail!("{} has no stored history — run `nooma repo history`", repo.root().display()),
         };
     }
 
     let (history, update) = history::read(repo, previous.as_ref(), args.limit).context("reading the history")?;
-    if previous.as_ref() != Some(&history) {
-        history::save(store, &history).context("storing the history")?;
-    }
     // On stderr, so `--json` still redirects to a file that parses, and so
     // work done on the caller's behalf is never silent.
     if !update.is_noop() {
         eprintln!("read {} commits; kept {}", update.read, update.kept);
     }
-    Ok(history)
+    let changed = previous.as_ref() != Some(&history);
+    Ok((history, changed))
 }
 
 /// Say what the stored index describes, without changing it.

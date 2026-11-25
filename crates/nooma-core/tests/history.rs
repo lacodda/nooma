@@ -106,18 +106,147 @@ fn a_commit_is_found_by_what_its_message_says() {
 }
 
 #[test]
-fn a_commit_records_the_paths_it_touched() {
+fn a_commit_is_found_by_the_paths_it_touched() {
     let dir = fixture();
     let repo = Repo::discover(dir.path()).unwrap();
-    let read = full(&repo);
+    let mut read = full(&repo);
 
-    let touching = read.touching("src/env.rs");
+    let touching = read.touching(&repo, "src/env.rs").unwrap();
     assert_eq!(touching.len(), 1);
     assert_eq!(touching[0].summary, "fix: correct the PATH handling on Windows");
 
     // A directory names everything beneath it.
-    assert_eq!(read.touching("src").len(), 2);
-    assert_eq!(read.touching("docs").len(), 1);
+    assert_eq!(read.touching(&repo, "src").unwrap().len(), 2);
+    assert_eq!(read.touching(&repo, "docs").unwrap().len(), 1);
+    // A prefix that is not a whole path component matches nothing: `src`
+    // must not pull in `srcery/`.
+    assert_eq!(read.touching(&repo, "sr").unwrap().len(), 0);
+}
+
+/// A pass over the history reads messages. The paths cost a comparison of
+/// two trees per commit, a search of the messages never asks for them, and on
+/// a first pass they were most of the wait - so nothing reads them until
+/// something asks.
+#[test]
+fn a_read_takes_no_paths_until_they_are_asked_for() {
+    let dir = fixture();
+    let repo = Repo::discover(dir.path()).unwrap();
+    let mut read = full(&repo);
+    assert!(read.commits.iter().all(|commit| commit.paths.is_none()));
+
+    // Asked for one commit, read for that one.
+    let newest = read.commits[0].id.clone();
+    assert_eq!(read.read_paths(&repo, |commit| commit.id == newest).unwrap(), 1);
+    assert_eq!(read.commits[0].paths.as_deref(), Some(&["docs/guide.md".to_string()][..]));
+    assert!(read.commits[1].paths.is_none());
+
+    // Asked for all, the one already read is not read again.
+    assert_eq!(read.read_paths(&repo, |_| true).unwrap(), 2);
+    assert_eq!(read.read_paths(&repo, |_| true).unwrap(), 0);
+}
+
+/// Paths once read are a property of the commit, like its message: the next
+/// pass carries them across, and reads none for the commit that is new.
+#[test]
+fn paths_once_read_are_kept_by_the_next_read() {
+    let dir = fixture();
+    let repo = Repo::discover(dir.path()).unwrap();
+    let mut first = full(&repo);
+    first.read_paths(&repo, |_| true).unwrap();
+
+    write(dir.path(), "src/util.rs", "pub fn helper() {}\n");
+    commit(dir.path(), "feat: add a helper");
+
+    let repo = Repo::discover(dir.path()).unwrap();
+    let (second, _) = history::read(&repo, Some(&first), 1000).unwrap();
+    assert!(second.commits[0].paths.is_none(), "the new commit's were never asked for");
+    assert!(second.commits[1..].iter().all(|commit| commit.paths.is_some()));
+}
+
+/// Git's own answer for a commit against its first parent.
+fn git_paths(root: &Path, id: &str, has_parent: bool) -> Vec<String> {
+    let mut args = vec!["-c", "core.quotepath=false", "diff-tree", "-r", "--no-renames", "--name-only", "--no-commit-id"];
+    let parent = format!("{id}^1");
+    if has_parent {
+        args.extend([parent.as_str(), id]);
+    } else {
+        args.extend(["--root", id]);
+    }
+    let output = Command::new("git").args(&args).current_dir(root).output().expect("git is not on PATH");
+    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    let mut paths: Vec<String> = String::from_utf8(output.stdout).unwrap().lines().map(str::to_string).collect();
+    paths.sort();
+    paths
+}
+
+/// The two trees are compared level by level, and a directory both sides
+/// hold under one id is never opened. That is where the speed is, and where
+/// a path could be dropped without a word - so every shape a change takes is
+/// built here, and each commit's paths are held to what git itself reports.
+#[test]
+fn the_paths_of_a_commit_are_the_ones_git_reports() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "--initial-branch=main"]);
+
+    write(root, "README.md", "# Fixture\n");
+    write(root, "src/a/one.rs", "fn one() {}\n");
+    write(root, "src/a/deep/two.rs", "fn two() {}\n");
+    write(root, "src/b/three.rs", "fn three() {}\n");
+    write(root, "docs/заметка.md", "# Note\n");
+    commit(root, "feat: the root, several levels deep");
+
+    write(root, "src/a/deep/two.rs", "fn two() -> u8 { 2 }\n");
+    commit(root, "fix: one file, three levels down");
+
+    std::fs::remove_dir_all(root.join("src/b")).unwrap();
+    commit(root, "refactor: a whole directory removed");
+
+    std::fs::remove_file(root.join("src/a/one.rs")).unwrap();
+    write(root, "src/a/one.rs/inner.rs", "fn inner() {}\n");
+    commit(root, "refactor: a file becomes a directory");
+
+    std::fs::remove_dir_all(root.join("src/a/deep")).unwrap();
+    write(root, "src/a/deep", "now a file\n");
+    commit(root, "refactor: a directory becomes a file");
+
+    std::fs::rename(root.join("README.md"), root.join("docs/README.md")).unwrap();
+    commit(root, "docs: a file moved between directories");
+
+    git(root, &["update-index", "--chmod=+x", "docs/README.md"]);
+    git(root, &["commit", "-m", "chore: only a mode changed"]);
+
+    // A merge: the side branch changes one file, main another, and the
+    // merge is compared with main alone.
+    git(root, &["checkout", "-b", "side"]);
+    write(root, "side.txt", "from the side\n");
+    commit(root, "feat: on the side");
+    git(root, &["checkout", "main"]);
+    write(root, "main.txt", "from main\n");
+    commit(root, "feat: on main");
+    git(root, &["merge", "--no-ff", "side", "-m", "merge: the side"]);
+
+    git(root, &["commit", "--allow-empty", "-m", "chore: nothing changed"]);
+
+    let repo = Repo::discover(root).unwrap();
+    let ids = repo.commit_ids(1000).unwrap();
+    assert_eq!(ids.len(), 11);
+    for (at, id) in ids.iter().enumerate() {
+        let summary = repo.commit_doc(id).unwrap().summary;
+        let has_parent = at + 1 < ids.len() && summary != "feat: the root, several levels deep";
+        assert_eq!(repo.commit_paths(id).unwrap(), git_paths(root, id, has_parent), "{summary}");
+    }
+
+    let paths_of = |summary: &str| {
+        let id = ids.iter().find(|id| repo.commit_doc(id).unwrap().summary == summary).unwrap();
+        repo.commit_paths(id).unwrap()
+    };
+    // Not held to git alone: were both wrong alike, these would still say.
+    assert_eq!(paths_of("fix: one file, three levels down"), ["src/a/deep/two.rs"]);
+    assert_eq!(paths_of("refactor: a file becomes a directory"), ["src/a/one.rs", "src/a/one.rs/inner.rs"]);
+    assert_eq!(paths_of("merge: the side"), ["side.txt"]);
+    assert_eq!(paths_of("chore: only a mode changed"), ["docs/README.md"]);
+    assert!(paths_of("chore: nothing changed").is_empty());
 }
 
 /// A second read after one new commit reads exactly that one, and the result
@@ -194,7 +323,7 @@ fn a_history_from_another_line_of_commits_is_not_stitched_on() {
         body: None,
         author: "Someone Else".into(),
         time: 0,
-        paths: vec!["src/ghost.rs".into()],
+        paths: Some(vec!["src/ghost.rs".into()]),
     }];
 
     let (read, update) = history::read(&repo, Some(&foreign), 1000).unwrap();
@@ -230,7 +359,7 @@ fn the_first_commit_reports_what_it_introduced() {
 
     let root = read.commits.last().unwrap();
     assert_eq!(root.summary, "feat: add the ledger");
-    assert_eq!(root.paths, vec!["src/ledger.rs"]);
+    assert_eq!(repo.commit_paths(&root.id).unwrap(), vec!["src/ledger.rs"]);
 }
 
 /// A commit that deletes a file touched it, and the path is only visible on
@@ -243,9 +372,9 @@ fn a_deletion_counts_as_touching_the_path() {
     commit(dir.path(), "refactor: drop the ledger");
 
     let repo = Repo::discover(dir.path()).unwrap();
-    let read = full(&repo);
+    let mut read = full(&repo);
 
-    let touching = read.touching("src/ledger.rs");
+    let touching = read.touching(&repo, "src/ledger.rs").unwrap();
     assert_eq!(touching.len(), 2, "the commit that added it and the one that removed it");
     assert_eq!(touching[0].summary, "refactor: drop the ledger");
 }
@@ -257,7 +386,10 @@ fn a_history_survives_a_round_trip_through_the_store() {
     let store = nooma_core::Store::open_at(store_dir.path()).unwrap();
     let repo = Repo::discover(dir.path()).unwrap();
 
-    let read = full(&repo);
+    // Some paths read and some not: both are stored as they are.
+    let mut read = full(&repo);
+    let newest = read.commits[0].id.clone();
+    read.read_paths(&repo, |commit| commit.id == newest).unwrap();
     history::save(&store, &read).unwrap();
     assert_eq!(history::load(&store, repo.root()).unwrap(), Some(read));
 }

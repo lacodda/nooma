@@ -152,7 +152,11 @@ impl Repo {
         Ok(ids)
     }
 
-    /// Read one commit into a document.
+    /// Read one commit into a document: its message, its author and when.
+    ///
+    /// Not the paths it touched. Those cost a comparison of two trees, no
+    /// search of the messages asks for them, and on a first pass over a
+    /// history they were most of the wait: see [`Repo::commit_paths`].
     pub fn commit_doc(&self, id: &str) -> Result<crate::history::CommitDoc> {
         let object_id = gix::ObjectId::from_hex(id.as_bytes()).map_err(Error::git)?;
         let commit = self.inner.find_commit(object_id).map_err(Error::git)?;
@@ -170,41 +174,84 @@ impl Repo {
             // sitting, which no query here asks, and keeping it would put two
             // spellings of one instant in the index.
             time: time.seconds,
-            paths: self.commit_paths(&commit)?,
+            paths: None,
         })
     }
 
-    /// The paths a commit changed, against its first parent.
+    /// The paths a commit changed, against its first parent, sorted.
     ///
     /// The first parent only, because a merge commit against all of them
     /// reports every path either side touched — which would make every merge
     /// look like the change it merged, and bury the commit that did the work.
     /// A root commit has no parent and reports everything it introduced.
-    fn commit_paths(&self, commit: &gix::Commit<'_>) -> Result<Vec<String>> {
-        let tree = commit.tree().map_err(Error::git)?;
-        let parent = commit.parent_ids().next();
-        let parent_tree = match parent {
-            Some(id) => {
-                let parent = self.inner.find_commit(id).map_err(Error::git)?;
-                Some(parent.tree().map_err(Error::git)?)
+    ///
+    /// The two trees are compared level by level, and a directory both hold
+    /// under one id is not opened: a commit that changes three files reads
+    /// the few trees on the way to them, not every tree of the repository
+    /// twice. What is reported is what `git diff-tree -r --no-renames`
+    /// reports, and a test holds it to that.
+    pub fn commit_paths(&self, id: &str) -> Result<Vec<String>> {
+        let object_id = gix::ObjectId::from_hex(id.as_bytes()).map_err(Error::git)?;
+        let commit = self.inner.find_commit(object_id).map_err(Error::git)?;
+        let after = commit.tree_id().map_err(Error::git)?.detach();
+        let before = match commit.parent_ids().next() {
+            Some(parent) => {
+                let parent = self.inner.find_commit(parent).map_err(Error::git)?;
+                Some(parent.tree_id().map_err(Error::git)?.detach())
             }
             None => None,
         };
 
         let mut paths = BTreeSet::new();
-        let before = parent_tree.map(|tree| flatten(&tree)).transpose()?.unwrap_or_default();
-        let after = flatten(&tree)?;
-        for (path, id) in &after {
-            if before.get(path) != Some(id) {
-                paths.insert(path.clone());
-            }
-        }
-        for path in before.keys() {
-            if !after.contains_key(path) {
-                paths.insert(path.clone());
+        // Pairs of trees still to compare: the path they sit at, and the
+        // tree on each side, where that side has one there.
+        let mut pending = vec![(String::new(), before, Some(after))];
+        while let Some((prefix, before, after)) = pending.pop() {
+            let before = self.entries(before)?;
+            let after = self.entries(after)?;
+            let names: BTreeSet<&String> = before.keys().chain(after.keys()).collect();
+            for name in names {
+                let (was, is) = (before.get(name), after.get(name));
+                if was == is {
+                    continue;
+                }
+                let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+                // A side that holds a file here changed that file; a side
+                // that holds a directory is opened, against the other side's
+                // directory when it has one too.
+                let tree = |side: Option<&Entry>| side.filter(|entry| entry.is_tree).map(|entry| entry.id);
+                if was.is_some_and(|entry| !entry.is_tree) || is.is_some_and(|entry| !entry.is_tree) {
+                    paths.insert(path.clone());
+                }
+                if tree(was).is_some() || tree(is).is_some() {
+                    pending.push((path, tree(was), tree(is)));
+                }
             }
         }
         Ok(paths.into_iter().collect())
+    }
+
+    /// What a tree holds directly, by name; nothing for no tree.
+    fn entries(&self, tree: Option<gix::ObjectId>) -> Result<BTreeMap<String, Entry>> {
+        let mut out = BTreeMap::new();
+        let Some(id) = tree else { return Ok(out) };
+        let tree = self.inner.find_object(id).map_err(Error::git)?.try_into_tree().map_err(Error::git)?;
+        for entry in tree.iter() {
+            let entry = entry.map_err(Error::git)?;
+            // A name that is not UTF-8 has no path here, as it has none in
+            // the index of the work tree.
+            let Ok(name) = std::str::from_utf8(entry.filename()) else { continue };
+            let mode = entry.mode();
+            out.insert(
+                name.to_string(),
+                Entry {
+                    id: entry.object_id(),
+                    is_tree: mode.is_tree(),
+                    mode: mode.value(),
+                },
+            );
+        }
+        Ok(out)
     }
 
     /// Whether the ignore rules keep this path out of the index.
@@ -260,29 +307,15 @@ impl Repo {
     }
 }
 
-/// Every blob a tree holds, by path, with the object id it holds there.
+/// One name in a tree: what it points at, and as what.
 ///
-/// Flattened rather than compared level by level: a diff that descends only
-/// into subtrees whose ids differ is faster, and the whole of that speed is
-/// paid back once per commit read — while getting the descent wrong would
-/// silently drop paths from a commit's record.
-fn flatten(tree: &gix::Tree<'_>) -> Result<BTreeMap<String, gix::ObjectId>> {
-    let mut out = BTreeMap::new();
-    let mut stack = vec![(String::new(), tree.clone())];
-    while let Some((prefix, tree)) = stack.pop() {
-        for entry in tree.iter() {
-            let entry = entry.map_err(Error::git)?;
-            let Ok(name) = std::str::from_utf8(entry.filename()) else { continue };
-            let path = if prefix.is_empty() { name.to_string() } else { format!("{prefix}/{name}") };
-            if entry.mode().is_tree() {
-                let object = entry.object().map_err(Error::git)?;
-                stack.push((path, object.into_tree()));
-            } else {
-                out.insert(path, entry.object_id());
-            }
-        }
-    }
-    Ok(out)
+/// The mode is compared with the id: a file made executable is a change to
+/// that file, as git counts it, though its bytes are the ones it had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Entry {
+    id: gix::ObjectId,
+    is_tree: bool,
+    mode: u16,
 }
 
 /// The ignore rules that decide what counts as an indexable file.

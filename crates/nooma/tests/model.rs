@@ -282,3 +282,99 @@ fn index_computes_the_vectors_and_find_and_similar_answer_by_meaning() {
         }
     }
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "")
+        .env("GIT_CONFIG_SYSTEM", "")
+        .env("GIT_AUTHOR_NAME", "nooma test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+        .env("GIT_COMMITTER_NAME", "nooma test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+        .output()
+        .expect("git is not on PATH");
+    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+/// Commits ranked by what their messages say, with the real model: the
+/// question shares no word with the commit that answers it, and a filter by
+/// words would find nothing. The messages are read once - a second question
+/// reads none - and every printed field is on the reference page.
+#[test]
+fn history_ranks_commits_by_what_their_messages_mean() {
+    let repo = tempfile::tempdir().unwrap();
+    let store = tempfile::tempdir().unwrap();
+    let models = real_models();
+    git(repo.path(), &["init", "--initial-branch=main"]);
+    for (file, message) in [
+        ("ledger.rs", "feat: add the ledger\n\nEvery entry is posted twice, once to each side."),
+        (
+            "env.rs",
+            "fix: correct the PATH handling on Windows\n\nThe registry wants REG_EXPAND_SZ and setx truncates the value.",
+        ),
+        ("guide.md", "docs: explain how to restore a backup after the disk fails"),
+        ("theme.css", "style: darker borders on the settings dialog"),
+    ] {
+        std::fs::write(repo.path().join(file), message).unwrap();
+        git(repo.path(), &["add", "-A"]);
+        git(repo.path(), &["commit", "-m", message]);
+    }
+    let repo_path = repo.path().to_str().unwrap();
+    let models_path = models.to_str().unwrap();
+    let ask = |question: &str, more: &[&str]| {
+        let mut args = vec!["repo", "history", repo_path, "--meaning", question, "--models", models_path];
+        args.extend(more);
+        nooma(&args, &models, store.path())
+    };
+
+    let first_output = ask("the environment variable was cut short", &["--top", "2", "--json"]);
+    assert!(first_output.status.success(), "{}", stderr(&first_output));
+    let first = json_of(&first_output);
+    let commits = first["commits"].as_array().unwrap();
+    assert_eq!(commits.len(), 2, "the top two of four: {first}");
+    assert_eq!(commits[0]["summary"], "fix: correct the PATH handling on Windows");
+    assert_eq!(first["model"], "multilingual-e5-small");
+    let scores: Vec<f64> = commits.iter().map(|commit| commit["score"].as_f64().unwrap()).collect();
+    assert!(scores[0] > scores[1], "closest first: {scores:?}");
+    assert_eq!(commits[0]["paths"], serde_json::json!(["env.rs"]), "the commits printed have their paths");
+    assert!(stderr(&first_output).contains("computing 4 vectors"), "{}", stderr(&first_output));
+
+    let page = reference("repo.md");
+    let mut printed = Vec::new();
+    keys(&first, &mut printed);
+    for field in printed {
+        assert!(
+            page.contains(&format!("`{field}`")),
+            "`repo history --meaning --json` prints `{field}`, which the reference page does not mention"
+        );
+    }
+
+    // Another question, in another language: no message is read again, and
+    // the answer is found across the languages.
+    let second_output = ask("как восстановить данные из резервной копии", &["--json"]);
+    let second = json_of(&second_output);
+    assert_eq!(second["commits"][0]["summary"], "docs: explain how to restore a backup after the disk fails");
+    assert_eq!(
+        second["commits"].as_array().unwrap().len(),
+        4,
+        "fewer commits than the top asks for: all of them"
+    );
+    assert!(
+        !stderr(&second_output).contains("computing"),
+        "the vectors were kept: {}",
+        stderr(&second_output)
+    );
+
+    // The filters narrow first, and the ranking orders what they left.
+    let narrowed = json_of(&ask("the environment variable was cut short", &["--matching", "feat", "--json"]));
+    let summaries: Vec<&str> = narrowed["commits"].as_array().unwrap().iter().filter_map(|c| c["summary"].as_str()).collect();
+    assert_eq!(summaries, ["feat: add the ledger"]);
+
+    // For a person: the short id, how close, the summary.
+    let listed = stdout(&ask("the environment variable was cut short", &["--top", "1"]));
+    let line = listed.lines().next().unwrap_or_default();
+    assert!(line.ends_with("fix: correct the PATH handling on Windows"), "{listed}");
+    assert!(line.split_whitespace().nth(1).is_some_and(|score| score.parse::<f32>().is_ok()), "{listed}");
+}

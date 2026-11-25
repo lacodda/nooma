@@ -70,7 +70,7 @@ One mechanism serves four languages, because the symbol query already wraps each
 
 A repository's history is already a corpus of short documents about the code, written by the people who changed it, saying *why*. That why is nowhere else — the code says what it does now, and only the commit that introduced it says what it was for.
 
-So the history is read alongside the index: each commit's message, and the paths it touched. *The commit where the PATH handling was fixed* is a question the file index cannot answer at all.
+So the history is read alongside the index: each commit's message, and - when a question asks for them - the paths it touched. A commit is found by a word its message holds, by a path it changed, or by what the message means, ranked by the same model that reads documents. *The commit where the PATH handling was fixed* is a question the file index cannot answer at all.
 
 It is cached on the opposite principle from a file. A file is keyed by the hash of its contents, because a file changes under a stable name. A commit's id *is* the hash of everything about it, so a commit already read never needs reading again — there is no comparison pass and nothing to invalidate.
 

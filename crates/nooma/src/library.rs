@@ -193,7 +193,7 @@ pub fn index(args: IndexArgs) -> Result<()> {
     let vectors = update_vectors(
         &library,
         embedder.as_mut(),
-        Pace::foreground(&meaning::progress_for(ModelSpec::default_model().id)),
+        Pace::foreground(&meaning::progress_for(ModelSpec::default_model().id, "passages")),
     )?;
     if args.json {
         let out = json_of(&report, &vectors)?;

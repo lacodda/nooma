@@ -170,8 +170,9 @@ pub fn caveat(meaning: &Meaning) -> Option<String> {
 }
 
 /// A progress line for computing vectors, with the time left once there is
-/// enough of a pace to tell it by.
-pub fn progress_for(model: &str) -> impl Fn(Progress) + Sync + '_ {
+/// enough of a pace to tell it by. `what` names what the model reads:
+/// `passages`, `commit messages`.
+pub fn progress_for<'a>(model: &'a str, what: &'a str) -> impl Fn(Progress) + Sync + 'a {
     let terminal = std::io::stderr().is_terminal();
     let started = Instant::now();
     move |progress: Progress| {
@@ -191,7 +192,7 @@ pub fn progress_for(model: &str) -> impl Fn(Progress) + Sync + '_ {
         } else {
             String::new()
         };
-        eprint!("\r{model}: {} / {} passages{left}   ", progress.done, progress.total);
+        eprint!("\r{model}: {} / {} {what}{left}   ", progress.done, progress.total);
         if progress.done == progress.total {
             eprintln!();
         }

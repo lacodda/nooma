@@ -559,6 +559,141 @@ fn a_second_history_pass_reads_nothing_and_still_answers() {
     assert!(!stderr(&second_output).contains("read 1"), "nothing new to read: {}", stderr(&second_output));
 }
 
+/// The history as it is stored, read back from the store's directory.
+fn stored_history(store: &Path) -> serde_json::Value {
+    let file = std::fs::read_dir(store)
+        .unwrap()
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .find(|path| path.to_string_lossy().ends_with(".history.json"))
+        .expect("a history was stored");
+    serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap()
+}
+
+/// What made a first pass slow was comparing two trees per commit for paths
+/// that a search of the messages never looks at. So a search reads the paths
+/// of the commits it prints and of no others, and a listing for a person,
+/// which shows no paths, reads none.
+#[test]
+fn history_reads_the_paths_of_the_commits_it_prints_and_no_others() {
+    let (repo, store) = fixture();
+    let repo_path = repo.path().to_str().unwrap();
+    let store_path = store.path().to_str().unwrap();
+
+    std::fs::write(repo.path().join("src/env.rs"), "pub fn path() {}\n").unwrap();
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-m", "fix: correct the PATH handling"]);
+
+    let listed = run(&["repo", "history", "--store", store_path, repo_path]);
+    assert!(listed.status.success(), "{}", stderr(&listed));
+    let stored = stored_history(store.path());
+    let paths: Vec<&serde_json::Value> = stored["commits"].as_array().unwrap().iter().map(|commit| &commit["paths"]).collect();
+    assert!(paths.iter().all(|paths| paths.is_null()), "a listing shows no paths and reads none: {stored}");
+
+    let printed = json_of(&run(&[
+        "repo",
+        "history",
+        "--json",
+        "--matching",
+        "path handling",
+        "--store",
+        store_path,
+        repo_path,
+    ]));
+    assert_eq!(printed["commits"][0]["paths"], serde_json::json!(["src/env.rs"]));
+    let stored = stored_history(store.path());
+    let commits = stored["commits"].as_array().unwrap();
+    assert_eq!(commits[0]["paths"], serde_json::json!(["src/env.rs"]), "what was read is kept");
+    assert!(commits[1]["paths"].is_null(), "the commit that did not match was not compared: {stored}");
+
+    // A path asked about is asked of every commit, and from the store
+    // alone the answer is the same.
+    let touching = json_of(&run(&[
+        "repo",
+        "history",
+        "--json",
+        "--touching",
+        "src/util.rs",
+        "--no-refresh",
+        "--store",
+        store_path,
+        repo_path,
+    ]));
+    assert_eq!(touching["commits"].as_array().unwrap().len(), 1);
+    assert_eq!(touching["commits"][0]["summary"], "fixture");
+    let stored = stored_history(store.path());
+    assert!(
+        stored["commits"].as_array().unwrap().iter().all(|commit| commit["paths"].is_array()),
+        "{stored}"
+    );
+}
+
+/// A neighbour trying nooma out must be able to keep it out of the real
+/// data directory without threading `--store` through every call - as
+/// `NOOMA_STORE` does for the library. The flag, when given, still wins.
+#[test]
+fn the_repository_store_is_named_by_the_environment_too() {
+    let (repo, store) = fixture();
+    let other = tempfile::tempdir().unwrap();
+    let repo_path = repo.path().to_str().unwrap();
+
+    let by_environment = nooma()
+        .args(["repo", "index", "--json", repo_path])
+        .env("NOOMA_REPO_STORE", store.path())
+        .output()
+        .unwrap();
+    let printed = json_of(&by_environment);
+    let stored_at = Path::new(printed["stored_at"].as_str().unwrap());
+    assert_eq!(stored_at.parent().unwrap(), store.path());
+
+    let by_flag = nooma()
+        .args(["repo", "index", "--json", "--store", other.path().to_str().unwrap(), repo_path])
+        .env("NOOMA_REPO_STORE", store.path())
+        .output()
+        .unwrap();
+    let printed = json_of(&by_flag);
+    assert_eq!(Path::new(printed["stored_at"].as_str().unwrap()).parent().unwrap(), other.path());
+}
+
+/// The flag asks for the model's reading. Without the model there is none,
+/// and an unranked list in its place would look like an answer - so the
+/// command fails, and says the one thing that fixes it.
+#[test]
+fn history_by_meaning_without_the_model_fails_saying_what_is_missing() {
+    let (repo, store) = fixture();
+    let models = tempfile::tempdir().unwrap();
+    let output = run(&[
+        "repo",
+        "history",
+        "--meaning",
+        "why the helper exists",
+        "--models",
+        models.path().to_str().unwrap(),
+        "--store",
+        store.path().to_str().unwrap(),
+        repo.path().to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("nooma model fetch"), "{}", stderr(&output));
+    assert!(stdout(&output).is_empty(), "no list that looks ranked: {}", stdout(&output));
+}
+
+/// `--top` cuts a ranking; a list that was not ranked has no top.
+#[test]
+fn history_top_is_only_for_a_ranking() {
+    let (repo, store) = fixture();
+    let output = run(&[
+        "repo",
+        "history",
+        "--top",
+        "3",
+        "--store",
+        store.path().to_str().unwrap(),
+        repo.path().to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--meaning"), "{}", stderr(&output));
+}
+
 /// The promise of ADR 0004, checked rather than asserted in prose.
 ///
 /// A default build must not merely decline to use the CLI — it must not be

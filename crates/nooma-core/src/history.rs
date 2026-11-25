@@ -36,7 +36,10 @@ use crate::repo::Repo;
 /// Held apart from the file index's version because the two are stored apart
 /// and change for different reasons: adding a field to a commit entry has
 /// nothing to do with how files are cut up.
-pub const HISTORY_FORMAT_VERSION: u32 = 1;
+///
+/// 2: a commit's paths are read when they are asked for, and a commit whose
+/// paths nobody asked for holds none.
+pub const HISTORY_FORMAT_VERSION: u32 = 2;
 
 /// One commit, as a document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,13 +62,19 @@ pub struct CommitDoc {
     /// was sitting, which no query here asks about, and keeping it would put
     /// two spellings of one instant in the index.
     pub time: i64,
-    /// The paths this commit touched, relative to the repository root.
+    /// The paths this commit touched, relative to the repository root;
+    /// `None` until they are asked for.
     ///
     /// This is what ties a message to the code it explains: "the commit where
     /// the PATH handling was fixed" is answered by matching the message, but
     /// "what was this file's last change for" is answered by matching the
     /// path.
-    pub paths: Vec<String>,
+    ///
+    /// Read apart from the message because they cost apart: a message is one
+    /// object, the paths are a comparison of two trees, and a search of the
+    /// messages has no use for them. [`History::read_paths`] reads them,
+    /// once: like the message, they are a property of the commit's id.
+    pub paths: Option<Vec<String>>,
 }
 
 impl CommitDoc {
@@ -121,12 +130,35 @@ impl History {
         self.commits.iter().filter(|commit| commit.to_text().to_lowercase().contains(&needle)).collect()
     }
 
+    /// Read the paths of the commits `wanted` names that hold none yet;
+    /// returns how many were read.
+    ///
+    /// What has been read stays read: a history stored after this never
+    /// compares those trees again.
+    pub fn read_paths(&mut self, repo: &Repo, wanted: impl Fn(&CommitDoc) -> bool) -> Result<usize> {
+        let mut read = 0;
+        for commit in &mut self.commits {
+            if commit.paths.is_none() && wanted(commit) {
+                commit.paths = Some(repo.commit_paths(&commit.id)?);
+                read += 1;
+            }
+        }
+        Ok(read)
+    }
+
     /// Commits that touched a path, or anything beneath it.
-    pub fn touching(&self, prefix: &str) -> Vec<&CommitDoc> {
-        self.commits
+    ///
+    /// Reads the paths of every commit that holds none yet, which is why it
+    /// takes the repository: a commit whose paths were never read would
+    /// otherwise answer "did not touch it", and be believed.
+    pub fn touching(&mut self, repo: &Repo, prefix: &str) -> Result<Vec<&CommitDoc>> {
+        self.read_paths(repo, |_| true)?;
+        let beneath = format!("{prefix}/");
+        Ok(self
+            .commits
             .iter()
-            .filter(|commit| commit.paths.iter().any(|path| path == prefix || path.starts_with(&format!("{prefix}/"))))
-            .collect()
+            .filter(|commit| commit.paths.iter().flatten().any(|path| path == prefix || path.starts_with(&beneath)))
+            .collect())
     }
 }
 
@@ -149,7 +181,8 @@ impl HistoryUpdate {
 /// Read a repository's history, reusing whatever was already read.
 ///
 /// Walks every commit reachable from HEAD and reads only the ones the stored
-/// history does not already hold. The walk decides membership as well as
+/// history does not already hold - their messages, not their paths: see
+/// [`History::read_paths`]. A commit carried across keeps the paths it has. The walk decides membership as well as
 /// freshness, so a commit the stored history holds but HEAD no longer reaches
 /// — the original of an amend or a rebase — is dropped rather than kept.
 ///
@@ -192,6 +225,12 @@ pub fn read(repo: &Repo, previous: Option<&History>, limit: usize) -> Result<(Hi
 /// Where a repository's history is stored, beside its index.
 pub fn path_for(store: &crate::store::Store, repo_root: &std::path::Path) -> std::path::PathBuf {
     store.path_for(repo_root).with_extension("history.json")
+}
+
+/// Where the vectors of a repository's commit messages are stored, beside
+/// its history: one directory per model inside.
+pub fn vectors_dir(store: &crate::store::Store, repo_root: &std::path::Path) -> std::path::PathBuf {
+    store.path_for(repo_root).with_extension("history.vectors")
 }
 
 /// Read the stored history of a repository, if there is one.
@@ -245,7 +284,7 @@ mod tests {
             body: None,
             author: "A Writer".into(),
             time: 0,
-            paths: paths.iter().map(|p| p.to_string()).collect(),
+            paths: Some(paths.iter().map(|p| p.to_string()).collect()),
         }
     }
 
@@ -274,16 +313,6 @@ mod tests {
         let mut history = sample();
         history.commits[1].body = Some("Double entry from the first day.".into());
         assert_eq!(history.matching("double entry").len(), 1);
-    }
-
-    #[test]
-    fn a_path_matches_itself_and_its_directory() {
-        let history = sample();
-        assert_eq!(history.touching("src/ledger.rs").len(), 1);
-        assert_eq!(history.touching("src").len(), 2);
-        // A prefix that is not a whole path component matches nothing: `src`
-        // must not pull in `srcery/`.
-        assert_eq!(history.touching("sr").len(), 0);
     }
 
     #[test]

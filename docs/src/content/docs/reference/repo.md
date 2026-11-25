@@ -17,7 +17,9 @@ nooma repo <index|symbols|deps|status> [PATH] [--json] [--store <DIR>]
 | --- | --- |
 | `PATH` | The repository to read; any path inside it will do. Positional, defaults to `.`. |
 | `--json` | Print one line of machine-readable JSON instead of a report. |
-| `--store <DIR>` | Keep the index in this directory instead of the user's data directory. |
+| `--store <DIR>` | Keep the index in this directory instead of the user's data directory. Also read from `NOOMA_REPO_STORE`. |
+
+`NOOMA_REPO_STORE` is its own variable, apart from the library's `NOOMA_STORE`: the two directories hold different things. A program that tries nooma out sets it once and leaves the real data directory alone.
 
 Every report meant for a person goes to stderr and every JSON document to stdout, so `nooma repo … --json > file` yields a file that parses.
 
@@ -269,7 +271,7 @@ Each language says it differently, and all four say it somehow.
 ## `repo history`
 
 ```
-nooma repo history [PATH] [--json] [--matching <TEXT>] [--touching <PATH>] [--limit <N>] [--no-refresh] [--store <DIR>]
+nooma repo history [PATH] [--json] [--matching <TEXT>] [--touching <PATH>] [--meaning <TEXT>] [--top <N>] [--limit <N>] [--no-refresh] [--store <DIR>] [--models <DIR>]
 ```
 
 Reads the commit messages as documents. The code says what it does now; only the commit that introduced it says what it was for, and that reason is in the message and nowhere else — which is what makes *the commit where the PATH handling was fixed* a question this answers and the file index cannot.
@@ -281,16 +283,23 @@ $ nooma repo history --matching "path handling"
 $ nooma repo history --touching src/ledger.rs
 29028610  feat: add double entry
 1c0ffee0  feat: add the ledger
+
+$ nooma repo history --meaning "the environment variable was cut short" --top 2
+4fa18bad  0.87  fix: correct the PATH handling on Windows
+1c0ffee0  0.79  feat: add the ledger
 ```
 
-Naming both narrows by both.
+`--matching` and `--touching` are filters, and naming both narrows by both. `--meaning` is an order: the commits the filters left, closest first by what the model reads in their messages, cut at `--top`.
 
 | Option | What it does |
 | --- | --- |
 | `--matching <TEXT>` | Only commits whose message contains this, compared without case. Summary and body are both searched. |
 | `--touching <PATH>` | Only commits that changed this path, or anything beneath it. |
+| `--meaning <TEXT>` | Rank the commits by how close their message is in meaning to this text, closest first. Needs the model: [`nooma model fetch`](/nooma/reference/model/). |
+| `--top <N>` | How many commits a ranking answers with. Defaults to 20; only with `--meaning`. |
 | `--limit <N>` | How many commits to read from the top. Defaults to 5000. |
 | `--no-refresh` | Answer from the stored history without reading new commits. |
+| `--models <DIR>` | Look for the model in this directory instead of the user's data directory. Also read from `NOOMA_MODELS`. |
 
 With `--json`:
 
@@ -320,8 +329,24 @@ With `--json`:
 | `author` | Who wrote the change. |
 | `time` | When it was written, in seconds since the epoch, UTC. |
 | `paths` | The paths the commit changed, against its first parent. |
+| `score` | With `--meaning`: the cosine between the text and the commit's message, 1 the same direction and 0 unrelated. Absent from a list that was not ranked. |
+| `model` | With `--meaning`: the model that read the messages. |
 
 A merge is compared against its first parent only. Comparing against all of them reports every path either side touched, which makes a merge look like the work it merged and buries the commit that did it.
+
+### Paths are read when they are asked for
+
+A message is one object; the paths are a comparison of two trees. A search of the messages has no use for them, and on a first pass over a history they were most of the wait. So a pass reads messages, and paths are read for the commits that need them: every commit under `--touching`, which cannot say a commit did not touch a path it never compared; the commits printed under `--json`, where `paths` is part of each row; none for a listing, which shows none. What is read is kept, like the message - both are fixed by the commit's id.
+
+The comparison itself opens only what differs: a directory both commits hold under one id is not read. What it reports is what `git diff-tree -r --no-renames` reports for the commit against its first parent.
+
+### Ranking by meaning
+
+`--matching` finds a commit by a word it holds. `--meaning` finds it by what it says: *the environment variable was cut short* finds the commit whose message is about `setx` truncating `PATH`, though they share no word, and a question in Russian finds a message in English.
+
+The model reads each message once. A commit's id fixes its message, so the vector is kept beside the history for good, under the hash of the message - commits that say the same thing share one. The first question about a repository waits for the messages to be read, a few dozen a second; every later one reads only the question. Vectors are compared exactly, every one against the question, and [without the language](/nooma/concepts/languages/), as passages of the library are.
+
+Without the model the command fails and says how to fetch it. It does not fall back to another order: a list that looks ranked and is not would be believed.
 
 ### How a history is brought up to date
 

@@ -26,7 +26,7 @@ pnpm install
 pnpm tauri dev
 ```
 
-`NOOMA_STORE=<dir>` points both the window and the CLI at a library other than your own - for a demo corpus, or for trying a change without touching what you search every day.
+`NOOMA_STORE=<dir>` points both the window and the CLI at a library other than your own - for a demo corpus, or for trying a change without touching what you search every day. `NOOMA_REPO_STORE=<dir>` does the same for `nooma repo`, whose indexes are kept apart from the library.
 
 ONNX Runtime comes prebuilt and is linked statically; `ort` downloads it while building, never while nooma runs. On Windows the prebuilt library needs the C++ standard library of Visual Studio 2022 17.10 or newer (MSVC 14.40): an older toolset fails to link with `unresolved external symbol __std_find_last_of_trivial_pos_1`, and the cure is updating Visual Studio, not the code. `usearch` is compiled from its C++ source, which takes a C++17 compiler: MSVC on Windows, which the Rust toolchain needs there anyway; `g++` or `clang++` elsewhere.
 

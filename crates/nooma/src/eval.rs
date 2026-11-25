@@ -75,7 +75,7 @@ pub fn run(args: EvalArgs) -> Result<()> {
         let loading = Instant::now();
         let mut embedder = OnnxEmbedder::load(spec, &models_dir, indexing_threads())?;
         let load_ms = loading.elapsed().as_millis();
-        let report = library.update_vectors(&mut embedder, &progress_for(spec.id))?;
+        let report = library.update_vectors(&mut embedder, &progress_for(spec.id, "passages"))?;
         engines.push(evaluation.semantic(&mut embedder)?);
         engines.push(evaluation.semantic_exact(&mut embedder)?);
         engines.push(evaluation.hybrid(&mut embedder)?);

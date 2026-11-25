@@ -67,6 +67,7 @@ use usearch::{IndexOptions, MetricKind, ScalarKind};
 
 use crate::embed::{Embedder, Model, Role};
 use crate::error::{Error, Result};
+use crate::history::CommitDoc;
 use crate::library::{Finder, Hit, IndexedFile, Library, Pace, Progress, StoredChunk};
 use crate::neutral::LanguageAxes;
 
@@ -716,6 +717,122 @@ impl Building {
         crate::library::write_atomically(path, &Snapshot::encode(&head, &entries, &self.graph)?)?;
         self.saved = Some((head, entries));
         Ok(true)
+    }
+}
+
+/// The vectors of a repository's commit messages, for one model: what
+/// ranks commits by what they say.
+///
+/// A message is short and there are thousands of them, not millions: every
+/// one is compared with the query, exactly, and no graph is kept. The vector
+/// is stored under the hash of the message - which the commit's id fixes, so
+/// a commit read once is never read again, and commits that say the same
+/// thing ("Merge branch 'main'") share one vector. Compared as passages of
+/// the library are: without the language, when the model's was measured.
+pub struct CommitVectors {
+    store: Store,
+    axes: Option<LanguageAxes>,
+    rebuilt: Option<String>,
+}
+
+impl std::fmt::Debug for CommitVectors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommitVectors")
+            .field("dir", &self.store.dir)
+            .field("vectors", &self.store.keys.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl CommitVectors {
+    /// Open a repository's vectors for a model; `dir` is
+    /// [`crate::history::vectors_dir`]. Vectors another recipe filled the
+    /// store with are dropped: see [`CommitVectors::rebuilt`].
+    ///
+    /// Fails with [`Error::Busy`] while another process holds them open.
+    pub fn open(dir: &Path, model: &dyn Model) -> Result<Self> {
+        let meta = Meta::of(model);
+        let (store, rebuilt) = Store::open(dir.join(&meta.model), &meta)?;
+        Ok(Self {
+            store,
+            axes: model.language().cloned(),
+            rebuilt,
+        })
+    }
+
+    /// Why the store was started again when it was opened, if it was.
+    pub fn rebuilt(&self) -> Option<&str> {
+        self.rebuilt.as_deref()
+    }
+
+    /// Whether a commit's message has its vector.
+    pub fn holds(&self, commit: &CommitDoc) -> bool {
+        self.store.contains(&key_of(&commit.to_text()))
+    }
+
+    /// Have the model read the messages that have no vector yet; returns
+    /// how many it read. Each batch is stored as it is read, so a pass that
+    /// is stopped keeps what it did. `progress` counts messages.
+    pub fn update<'a>(&mut self, embedder: &mut dyn Embedder, commits: impl IntoIterator<Item = &'a CommitDoc>, progress: &dyn Fn(Progress)) -> Result<usize> {
+        let mut seen = HashSet::new();
+        let mut wanted: Vec<(Key, String)> = Vec::new();
+        for commit in commits {
+            let text = commit.to_text();
+            let key = key_of(&text);
+            if !self.store.contains(&key) && seen.insert(key) {
+                wanted.push((key, text));
+            }
+        }
+        // By length, as passages are: a batch is padded to its longest text.
+        for window in wanted.chunks_mut(WINDOW) {
+            window.sort_by(|a, b| a.1.len().cmp(&b.1.len()).then_with(|| a.0.cmp(&b.0)));
+        }
+        let total = wanted.len();
+        progress(Progress { done: 0, total });
+        for (done, batch) in wanted.chunks(BATCH).enumerate() {
+            let texts: Vec<&str> = batch.iter().map(|(_, text)| text.as_str()).collect();
+            let keys: Vec<Key> = batch.iter().map(|(key, _)| *key).collect();
+            let vectors = embedder.embed(&texts, Role::Passage)?;
+            if vectors.len() != texts.len() || vectors.iter().any(|v| v.len() != self.store.dimensions) {
+                return Err(Error::Embedding(format!(
+                    "{} returned vectors of the wrong number or length",
+                    embedder.model_id()
+                )));
+            }
+            self.store.append(&keys, &vectors)?;
+            progress(Progress {
+                done: (done * BATCH + batch.len()).min(total),
+                total,
+            });
+        }
+        Ok(total)
+    }
+
+    /// The commits closest to a query vector, closest first, as their place
+    /// in `commits` and the cosine; at most `limit`. A commit whose message
+    /// has no vector is not among them. Commits as close as each other keep
+    /// the order they came in.
+    pub fn rank<'a>(&self, query: &[f32], commits: impl IntoIterator<Item = &'a CommitDoc>, limit: usize) -> Vec<(usize, f32)> {
+        let neutral = |vector: &[f32]| {
+            let mut out = vector.to_vec();
+            if let Some(axes) = &self.axes {
+                axes.remove(&mut out);
+            }
+            out
+        };
+        let query = neutral(query);
+        let mut ranked: Vec<(usize, f32)> = commits
+            .into_iter()
+            .enumerate()
+            .filter_map(|(at, commit)| {
+                let vector = self.store.vector(&key_of(&commit.to_text()))?;
+                let close = neutral(vector).iter().zip(&query).map(|(a, b)| a * b).sum();
+                Some((at, close))
+            })
+            .collect();
+        ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        ranked.truncate(limit);
+        ranked
     }
 }
 
