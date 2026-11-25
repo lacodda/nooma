@@ -188,6 +188,10 @@ fn the_paths_of_a_commit_are_the_ones_git_reports() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     git(root, &["init", "--initial-branch=main"]);
+    // The mode is changed in the index alone, below. Where git reads modes
+    // from the disk, the next `add` would see the file as it lies there and
+    // take the change back in a commit that is about something else.
+    git(root, &["config", "core.fileMode", "false"]);
 
     write(root, "README.md", "# Fixture\n");
     write(root, "src/a/one.rs", "fn one() {}\n");

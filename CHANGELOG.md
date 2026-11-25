@@ -11,6 +11,9 @@ All notable changes to this project are documented in this file.
 - Read paths when asked, rank commits by meaning
 - Add a full-text provider for one folder
 
+### Testing
+- Keep the fixture's file modes out of the disk's hands
+
 ### Breaking Changes
 
 HISTORY_FORMAT_VERSION is 2, and a repository's stored
