@@ -94,6 +94,10 @@ required-features = ["semantic"]
 name = "vectors"
 required-features = ["semantic"]
 
+[[test]]
+name = "provider_meaning"
+required-features = ["semantic"]
+
 [[example]]
 name = "language_axes"
 required-features = ["semantic"]

@@ -21,7 +21,8 @@ and agents alike: there is no second set of instructions kept elsewhere.
 - [find, similar, index, source](docs/src/content/docs/reference/find.md): searching folders, every option and the JSON each command prints
 - [model](docs/src/content/docs/reference/model.md): fetching the embedding model
 - [eval](docs/src/content/docs/reference/eval.md): measuring search against questions whose answers are known
-- [repo](docs/src/content/docs/reference/repo.md): the repository index - symbols, imports, summaries, history
+- [repo](docs/src/content/docs/reference/repo.md): the repository index - symbols, imports, summaries, history by word, path and meaning
+- [provider](docs/src/content/docs/reference/provider.md): the `FullText` trait of `nooma-core` - one folder searched by words and by meaning, for another program
 
 ## Optional
 

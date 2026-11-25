@@ -45,9 +45,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::fulltext::{Script, script_of_text};
-#[cfg(feature = "semantic")]
-use crate::library::unix_now;
-use crate::library::{Hit, Matched};
+use crate::library::{Hit, Matched, unix_now};
 
 /// Where in a list a document stops counting for much: the `k` of
 /// reciprocal rank fusion. Small, so the first places of each half matter far
@@ -213,6 +211,13 @@ pub fn mark_across(answer: &mut Answer, asked: &str) {
 fn freshness(modified: i64, now: i64) -> f32 {
     let days = (now - modified).max(0) as f64 / 86_400.0;
     (1.0 + FRESH * (-days / HALF_LIFE_DAYS).exp2()) as f32
+}
+
+/// Ask the words alone, and rank what they found as the one list ranks it:
+/// what a search answers where there is no model, or no vectors yet.
+pub fn words(finder: &crate::Finder, query: &str, limit: usize) -> crate::Result<Answer> {
+    let words = finder.search(query, candidates(limit))?;
+    Ok(fuse(words, Vec::new(), unix_now(), limit))
 }
 
 /// Ask both halves and rank what they found as one list.

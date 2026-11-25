@@ -30,6 +30,7 @@ pub mod model;
 pub mod neutral;
 pub mod ocr;
 pub mod pdf;
+pub mod provider;
 pub mod reading;
 pub mod repo;
 pub mod store;
@@ -65,10 +66,11 @@ pub use library::{
 };
 pub use model::{ModelSpec, Pooling};
 pub use neutral::LanguageAxes;
+pub use provider::{Folder, FullText};
 pub use reading::Why;
 pub use repo::Repo;
 pub use store::Store;
 pub use summary::{ModuleSummary, SummaryEntry};
 #[cfg(feature = "semantic")]
-pub use vectors::{SemanticHit, SemanticIndex, VectorReport};
+pub use vectors::{CommitVectors, SemanticHit, SemanticIndex, VectorReport};
 pub use watch::Watcher;
